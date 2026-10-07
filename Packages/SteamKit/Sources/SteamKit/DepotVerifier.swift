@@ -23,6 +23,12 @@ public struct VerifyReport: Equatable, Sendable {
 public struct VerifyProgress: Equatable, Sendable {
     public var totalBytes: UInt64
     public var checkedBytes: UInt64
+
+    public init(totalBytes: UInt64, checkedBytes: UInt64) {
+        self.totalBytes = totalBytes
+        self.checkedBytes = checkedBytes
+    }
+
     public var fraction: Double { totalBytes == 0 ? 0 : Double(checkedBytes) / Double(totalBytes) }
 }
 

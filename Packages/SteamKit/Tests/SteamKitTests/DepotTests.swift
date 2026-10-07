@@ -108,6 +108,18 @@ struct DepotManifestTests {
         #expect(parsed == manifest)
     }
 
+    /// Captured from a real download of Highway Blossoms' DLC depot (names already decrypted).
+    @Test func parsesCapturedManifest() throws {
+        let manifest = try DepotManifest(sections: try fixture("manifest_451769.sections"))
+        #expect(manifest.depotID == 451_769)
+        #expect(manifest.manifestID == 7_692_950_089_410_827_452)
+        #expect(!manifest.filenamesEncrypted)
+        let rpa = try #require(manifest.files.first { $0.name == "game/adult.rpa" })
+        #expect(rpa.chunks.reduce(0) { $0 + UInt64($1.uncompressedLength) } == rpa.size)
+        #expect(manifest.files.contains { $0.name == "game" && $0.isDirectory })
+        #expect(try DepotManifest(sections: try manifest.serialized()) == manifest)
+    }
+
     @Test func rejectsUnknownSection() {
         var data = Data()
         data.appendLE(0xDEAD_BEEF)
