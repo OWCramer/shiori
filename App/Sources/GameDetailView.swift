@@ -337,6 +337,11 @@ struct GameDetailView: View {
                         GlassChip(EngineDetection.displayName(for: engine.engine), systemImage: "gearshape.2",
                                   tint: engine.engine == RenPyEngine.id ? .green : .orange)
                             .glassEffectID("engine", in: glassNamespace)
+                        // The Artemis engine reads keyboard, mouse and touch only.
+                        if engine.engine == "artemis" {
+                            GlassChip("Touch only", systemImage: "hand.tap", tint: .gray)
+                                .glassEffectID("controls", in: glassNamespace)
+                        }
                     }
                     if !patchFiles.isEmpty {
                         GlassChip("Patched", systemImage: "bandage", tint: .orange)

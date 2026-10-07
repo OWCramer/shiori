@@ -1,5 +1,6 @@
 import ArtemisKit
 import AVFoundation
+import GameController
 import SwiftUI
 import UIKit
 
@@ -118,6 +119,14 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             try player.start()
         } catch {
             NSLog("Artemis: couldn't start: %@", String(describing: error))
+        }
+        // Artemis games have no controller support (the engine reads keyboard, mouse and
+        // touch only): keep the pad away from the launcher and say so when it's used.
+        ControllerInput.unsupportedGame = { [weak self] in self?.showControllerNotice() }
+        if GCController.current?.extendedGamepad != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                MainActor.assumeIsolated { self?.showControllerNotice() }
+            }
         }
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.player?.saveGlobals() }
@@ -323,12 +332,18 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             } else {
                 caLayer.backgroundColor = nil
             }
+            // A layered message layer's text lives inside its stand-in layer.
+            if let id = child.messageLayer, let text = messageSublayer(id), text.superlayer !== caLayer {
+                caLayer.addSublayer(text)
+            }
             sync(child, into: caLayer, full: full)
             keep.append(caLayer)
         }
         // Order and prune.
         let current = parent.sublayers ?? []
-        for layer in current where layer !== messageLayer && layer !== ruleOverlay && !keep.contains(where: { $0 === layer }) && layer !== videoLayer {
+        let textLayers = Set(messageSublayers.values.map(ObjectIdentifier.init))
+        for layer in current where layer !== messageLayer && layer !== ruleOverlay && !keep.contains(where: { $0 === layer })
+            && layer !== videoLayer && !textLayers.contains(ObjectIdentifier(layer)) {
             layer.removeFromSuperlayer()
             if let key = layers.first(where: { $0.value === layer })?.key { forget(key) }
         }
@@ -354,17 +369,23 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         caLayer.isHidden = !layer.visible
     }
 
+    /// The text layer for a message layer, made on first use (above the stage layers).
+    private func messageSublayer(_ id: String) -> CALayer? {
+        if let sublayer = messageSublayers[id] { return sublayer }
+        let sublayer = CALayer()
+        sublayer.frame = messageLayer.bounds
+        messageLayer.addSublayer(sublayer)
+        messageSublayers[id] = sublayer
+        return sublayer
+    }
+
     private func syncMessages(_ player: ArtemisPlayer) {
         let scale = Double(stageLayer.affineTransform().a) * Double(view.window?.screen.scale ?? 2)
         for (id, layer) in player.messages.layers where messageRevisions[id] != layer.revision {
             messageRevisions[id] = layer.revision
-            let sublayer = messageSublayers[id] ?? {
-                let sublayer = CALayer()
-                sublayer.frame = messageLayer.bounds
-                messageLayer.addSublayer(sublayer)
-                messageSublayers[id] = sublayer
-                return sublayer
-            }()
+            guard let sublayer = messageSublayer(id) else { continue }
+            // Back above the layers when it stops being layered.
+            if !layer.layered, sublayer.superlayer !== messageLayer { messageLayer.addSublayer(sublayer) }
             sublayer.contents = layer.text.isEmpty || layer.pageHidden ? nil
                 : player.textRenderer.image(for: layer, stageWidth: player.stage.width, stageHeight: player.stage.height, scale: scale)
             revealCounts[id] = -1
@@ -434,6 +455,42 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             player?.drag(.ended, at: point)
             player?.touch(0, at: nil)
         default: break
+        }
+    }
+
+    // MARK: Controller notice
+
+    private var controllerNotice: UIView?
+
+    /// "No controller support" in a pill at the top, for a few seconds.
+    private func showControllerNotice() {
+        guard controllerNotice == nil else { return }
+        let label = UILabel()
+        label.text = "This game doesn't support controllers. Use touch to play."
+        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.textColor = .white
+        label.textAlignment = .center
+        let pill = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
+        pill.layer.cornerRadius = 18
+        pill.clipsToBounds = true
+        pill.contentView.addSubview(label)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(pill)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: pill.contentView.leadingAnchor, constant: 18),
+            label.trailingAnchor.constraint(equalTo: pill.contentView.trailingAnchor, constant: -18),
+            label.topAnchor.constraint(equalTo: pill.contentView.topAnchor, constant: 9),
+            label.bottomAnchor.constraint(equalTo: pill.contentView.bottomAnchor, constant: -9),
+            pill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            pill.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+        ])
+        pill.alpha = 0
+        controllerNotice = pill
+        UIView.animate(withDuration: 0.25) { pill.alpha = 1 }
+        UIView.animate(withDuration: 0.4, delay: 3, options: []) { pill.alpha = 0 } completion: { [weak self] _ in
+            pill.removeFromSuperview()
+            self?.controllerNotice = nil
         }
     }
 
@@ -537,6 +594,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         displayLink?.invalidate()
         displayLink = nil
         audio.stopAll()
+        ControllerInput.unsupportedGame = nil
         requestOrientations(.all)
         onExit()
     }

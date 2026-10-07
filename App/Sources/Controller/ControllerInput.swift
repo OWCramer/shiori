@@ -33,6 +33,10 @@ final class ControllerInput {
     /// Receives each press, including repeats while a direction is held.
     var handler: ((PadAction) -> Void)?
 
+    /// Set while a game that has no controller support is on screen (Artemis games): the
+    /// launcher behind it gets nothing, and a press calls this instead so the game can say so.
+    static var unsupportedGame: (@MainActor () -> Void)?
+
     private var controller: GCController?
     private var displayLink: CADisplayLink?
     private var held: Set<PadAction> = []
@@ -108,6 +112,13 @@ final class ControllerInput {
         guard let pad = controller?.extendedGamepad else { return }
         if vnhub_renpy_is_running() != 0 {
             forwardToGame(pad)
+            return
+        }
+        if let notify = Self.unsupportedGame {
+            let anyDown = [pad.buttonA, pad.buttonB, pad.buttonX, pad.buttonY, pad.leftShoulder, pad.rightShoulder,
+                           pad.buttonMenu, pad.dpad.up, pad.dpad.down, pad.dpad.left, pad.dpad.right].contains { $0.isPressed }
+            if anyDown, held.isEmpty { notify() }
+            held = anyDown ? [.a] : []
             return
         }
         let stick = pad.leftThumbstick
