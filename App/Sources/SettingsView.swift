@@ -44,6 +44,17 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Upload saves to Steam Cloud", isOn: Binding(
+                        get: { SteamCloudSync.uploadsEnabled },
+                        set: { SteamCloudSync.uploadsEnabled = $0 }
+                    ))
+                } header: {
+                    Text("Steam Cloud")
+                } footer: {
+                    Text("Saves always download from Steam Cloud. With uploads on, saves made here go up when a game closes, replacing the PC's copy if it's older; VN Hub keeps a backup of every cloud file it replaces.")
+                }
+
+                Section {
                     LabeledContent("Ren'Py runtime", value: RenPyEngine.runtimeVersion)
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
                 }

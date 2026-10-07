@@ -97,6 +97,22 @@ enum DebugAutomation {
             done.insert("cloud")
             Task { await games.pullSteamCloud(appID: appID) }
         }
+        // `-VNHubSteamCloudDryRun <appid>` logs what an upload would send, without writing.
+        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubSteamCloudDryRun")), appID != 0,
+           steam.isLoggedOn, !done.contains("dryrun"), let game = steam.library.first(where: { $0.appID == appID })
+        {
+            done.insert("dryrun")
+            let saves = games.folder(appID: appID, name: game.name).appendingPathComponent("saves")
+            Task {
+                do {
+                    let result = try await SteamCloudSync.push(session: steam.session, appID: appID, saves: saves, dryRun: true)
+                    NSLog("VN Hub dry run: would upload %@; would back up remote copies of %@",
+                          result.uploaded.joined(separator: ", "), result.failed.joined(separator: ", "))
+                } catch {
+                    NSLog("VN Hub dry run failed: %@", String(describing: error))
+                }
+            }
+        }
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoVerify")), appID != 0, !done.contains("verify") {
             done.insert("verify")
             games.verify(appID: appID)

@@ -133,3 +133,155 @@ extension SteamSession {
         return data
     }
 }
+
+// MARK: - Uploads and the app-session handshake
+//
+// These write to the account's Steam Cloud, the same store the PC client syncs from.
+// VN Hub only calls them once uploads are switched on, and backs up each remote file
+// before replacing it.
+
+/// Another device's Steam session for an app, reported at launch.
+public struct CloudPendingOperation: Hashable, Sendable {
+    public var machineName: String
+    /// e.g. "app session active" — the game is still running elsewhere.
+    public var description: String
+}
+
+/// One file to upload: where it goes in the cloud and its contents.
+public struct CloudUpload: Sendable {
+    /// Full cloud path, prefix included: `%GameInstall%game/saves/1-1-LT1.save`.
+    public var path: String
+    public var data: Data
+    public var timestamp: Date
+
+    public init(path: String, data: Data, timestamp: Date) {
+        self.path = path
+        self.data = data
+        self.timestamp = timestamp
+    }
+}
+
+extension SteamSession {
+    /// Tells Steam this device is starting the app. Returns sessions on other devices
+    /// that haven't finished syncing (the PC still running the game, for instance).
+    public func cloudLaunchIntent(appID: UInt32, clientID: UInt64) async throws -> [CloudPendingOperation] {
+        var request = CCloud_AppLaunchIntent_Request()
+        request.appid = appID
+        request.clientID = clientID
+        request.machineName = configuration.deviceName
+        request.osType = configuration.osType
+        let response: CCloud_AppLaunchIntent_Response = try await loggedOnConnection().callService(
+            "Cloud.SignalAppLaunchIntent#1", request, authenticated: true
+        )
+        return response.pendingRemoteOperations.map { operation in
+            let description = switch operation.operation {
+            case .kEcloudPendingRemoteOperationAppSessionActive: "game running"
+            case .kEcloudPendingRemoteOperationAppSessionSuspended: "game suspended"
+            case .kEcloudPendingRemoteOperationUploadInProgress: "uploading saves"
+            case .kEcloudPendingRemoteOperationUploadPending: "upload pending"
+            default: "busy"
+            }
+            return CloudPendingOperation(machineName: operation.machineName, description: description)
+        }
+    }
+
+    /// Tells Steam this device has finished with the app and its saves are synced.
+    public func cloudExitSyncDone(appID: UInt32, clientID: UInt64, uploadsCompleted: Bool, uploadsRequired: Bool) async throws {
+        var notification = CCloud_AppExitSyncDone_Notification()
+        notification.appid = appID
+        notification.clientID = clientID
+        notification.uploadsCompleted = uploadsCompleted
+        notification.uploadsRequired = uploadsRequired
+        try await loggedOnConnection().notifyService("Cloud.SignalAppExitSyncDone#1", notification)
+    }
+
+    /// Uploads files as one batch, the way the Steam client does, so the PC sees a normal
+    /// sync. Returns the paths that committed.
+    public func cloudUpload(appID: UInt32, clientID: UInt64, buildID: UInt64, files: [CloudUpload]) async throws -> [String] {
+        guard !files.isEmpty else { return [] }
+        let connection = try loggedOnConnection()
+
+        var begin = CCloud_BeginAppUploadBatch_Request()
+        begin.appid = appID
+        begin.machineName = configuration.deviceName
+        begin.filesToUpload = files.map(\.path)
+        begin.clientID = clientID
+        begin.appBuildID = buildID
+        let batch: CCloud_BeginAppUploadBatch_Response = try await connection.callService(
+            "Cloud.BeginAppUploadBatch#1", begin, authenticated: true
+        )
+
+        var committed: [String] = []
+        var batchSucceeded = true
+        for file in files {
+            let sha = Data(Insecure.SHA1.hash(data: file.data))
+            var request = CCloud_ClientBeginFileUpload_Request()
+            request.appid = appID
+            request.fileSize = UInt32(file.data.count)
+            request.rawFileSize = UInt32(file.data.count)
+            request.fileSha = sha
+            request.timeStamp = UInt64(file.timestamp.timeIntervalSince1970)
+            request.filename = file.path
+            request.cellID = cellID
+            request.canEncrypt = false
+            request.uploadBatchID = batch.batchID
+            let plan: CCloud_ClientBeginFileUpload_Response = try await connection.callService(
+                "Cloud.ClientBeginFileUpload#1", request, authenticated: true
+            )
+
+            var transferred = !plan.encryptFile
+            if transferred {
+                for block in plan.blockRequests {
+                    do {
+                        try await putBlock(block, of: file.data)
+                    } catch {
+                        transferred = false
+                        break
+                    }
+                }
+            }
+
+            var commit = CCloud_ClientCommitFileUpload_Request()
+            commit.transferSucceeded = transferred
+            commit.appid = appID
+            commit.fileSha = sha
+            commit.filename = file.path
+            let result: CCloud_ClientCommitFileUpload_Response = try await connection.callService(
+                "Cloud.ClientCommitFileUpload#1", commit, authenticated: true
+            )
+            if transferred, result.fileCommitted { committed.append(file.path) } else { batchSucceeded = false }
+        }
+
+        var complete = CCloud_CompleteAppUploadBatch_Request()
+        complete.appid = appID
+        complete.batchID = batch.batchID
+        complete.batchEresult = UInt32(bitPattern: batchSucceeded ? EResult.ok.rawValue : EResult.fail.rawValue)
+        let _: CCloud_CompleteAppUploadBatch_Response = try await connection.callService(
+            "Cloud.CompleteAppUploadBatchBlocking#1", complete, authenticated: true
+        )
+        return committed
+    }
+
+    private func putBlock(_ block: ClientCloudFileUploadBlockDetails, of data: Data) async throws {
+        let raw = "\(block.useHTTPS ? "https" : "http")://\(block.urlHost)\(block.urlPath)"
+        guard let url = URL(string: raw) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        // http_method is an EHTTPMethod (GET 1, HEAD 2, POST 3, PUT 4); Steam sends PUT.
+        request.httpMethod = block.httpMethod == 3 ? "POST" : "PUT"
+        for header in block.requestHeaders { request.setValue(header.value, forHTTPHeaderField: header.name) }
+        request.setValue("Valve/Steam HTTP Client 1.0", forHTTPHeaderField: "User-Agent")
+        let body: Data
+        if block.hasExplicitBodyData {
+            body = block.explicitBodyData
+        } else {
+            let start = Int(block.blockOffset)
+            let end = min(data.count, start + Int(block.blockLength))
+            guard start <= end else { throw SteamError.contentUnavailable("an upload block") }
+            body = data.subdata(in: start ..< end)
+        }
+        let (_, response) = try await configuration.urlSession.upload(for: request, from: body)
+        guard let status = (response as? HTTPURLResponse)?.statusCode, (200 ..< 300).contains(status) else {
+            throw SteamError.contentUnavailable("an upload block")
+        }
+    }
+}

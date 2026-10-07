@@ -124,6 +124,13 @@ actor CMConnection {
         return try reply.decode()
     }
 
+    /// Sends a unified-service notification, which has no reply.
+    func notifyService(_ method: String, _ notification: some SwiftProtobuf.Message) async throws {
+        var header = CMsgProtoBufHeader()
+        header.targetJobName = method
+        try await send(Packet(emsg: .kEmsgServiceMethodCallFromClient, header: header, message: notification))
+    }
+
     private func fail(jobID: UInt64, with error: Error) {
         pending.removeValue(forKey: jobID)?.continuation.resume(throwing: error)
     }

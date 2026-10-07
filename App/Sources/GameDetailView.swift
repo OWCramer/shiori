@@ -332,7 +332,9 @@ struct GameDetailView: View {
             .font(.subheadline)
             if games.isSteamCloudEnabled(appID) {
                 statusLine(games.steamCloud[appID])
-                Text("Downloads saves from your PC through Steam Cloud. Uploading from VN Hub isn't switched on yet.")
+                Text(SteamCloudSync.uploadsEnabled
+                    ? "Downloads saves from your PC before you play and uploads newer ones when you stop, backing up the cloud copy first."
+                    : "Downloads saves from your PC before you play. Uploading is off; turn it on in Settings.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

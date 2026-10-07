@@ -284,10 +284,47 @@ final class GameLibrary {
         }
     }
 
+    /// Uploads newer saves to Steam Cloud, if uploads are switched on in Settings.
+    func pushSteamCloud(appID: UInt32) async {
+        guard SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID), case let .installed(record) = statuses[appID],
+              case .loggedOn = await session.state
+        else { return }
+        let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+        steamCloud[appID] = .syncing
+        do {
+            let result = try await SteamCloudSync.push(session: session, appID: appID, saves: saves)
+            steamCloud[appID] = .synced(.now, result.summary)
+            log.notice("Steam Cloud upload \(appID): \(result.summary, privacy: .public), backup \(result.backupFolder?.path ?? "none", privacy: .public)")
+        } catch {
+            steamCloud[appID] = .failed(Self.message(for: error))
+            log.error("Steam Cloud upload \(appID) failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     /// Spec order: Steam Cloud first, then iCloud.
     func syncAllSaveLocations(appID: UInt32) async {
         await pullSteamCloud(appID: appID)
+        await pushSteamCloud(appID: appID)
         await syncSaves(appID: appID, direction: .both)
+    }
+
+    /// For the moment a game quits, just before VN Hub exits: upload to Steam Cloud and
+    /// tell Steam the session is over, waiting up to `timeout` for it.
+    private func finishSteamCloudSession(appID: UInt32, timeout: TimeInterval) {
+        guard SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID), case let .installed(record) = statuses[appID] else { return }
+        let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+        let session = session
+        let done = DispatchSemaphore(value: 0)
+        Task.detached {
+            defer { done.signal() }
+            guard case .loggedOn = await session.state else { return }
+            let result = try? await SteamCloudSync.push(session: session, appID: appID, saves: saves)
+            try? await session.cloudExitSyncDone(appID: appID, clientID: SteamCloudSync.clientID,
+                                                 uploadsCompleted: result?.failed.isEmpty ?? false,
+                                                 uploadsRequired: !(result?.uploaded.isEmpty ?? true))
+            log.notice("Steam Cloud on exit \(appID): \(result?.summary ?? "failed", privacy: .public)")
+        }
+        _ = done.wait(timeout: .now() + timeout)
     }
 
     // MARK: - Saves (iCloud)
@@ -337,8 +374,10 @@ final class GameLibrary {
 
     /// Synchronous push for the running game, when there's no time for a task: the app
     /// going to the background, or the game quitting just before VN Hub exits.
-    func pushRunningGameSaves() {
-        guard let appID = playingAppID, isCloudSaveEnabled(appID), case let .installed(record) = statuses[appID] else { return }
+    func pushRunningGameSaves(gameEnded: Bool = false) {
+        guard let appID = playingAppID else { return }
+        if gameEnded { finishSteamCloudSession(appID: appID, timeout: 20) }
+        guard isCloudSaveEnabled(appID), case let .installed(record) = statuses[appID] else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
         noteSyncOutcome(Self.syncNow(appID: appID, saves: saves, direction: .push), for: appID)
     }
@@ -385,6 +424,12 @@ final class GameLibrary {
         Task {
             // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
             await pullSteamCloud(appID: appID)
+            if SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID), case .loggedOn = await session.state {
+                let pending = (try? await session.cloudLaunchIntent(appID: appID, clientID: SteamCloudSync.clientID)) ?? []
+                for operation in pending {
+                    log.notice("Steam Cloud: \(operation.machineName, privacy: .public) is \(operation.description, privacy: .public)")
+                }
+            }
             await syncSaves(appID: appID, direction: .pull)
             log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
             // Start from a run-loop block, not the main dispatch queue: the game runs inside
@@ -392,7 +437,7 @@ final class GameLibrary {
             // main queue (main-actor tasks, timers) if we aren't already occupying it.
             RunLoop.main.perform(inModes: [.default]) {
                 RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID)) {
-                    MainActor.assumeIsolated { self.pushRunningGameSaves() }
+                    MainActor.assumeIsolated { self.pushRunningGameSaves(gameEnded: true) }
                 }
             }
         }

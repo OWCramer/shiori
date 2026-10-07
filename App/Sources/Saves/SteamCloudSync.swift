@@ -81,6 +81,117 @@ enum SteamCloudSync {
         return result
     }
 
+    // MARK: - Uploads (off until the user switches them on)
+
+    /// Global switch for writing to Steam Cloud. Off by default: uploads replace the files
+    /// the PC client syncs, so they stay off until explicitly enabled in Settings.
+    static var uploadsEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "steamCloudUploads") }
+        set { UserDefaults.standard.set(newValue, forKey: "steamCloudUploads") }
+    }
+
+    /// Stable per-install id Steam uses to tell this device's app sessions apart.
+    static var clientID: UInt64 {
+        let key = "steamCloudClientID"
+        if let stored = UserDefaults.standard.string(forKey: key), let id = UInt64(stored) { return id }
+        let id = UInt64.random(in: 1 ... UInt64.max)
+        UserDefaults.standard.set(String(id), forKey: key)
+        return id
+    }
+
+    struct PushResult: Equatable, Sendable {
+        var uploaded: [String] = []
+        var failed: [String] = []
+        var backupFolder: URL?
+
+        var summary: String {
+            if uploaded.isEmpty, failed.isEmpty { return "Nothing to upload" }
+            var parts: [String] = []
+            if !uploaded.isEmpty { parts.append("\(uploaded.count) uploaded") }
+            if !failed.isEmpty { parts.append("\(failed.count) failed") }
+            return parts.joined(separator: ", ")
+        }
+    }
+
+    /// Where remote copies are saved before VN Hub replaces them.
+    static func backupsDirectory(appID: UInt32) -> URL {
+        URL.applicationSupportDirectory.appendingPathComponent("SteamCloudBackups/\(appID)", isDirectory: true)
+    }
+
+    /// Uploads save files that are newer here than in Steam Cloud. Backs up every remote
+    /// copy it's about to replace first. Does nothing unless uploads are enabled.
+    /// With `dryRun`, reports what would upload (as `uploaded`) and writes nothing anywhere.
+    static func push(session: SteamSession, appID: UInt32, saves: URL, now: Date = .now, dryRun: Bool = false) async throws -> PushResult {
+        guard uploadsEnabled || dryRun else { return PushResult() }
+        guard let app = try await session.appInfo([appID]).first else { return PushResult() }
+        let ufs = UFSConfig(app: app)
+        guard let rule = ufs.saveRules.first(where: mapsToSaves) else { return PushResult() }
+        let (_, remoteFiles) = try await session.cloudFiles(appID: appID)
+        let remote = Dictionary(
+            remoteFiles.filter { !$0.isDeleted && ufs.rule(for: $0) == rule }.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // Reuse the prefix exactly as Steam already stores it for this rule, if it has one.
+        let prefix = remote.values.first?.prefix ?? canonicalPrefix(for: rule)
+
+        let fm = FileManager.default
+        var uploads: [CloudUpload] = []
+        var toBackUp: [CloudFile] = []
+        for name in ((try? fm.contentsOfDirectory(atPath: saves.path)) ?? []).sorted() {
+            // Ren'Py's _reload saves are scratch files; folders (sync/, conflicts/) aren't saves.
+            guard !name.hasPrefix("_"), !name.hasPrefix("."), matches(name, pattern: rule.pattern) else { continue }
+            let url = saves.appendingPathComponent(name)
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard values?.isRegularFile == true, let data = fm.contents(atPath: url.path) else { continue }
+            let modified = values?.contentModificationDate ?? now
+            if let existing = remote[name] {
+                if Data(Insecure.SHA1.hash(data: data)) == existing.sha { continue }
+                if existing.timestamp.timeIntervalSince(modified) > SaveSync.tolerance { continue } // cloud is newer
+                toBackUp.append(existing)
+            }
+            uploads.append(CloudUpload(path: prefix + name, data: data, timestamp: modified))
+        }
+        if let quota = ufs.quota, uploads.reduce(0, { $0 + UInt64($1.data.count) }) > quota {
+            throw SteamError.contentUnavailable("Steam Cloud space for this game (over its quota)")
+        }
+        guard !uploads.isEmpty else { return PushResult() }
+        if dryRun {
+            return PushResult(uploaded: uploads.map { String($0.path.dropFirst(prefix.count)) }, failed: toBackUp.map(\.name))
+        }
+
+        // Spec: every upload is preceded by a local backup of the remote copy.
+        var result = PushResult()
+        if !toBackUp.isEmpty {
+            let folder = backupsDirectory(appID: appID).appendingPathComponent(stamp(now), isDirectory: true)
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            for file in toBackUp {
+                let data = try await session.cloudDownload(appID: appID, file: file)
+                try data.write(to: folder.appendingPathComponent(file.name), options: .atomic)
+            }
+            result.backupFolder = folder
+        }
+
+        let buildID = app.keyValues[path: "depots", "branches", "public", "buildid"]?.uint64 ?? 0
+        let committed = try await session.cloudUpload(appID: appID, clientID: clientID, buildID: buildID, files: uploads)
+        result.uploaded = uploads.map(\.path).filter(committed.contains).map { String($0.dropFirst(prefix.count)) }
+        result.failed = uploads.map(\.path).filter { !committed.contains($0) }.map { String($0.dropFirst(prefix.count)) }
+        return result
+    }
+
+    /// `%GameInstall%game/saves/`, with the root spelled the way the Steam client does.
+    static func canonicalPrefix(for rule: UFSConfig.SaveRule) -> String {
+        let roots = ["gameinstall": "GameInstall", "winappdataroaming": "WinAppDataRoaming",
+                     "winappdatalocal": "WinAppDataLocal", "winappdatalocallow": "WinAppDataLocalLow",
+                     "winmydocuments": "WinMyDocuments", "winsavedgames": "WinSavedGames"]
+        let root = roots[rule.root.lowercased()] ?? rule.root
+        return "%\(root)%" + (rule.path.isEmpty ? "" : rule.path + "/")
+    }
+
+    /// Steam's ufs patterns are shell globs (`*`, `*.save`).
+    static func matches(_ name: String, pattern: String) -> Bool {
+        fnmatch(pattern, name, 0) == 0
+    }
+
     private static func stamp(_ date: Date) -> String {
         date.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false).dateTimeSeparator(.standard))
             .replacingOccurrences(of: ":", with: "")
