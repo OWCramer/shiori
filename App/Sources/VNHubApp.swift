@@ -64,7 +64,12 @@ struct RootView: View {
     @Environment(GameLibrary.self) private var games
 
     var body: some View {
+        @Bindable var games = games
         content
+            .fullScreenCover(item: $games.artemisSession) { session in
+                ArtemisGameView(gameFolder: session.folder) { games.artemisSession = nil }
+                    .ignoresSafeArea()
+            }
             .overlay {
                 if let appID = games.endingSession {
                     SessionEndingView(game: steam.library.first { $0.appID == appID })

@@ -455,11 +455,21 @@ final class GameLibrary {
     func playBlocker(appID: UInt32) -> String? {
         guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
         guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
+        if engine.engine == "artemis" { return nil }
         guard engine.engine == RenPyEngine.id else {
             return "Downloaded, not playable yet: \(EngineDetection.displayName(for: engine.engine)) isn't supported."
         }
         return RenPyEngine.incompatibility(engine)
     }
+
+    /// An Artemis game being played (ArtemisKit runs in-process; leaving returns here).
+    struct ArtemisSession: Identifiable {
+        let appID: UInt32
+        let folder: URL
+        var id: UInt32 { appID }
+    }
+
+    var artemisSession: ArtemisSession?
 
     /// Hands the app over to the game. Never returns: the app exits when the game quits.
     func play(appID: UInt32) {
@@ -467,6 +477,10 @@ final class GameLibrary {
               case let .installed(record) = statuses[appID], let engine = record.engine
         else { return }
         let folder = folder(appID: appID, name: record.name)
+        if engine.engine == "artemis" {
+            artemisSession = ArtemisSession(appID: appID, folder: folder)
+            return
+        }
         let saves = folder.appendingPathComponent("saves", isDirectory: true)
         try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         playingAppID = appID

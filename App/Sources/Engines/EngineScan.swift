@@ -24,6 +24,7 @@ enum Playability: Equatable {
 
     init(_ engine: EngineMatch?) {
         guard let engine else { self = .unknownEngine; return }
+        if engine.engine == "artemis" { self = .playable; return }
         guard engine.engine == RenPyEngine.id else {
             self = .unsupportedEngine(EngineDetection.displayName(for: engine.engine))
             return
