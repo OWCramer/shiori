@@ -214,6 +214,7 @@ extension RenPyEngine {
             "appID": appID, "status": Int(status), "ended": ISO8601DateFormatter().string(from: .now),
             "runtime": runtime(for: match)?.framework ?? "none",
             "error": (try? String(contentsOf: cache.appendingPathComponent("last_error.txt"), encoding: .utf8)) ?? "",
+            "exit": (try? String(contentsOf: cache.appendingPathComponent("exit.txt"), encoding: .utf8)) ?? "",
         ]
         if let data = try? JSONSerialization.data(withJSONObject: note, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL.applicationSupportDirectory.appendingPathComponent("last-game-session.json"))

@@ -18,6 +18,50 @@ LAUNCHER = os.environ["VNHUB_LAUNCHER"]
 CACHE = os.environ["VNHUB_CACHE"]
 PATCH_GAME = os.environ.get("VNHUB_PATCH_GAME", "")
 
+
+# --- Session record ------------------------------------------------------------------
+# Game output (Python's and the runtime's) goes to <cache>/logs/console.txt, so a session
+# that ends unexpectedly on a device can be read back afterwards through the app
+# container. Redirected at the file-descriptor level: Ren'Py pickles its own state, and a
+# replacement sys.stdout object would end up in that pickle. How the game ended goes to
+# <cache>/exit.txt, from the bottom of this file.
+import time as _time
+import traceback as _traceback
+
+_LOGS = os.path.join(CACHE, "logs")
+if not os.path.isdir(_LOGS):
+    os.makedirs(_LOGS)
+try:
+    os.remove(os.path.join(CACHE, "exit.txt"))
+except OSError:
+    pass
+_console = os.path.join(_LOGS, "console.txt")
+try:
+    if os.path.getsize(_console) > 2000000:
+        os.remove(_console)
+except OSError:
+    pass
+try:
+    sys.stdout.flush()
+    sys.stderr.flush()
+    _fd = os.open(_console, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(_fd, 1)
+    os.dup2(_fd, 2)
+    os.close(_fd)
+except OSError:
+    pass
+print("\n===== Shiori session %s =====" % _time.ctime())
+sys.stdout.flush()
+
+
+def _record_exit(how):
+    try:
+        with open(os.path.join(CACHE, "exit.txt"), "w") as f:
+            f.write("%s at %s\n" % (how, _time.ctime()))
+            _traceback.print_exc(file=f)
+    except Exception:
+        pass
+
 # Compiled .pyc files go to the cache instead of base/**/__pycache__.
 sys.pycache_prefix = os.path.join(CACHE, "pycache")
 
@@ -124,9 +168,14 @@ script = os.path.join(GAME_BASE, LAUNCHER)
 sys.argv[0] = script
 try:
     runpy.run_path(script, run_name="__main__")
-except SystemExit:
-    raise
+except SystemExit as e:
+    # The game quit. Return normally instead, so Shiori gets control back and syncs saves
+    # (CPython would otherwise call exit() itself, skipping everything after the game).
+    _record_exit("SystemExit(%r)" % (e.code,))
+    print("Shiori: game exited with %r" % (e.code,))
+    sys.stdout.flush()
 except BaseException:
+    _record_exit("exception")
     # Ren'Py reports its own errors on screen; this catches anything that escapes it,
     # for VN Hub to show after the next launch.
     import traceback
