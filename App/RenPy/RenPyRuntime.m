@@ -7,6 +7,7 @@
 #include <execinfo.h>
 #include <fcntl.h>
 #include <mach/mach.h>
+#include <os/proc.h>
 #include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -565,6 +566,8 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
     running = 1;
 
     AttachSDLWindowsToScene();
+    NSLog(@"Shiori memory: %.0f MB used, %.0f MB more available before the limit",
+          FootprintMB(), os_proc_available_memory() / 1048576.0);
     WatchForFirstFrame();
     FilterMultiFingerTouches();
     TraceExitsWhilePlaying();
