@@ -22,11 +22,18 @@ targets:
       - App/Sources
       - App/Resources
       - path: App/RenPy
-        excludes: ["*.py", "IAPHelper.m"]
+        # runtime_shim.c is linked into the runtime frameworks, not the app.
+        excludes: ["*.py", "IAPHelper.m", "runtime_shim.c"]
       # Ren'Py's own StoreKit 1 helper, kept as shipped in renios.
       - path: App/RenPy/IAPHelper.m
         compilerFlags: ["-Wno-deprecated-declarations"]
       - path: App/RenPy/vnhub_main.py
+        buildPhase: resources
+      - path: App/RenPy/vnhub_main2.py
+        buildPhase: resources
+      # Ren'Py 7.8.7's engine code and Python 2.7 library (Scripts/build-renpy-runtimes.sh).
+      - path: Vendor/RenPy7Base
+        type: folder
         buildPhase: resources
     # Merged with the generated Info.plist. Game folders in Documents show up in the Files
     # app and can be edited in place (no INFOPLIST_KEY_ build setting exists for these).
@@ -50,7 +57,16 @@ targets:
     dependencies:
       - package: SteamKit
         product: SteamKit
-      # Ren'Py runtime from Scripts/fetch-renios.sh.
+      # Ren'Py runtimes from Scripts/build-renpy-runtimes.sh, loaded with dlopen when a game
+      # starts (each carries its own CPython and SDL2, so they can't both be linked).
+      - framework: Vendor/RenPy8.xcframework
+        embed: true
+        link: false
+      - framework: Vendor/RenPy7.xcframework
+        embed: true
+        link: false
+      # Linked by the app itself so it loads at launch, ahead of Apple's OpenGLES: SDL looks
+      # GL functions up with dlsym(RTLD_DEFAULT, ...), which returns the first image's.
       - framework: Vendor/renios/MetalANGLE.xcframework
         embed: true
       - sdk: AudioToolbox.framework
@@ -75,33 +91,6 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/VNHub-Bridging-Header.h
-        # renios ships device libraries in release/ and simulator libraries in debug/.
-        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": $(SRCROOT)/Vendor/renios/prebuilt/release
-        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(SRCROOT)/Vendor/renios/prebuilt/debug
-        OTHER_LDFLAGS:
-          - -lrenpython
-          - -lrenpy
-          - -lpython3.9
-          - -lavformat
-          - -lavcodec
-          - -lswscale
-          - -lswresample
-          - -lavutil
-          - -lSDL2_image
-          - -lSDL2
-          - -lavif
-          - -laom
-          - -lturbojpeg
-          - -lpng16
-          - -lwebp
-          - -lfribidi
-          - -lfreetype
-          - -lffi
-          - -lssl
-          - -lcrypto
-          - -llzma
-          - -lbz2
-          - -lz
 schemes:
   VNHub:
     build:

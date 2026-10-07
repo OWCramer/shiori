@@ -2,32 +2,61 @@
 
 @import UIKit;
 #import <objc/runtime.h>
+#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
 
-// From librenpython.a (renpy-build runtime/librenpython3.c). Finds the Python home at
-// dirname(argv[0])/base/lib/python3.9 and runs dirname(argv[0])/base/<basename(argv[0])>.py.
-int launcher_main(int argc, char **argv);
-
-// From libSDL2.a. SDL normally owns main() via SDL_UIKitRunApp; we start it ourselves.
-void SDL_SetMainReady(void);
-void SDL_OnApplicationWillResignActive(void);
-void SDL_OnApplicationDidEnterBackground(void);
-void SDL_OnApplicationWillEnterForeground(void);
-void SDL_OnApplicationDidBecomeActive(void);
-
 static int running = 0;
 
-// SDL internals (non-static in libSDL2.a).
 typedef struct SDL_Window SDL_Window;
-SDL_Window *SDL_GL_GetCurrentWindow(void);
-int SDL_SendKeyboardKey(unsigned char state, int scancode);
+
+/// The loaded runtime framework (RenPy8 or RenPy7). Each one bundles CPython, Ren'Py's
+/// compiled modules and SDL2, so only one can be in a process; VN Hub exits after a game.
+static struct {
+    void *handle;
+    // From librenpython (renpy-build runtime/librenpython{2,3}.c). Finds the Python home at
+    // dirname(argv[0])/base/lib/pythonX.Y and runs dirname(argv[0])/base/<basename(argv[0])>.py.
+    int (*launcherMain)(int, char **);
+    // SDL normally owns main() via SDL_UIKitRunApp; we start it ourselves.
+    void (*setMainReady)(void);
+    void (*willResignActive)(void);
+    void (*didEnterBackground)(void);
+    void (*willEnterForeground)(void);
+    void (*didBecomeActive)(void);
+    SDL_Window *(*currentWindow)(void);
+    // Wrappers in runtime_shim.c around SDL's hidden event-injection functions.
+    int (*sendKey)(unsigned char state, int scancode);
+    int (*sendMouseMotion)(SDL_Window *window, int x, int y);
+    int (*sendMouseButton)(SDL_Window *window, unsigned char state, unsigned char button);
+} sdl;
+
+static BOOL LoadRuntime(const char *name) {
+    if (sdl.handle) return YES;
+    NSString *path = [NSString stringWithFormat:@"%@/%s.framework/%s", NSBundle.mainBundle.privateFrameworksPath, name, name];
+    sdl.handle = dlopen(path.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+    if (!sdl.handle) {
+        NSLog(@"VN Hub: couldn't load %s: %s", name, dlerror());
+        return NO;
+    }
+    sdl.launcherMain = dlsym(sdl.handle, "launcher_main");
+    sdl.setMainReady = dlsym(sdl.handle, "SDL_SetMainReady");
+    sdl.willResignActive = dlsym(sdl.handle, "SDL_OnApplicationWillResignActive");
+    sdl.didEnterBackground = dlsym(sdl.handle, "SDL_OnApplicationDidEnterBackground");
+    sdl.willEnterForeground = dlsym(sdl.handle, "SDL_OnApplicationWillEnterForeground");
+    sdl.didBecomeActive = dlsym(sdl.handle, "SDL_OnApplicationDidBecomeActive");
+    sdl.currentWindow = dlsym(sdl.handle, "SDL_GL_GetCurrentWindow");
+    sdl.sendKey = dlsym(sdl.handle, "vnhub_sdl_send_key");
+    sdl.sendMouseMotion = dlsym(sdl.handle, "vnhub_sdl_send_mouse_motion");
+    sdl.sendMouseButton = dlsym(sdl.handle, "vnhub_sdl_send_mouse_button");
+    return sdl.launcherMain && sdl.setMainReady;
+}
 
 enum { ScancodeH = 11, ScancodeEscape = 41, ScancodeReturn = 40 };
 
 static void PressKey(int scancode) {
-    SDL_SendKeyboardKey(1, scancode);
-    SDL_SendKeyboardKey(0, scancode);
+    if (!sdl.sendKey) return;
+    sdl.sendKey(1, scancode);
+    sdl.sendKey(0, scancode);
 }
 
 /// Touch gestures from the spec, on top of Ren'Py's own touch handling (tap advances):
@@ -69,9 +98,6 @@ static void PressKey(int scancode) {
 @end
 
 #if DEBUG
-int SDL_SendMouseMotion(SDL_Window *window, unsigned int mouseID, int relative, int x, int y);
-int SDL_SendMouseButton(SDL_Window *window, unsigned int mouseID, unsigned char state, unsigned char button);
-
 /// Replays input from the `VNHUB_INPUT` environment variable: `;`-separated steps of
 /// `<seconds>:<x>,<y>` (tap at window points), `<seconds>:esc`, `:enter` or `:h`,
 /// timed from game start. Simulator testing only.
@@ -85,8 +111,8 @@ static void ScheduleScriptedInput(void) {
         double delay = parts[0].doubleValue;
         NSString *action = parts[1];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            SDL_Window *window = SDL_GL_GetCurrentWindow();
-            if (!window) return;
+            SDL_Window *window = sdl.currentWindow ? sdl.currentWindow() : NULL;
+            if (!window || !sdl.sendMouseMotion || !sdl.sendMouseButton) return;
             NSLog(@"VN Hub input: %@", action);
             if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"] || [action isEqualToString:@"h"]) {
                 PressKey([action isEqualToString:@"esc"] ? ScancodeEscape : [action isEqualToString:@"h"] ? ScancodeH : ScancodeReturn);
@@ -94,10 +120,10 @@ static void ScheduleScriptedInput(void) {
             }
             NSArray<NSString *> *xy = [action componentsSeparatedByString:@","];
             if (xy.count != 2) return;
-            SDL_SendMouseMotion(window, 0, 0, xy[0].intValue, xy[1].intValue);
-            SDL_SendMouseButton(window, 0, 1, 1);
+            sdl.sendMouseMotion(window, xy[0].intValue, xy[1].intValue);
+            sdl.sendMouseButton(window, 1, 1);
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 80 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-                SDL_SendMouseButton(window, 0, 0, 1);
+                sdl.sendMouseButton(window, 0, 1);
             });
         });
     }
@@ -211,8 +237,9 @@ static void RestoreGameLayout(void) {
     }
 }
 
-int vnhub_renpy_run(const char *gameFolder, const char *launcherName, const char *saveDirectory) {
+int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *launcherName, const char *saveDirectory) {
     if (running) return -1;
+    if (!LoadRuntime(runtime)) return -2;
     running = 1;
 
     AttachSDLWindowsToScene();
@@ -221,7 +248,7 @@ int vnhub_renpy_run(const char *gameFolder, const char *launcherName, const char
     id activation = [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
                                                                      queue:NSOperationQueue.mainQueue
                                                                 usingBlock:^(NSNotification *note) { RestoreGameLayout(); }];
-    SDL_SetMainReady();
+    sdl.setMainReady();
 #if DEBUG
     ScheduleScriptedInput();
 #endif
@@ -231,7 +258,7 @@ int vnhub_renpy_run(const char *gameFolder, const char *launcherName, const char
     snprintf(argv0, length, "%s/%s", gameFolder, launcherName);
 
     char *argv[] = { argv0, "--savedir", (char *)saveDirectory, NULL };
-    int status = launcher_main(3, argv);
+    int status = sdl.launcherMain(3, argv);
 
     free(argv0);
     [NSNotificationCenter.defaultCenter removeObserver:activation];
@@ -241,7 +268,7 @@ int vnhub_renpy_run(const char *gameFolder, const char *launcherName, const char
 
 int vnhub_renpy_is_running(void) { return running; }
 
-void vnhub_renpy_will_resign_active(void) { if (running) SDL_OnApplicationWillResignActive(); }
-void vnhub_renpy_did_enter_background(void) { if (running) SDL_OnApplicationDidEnterBackground(); }
-void vnhub_renpy_will_enter_foreground(void) { if (running) SDL_OnApplicationWillEnterForeground(); }
-void vnhub_renpy_did_become_active(void) { if (running) SDL_OnApplicationDidBecomeActive(); }
+void vnhub_renpy_will_resign_active(void) { if (running && sdl.willResignActive) sdl.willResignActive(); }
+void vnhub_renpy_did_enter_background(void) { if (running && sdl.didEnterBackground) sdl.didEnterBackground(); }
+void vnhub_renpy_will_enter_foreground(void) { if (running && sdl.willEnterForeground) sdl.willEnterForeground(); }
+void vnhub_renpy_did_become_active(void) { if (running && sdl.didBecomeActive) sdl.didBecomeActive(); }

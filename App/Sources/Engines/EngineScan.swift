@@ -55,7 +55,8 @@ final class EngineScanStore {
     private var worker: Task<Void, Never>?
     private let session: SteamSession
 
-    private static var url: URL { URL.applicationSupportDirectory.appendingPathComponent("engine-scan.json") }
+    /// Bumped when detection changes, so older results are scanned again.
+    private static var url: URL { URL.applicationSupportDirectory.appendingPathComponent("engine-scan-2.json") }
 
     init(session: SteamSession) {
         self.session = session

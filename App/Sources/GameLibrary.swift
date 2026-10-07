@@ -285,8 +285,16 @@ final class GameLibrary {
     }
 
     /// Uploads newer saves to Steam Cloud, if uploads are switched on in Settings.
+    /// Whether saves made here may go up to Steam Cloud. Not for games run on a newer Ren'Py
+    /// than their PC build: the PC's older engine might not load what the newer one wrote.
+    func canUploadSteamCloud(_ appID: UInt32) -> Bool {
+        guard SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID) else { return false }
+        guard case let .installed(record) = statuses[appID], let engine = record.engine else { return true }
+        return RenPyEngine.savesMatchPC(engine)
+    }
+
     func pushSteamCloud(appID: UInt32) async {
-        guard SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID), case let .installed(record) = statuses[appID],
+        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID],
               case .loggedOn = await session.state
         else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
@@ -311,7 +319,7 @@ final class GameLibrary {
     /// For the moment a game quits, just before VN Hub exits: upload to Steam Cloud and
     /// tell Steam the session is over, waiting up to `timeout` for it.
     private func finishSteamCloudSession(appID: UInt32, timeout: TimeInterval) {
-        guard SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID), case let .installed(record) = statuses[appID] else { return }
+        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID] else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
         let session = session
         let done = DispatchSemaphore(value: 0)
@@ -424,7 +432,7 @@ final class GameLibrary {
         Task {
             // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
             await pullSteamCloud(appID: appID)
-            if SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID), case .loggedOn = await session.state {
+            if canUploadSteamCloud(appID), case .loggedOn = await session.state {
                 let pending = (try? await session.cloudLaunchIntent(appID: appID, clientID: SteamCloudSync.clientID)) ?? []
                 for operation in pending {
                     log.notice("Steam Cloud: \(operation.machineName, privacy: .public) is \(operation.description, privacy: .public)")
@@ -460,6 +468,9 @@ final class GameLibrary {
                 }.value
                 verifyReports[appID] = report
                 log.notice("Verified \(appID): \(report.checkedFiles) files, \(report.problems.count) differ, \(report.extraFiles.count) extra")
+                for (path, problem) in report.problems.prefix(10) {
+                    log.notice("Verify \(appID): \(path, privacy: .public) \(String(describing: problem), privacy: .public)")
+                }
                 for (path, problem) in report.problems.prefix(20) {
                     log.notice("  \(path, privacy: .public): \(String(describing: problem), privacy: .public)")
                 }

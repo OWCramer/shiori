@@ -383,9 +383,11 @@ struct GameDetailView: View {
             .font(.subheadline)
             if games.isSteamCloudEnabled(appID) {
                 statusLine(games.steamCloud[appID])
-                Text(SteamCloudSync.uploadsEnabled
+                Text(!SteamCloudSync.uploadsEnabled
+                    ? "Downloads saves from your PC before you play. Uploading is off; turn it on in Settings."
+                    : games.canUploadSteamCloud(appID)
                     ? "Downloads saves from your PC before you play and uploads newer ones when you stop, backing up the cloud copy first."
-                    : "Downloads saves from your PC before you play. Uploading is off; turn it on in Settings.")
+                    : "Downloads saves from your PC before you play. Saves made here stay on this device: VN Hub runs this game on a newer Ren'Py than your PC, which might not load them.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
