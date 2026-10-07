@@ -58,9 +58,9 @@ targets:
         com.apple.developer.icloud-container-identifiers: ["iCloud.com.owencramer.vnhub"]
         com.apple.developer.ubiquity-container-identifiers: ["iCloud.com.owencramer.vnhub"]
         com.apple.developer.icloud-services: ["CloudDocuments"]
-        # TODO: com.apple.developer.kernel.increased-memory-limit: true (the larger per-app
-        # memory limit; Game Mode doesn't raise it). Needs Xcode signed in to the user's Apple
-        # ID so the provisioning profile can be regenerated with the capability.
+        # Visual novels hold full-screen textures; ask iOS for the larger per-app memory
+        # limit (Game Mode doesn't raise it).
+        com.apple.developer.kernel.increased-memory-limit: true
     dependencies:
       - package: SteamKit
         product: SteamKit
