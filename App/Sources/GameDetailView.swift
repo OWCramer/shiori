@@ -275,10 +275,10 @@ struct GameDetailView: View {
 
     private func playabilityText(_ playability: Playability) -> String {
         switch playability {
-        case .playable: "Playable in VN Hub."
+        case .playable: "Playable in Shiori."
         case let .needsRuntime(reason): reason
-        case let .unsupportedEngine(name): "\(name) games can be downloaded and patched, but not played in VN Hub yet."
-        case .unknownEngine: "VN Hub doesn't recognise this game's engine."
+        case let .unsupportedEngine(name): "\(name) games can be downloaded and patched, but not played in Shiori yet."
+        case .unknownEngine: "Shiori doesn't recognise this game's engine."
         }
     }
 
@@ -399,7 +399,7 @@ struct GameDetailView: View {
                     ? "Downloads saves from your PC before you play. Uploading is off; turn it on in Settings."
                     : games.canUploadSteamCloud(appID)
                     ? "Downloads saves from your PC before you play and uploads newer ones when you stop, backing up the cloud copy first."
-                    : "Downloads saves from your PC before you play. Saves made here stay on this device: VN Hub runs this game on a newer Ren'Py than your PC, which might not load them.")
+                    : "Downloads saves from your PC before you play. Saves made here stay on this device: Shiori runs this game on a newer Ren'Py than your PC, which might not load them.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -448,7 +448,7 @@ struct GameDetailView: View {
 
     private var filesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("On My \(UIDevice.current.localizedModel) › VN Hub › Games › \(folder.lastPathComponent)")
+            Text("On My \(UIDevice.current.localizedModel) › Shiori › Games › \(folder.lastPathComponent)")
                 .font(.subheadline)
             Text("base holds what Steam delivered, patch your changes, saves the game's saves.")
                 .font(.caption).foregroundStyle(.secondary)

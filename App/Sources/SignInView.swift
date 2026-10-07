@@ -12,7 +12,7 @@ struct SignInView: View {
         ScrollView {
             VStack(spacing: 24) {
                 VStack(spacing: 8) {
-                    Text("VN Hub")
+                    Text("Shiori")
                         .font(.largeTitle.bold())
                     Text("Sign in to Steam to see your library.")
                         .foregroundStyle(.secondary)

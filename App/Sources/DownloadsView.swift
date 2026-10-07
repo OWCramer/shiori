@@ -32,7 +32,7 @@ struct DownloadsView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if games.isDownloading {
-                    Text("Downloads keep going in the background while iOS allows it; if iOS stops one, it resumes when you come back to VN Hub.")
+                    Text("Downloads keep going in the background while iOS allows it; if iOS stops one, it resumes when you come back to Shiori.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding()

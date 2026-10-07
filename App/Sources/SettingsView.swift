@@ -51,7 +51,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Steam Cloud")
                 } footer: {
-                    Text("Saves always download from Steam Cloud. With uploads on, saves made here go up when a game closes, replacing the PC's copy if it's older; VN Hub keeps a backup of every cloud file it replaces.")
+                    Text("Saves always download from Steam Cloud. With uploads on, saves made here go up when a game closes, replacing the PC's copy if it's older; Shiori keeps a backup of every cloud file it replaces.")
                 }
 
                 Section {

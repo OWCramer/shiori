@@ -413,7 +413,7 @@ final class GameLibrary {
     /// Why the game can't be played, or nil if Play should be offered.
     func playBlocker(appID: UInt32) -> String? {
         guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
-        guard let engine = record.engine else { return "Downloaded, not playable yet: VN Hub didn't recognise this game's engine." }
+        guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
         guard engine.engine == RenPyEngine.id else {
             return "Downloaded, not playable yet: \(EngineDetection.displayName(for: engine.engine)) isn't supported."
         }

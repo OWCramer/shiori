@@ -17,7 +17,7 @@ enum ZipExtractor {
             case .notZip: "That file isn't a zip archive."
             case .corrupt: "The zip archive is damaged."
             case .encrypted: "Password-protected zip archives aren't supported."
-            case let .unsupportedMethod(method): "The zip uses a compression method VN Hub can't read (\(method))."
+            case let .unsupportedMethod(method): "The zip uses a compression method Shiori can't read (\(method))."
             case let .unsafePath(path): "The zip contains an invalid path: \(path)."
             }
         }

@@ -38,7 +38,7 @@ enum SaveSync {
         case unavailable
 
         var errorDescription: String? {
-            "iCloud isn't available. Check that you're signed in to iCloud and that iCloud Drive is on for VN Hub."
+            "iCloud isn't available. Check that you're signed in to iCloud and that iCloud Drive is on for Shiori."
         }
     }
 

@@ -150,7 +150,7 @@ final class SteamModel {
     }
 
     private static var deviceName: String {
-        "VN Hub (\(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"))"
+        "Shiori (\(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"))"
     }
 
     /// Random per-install seed for the machine ID Steam sees. Regenerated after a reinstall.
