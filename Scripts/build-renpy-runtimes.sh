@@ -46,7 +46,7 @@ SYSTEM_FRAMEWORKS="UIKit Foundation AVFoundation AVKit AudioToolbox CoreAudio Co
 # Symbols VN Hub looks up with dlsym; listed so the linker keeps them.
 EXPORTS="launcher_main SDL_SetMainReady SDL_OnApplicationWillResignActive SDL_OnApplicationDidEnterBackground
   SDL_OnApplicationWillEnterForeground SDL_OnApplicationDidBecomeActive SDL_GL_GetCurrentWindow
-  vnhub_sdl_send_key vnhub_sdl_send_mouse_motion vnhub_sdl_send_mouse_button"
+  vnhub_sdl_send_key vnhub_sdl_send_mouse_motion vnhub_sdl_send_mouse_button vnhub_sdl_watch_input"
 
 build_framework() {
   name=$1; prebuilt=$2; python=$3; shift 3

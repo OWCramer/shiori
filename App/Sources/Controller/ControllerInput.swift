@@ -100,8 +100,19 @@ final class ControllerInput {
         }
     }
 
+    /// Buttons GameController reports as pressed while a game runs (diagnostics).
+    private var gameHeld: Set<String> = []
+
     private func poll() {
-        guard let pad = controller?.extendedGamepad, vnhub_renpy_is_running() == 0 else { return }
+        guard let pad = controller?.extendedGamepad else { return }
+        if vnhub_renpy_is_running() != 0 {
+            // The game reads the pad through SDL; just note what GameController itself sees,
+            // to tell lost input from input SDL ignores.
+            let now = Set(pad.allButtons.filter(\.isPressed).map { $0.localizedName ?? "?" })
+            for name in now.subtracting(gameHeld) { NSLog("Shiori GC: %@ pressed", name) }
+            gameHeld = now
+            return
+        }
         let stick = pad.leftThumbstick
         let pressed: [PadAction: Bool] = [
             .up: pad.dpad.up.isPressed || stick.yAxis.value > Self.stickThreshold,

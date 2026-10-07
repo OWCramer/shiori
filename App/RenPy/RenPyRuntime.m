@@ -450,6 +450,12 @@ static void WatchForFirstFrame(void) {
         if (!method) return;
         IMP original = method_getImplementation(method);
         method_setImplementation(method, imp_implementationWithBlock(^(UIView *view) {
+            static BOOL watching;
+            if (!watching) {
+                watching = YES;
+                void (*watchInput)(void) = sdl.handle ? dlsym(sdl.handle, "vnhub_sdl_watch_input") : NULL;
+                if (watchInput) watchInput();
+            }
             if (coverWindow && !coverLeaving && FrameHasContent(view)) DismissCover();
             ((void (*)(id, SEL))original)(view, @selector(swapBuffers));
         }));
