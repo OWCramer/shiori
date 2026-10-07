@@ -1,0 +1,10 @@
+// Trimmed from SteamDatabase/Protobufs steam/enums.proto: the full file crashes
+// protoc-gen-swift 1.38.1 (signal 5), and only ESessionPersistence is referenced
+// by the protos SteamKit uses. Add enums here as later phases need them.
+option optimize_for = SPEED;
+
+enum ESessionPersistence {
+	k_ESessionPersistence_Invalid = -1;
+	k_ESessionPersistence_Ephemeral = 0;
+	k_ESessionPersistence_Persistent = 1;
+}
