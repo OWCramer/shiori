@@ -105,6 +105,14 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 if !message.hasPrefix("debug:") && !message.hasPrefix("lua:") { NSLog("Artemis: %@", message) }
             }
             self.player = player
+            // The game's master volumes (0...1000), followed live (config sliders).
+            audio.masterVolume = { @MainActor [weak player] id in
+                guard let player else { return 1 }
+                let names = id.map { ["s.sevol", "s.segain.\($0)"] } ?? ["s.bgmvol"]
+                return names.reduce(Float(1)) { volume, name in
+                    volume * Float(player.interpreter.value(of: name).flatMap(Double.init) ?? 1000) / 1000
+                }
+            }
             stageLayer.bounds = CGRect(x: 0, y: 0, width: player.stage.width, height: player.stage.height)
             messageLayer.frame = stageLayer.bounds
             try player.start()
@@ -405,9 +413,15 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     @objc private func dragged(_ recognizer: UIPanGestureRecognizer) {
         let point = stagePoint(recognizer)
         switch recognizer.state {
-        case .began: player?.drag(.began, at: point)
-        case .changed: player?.drag(.moved, at: point)
-        case .ended, .cancelled, .failed: player?.drag(.ended, at: point)
+        case .began:
+            player?.touch(0, at: point)
+            player?.drag(.began, at: point)
+        case .changed:
+            player?.touch(0, at: point)
+            player?.drag(.moved, at: point)
+        case .ended, .cancelled, .failed:
+            player?.drag(.ended, at: point)
+            player?.touch(0, at: nil)
         default: break
         }
     }
@@ -422,7 +436,10 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     }
 
     private func presentBacklog() {
-        guard backlogView == nil, let player, !player.backlog.isEmpty else { return }
+        guard backlogView == nil, let player else { return }
+        // The game's own backlog when it has one (bound to the wheel or arrow keys).
+        if player.requestBacklog() { return }
+        guard !player.backlog.isEmpty else { return }
         let container = UIView(frame: view.bounds)
         container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.backgroundColor = UIColor.black.withAlphaComponent(0.82)
@@ -521,6 +538,25 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 
     func isSoundPlaying(_ id: String) -> Bool {
         audio.isPlaying(id)
+    }
+
+    func soundInfo(_ id: String?) -> (playing: Bool, gain: Double, pan: Double)? {
+        audio.info(id)
+    }
+
+    var soundChannels: [String] { audio.effectIDs }
+
+    func openURL(_ url: URL) {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+        UIApplication.shared.open(url)
+    }
+
+    func vibrate() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    func copyToClipboard(_ text: String) {
+        UIPasteboard.general.string = text
     }
 
     func playVideo(_ source: ArtemisVideoSource, finished: @escaping () -> Void) -> Bool {

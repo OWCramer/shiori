@@ -1,32 +1,57 @@
 import ArtemisKit
 import AVFoundation
 
-/// Artemis sound: one music channel (`splay`/`sstop`/`sfade`) and numbered effect/voice
-/// channels (`seplay`/`sestop`/`sefade`), with loops, fades and 0...1000 gains. Ogg Vorbis
-/// is decoded with ArtemisKit; other formats through AVAudioFile.
+/// Artemis sound: one music channel (`splay`/`sstop`/`sfade`/`sxfade`/`span`) and named
+/// effect/voice channels (`seplay`/`sestop`/`sefade`/`sepan`), with loops, A-B repeats,
+/// fades, pan and 0...1000 gains under the game's master volumes (`s.bgmvol`, `s.sevol`,
+/// `s.segain.<id>`). Ogg Vorbis is decoded with ArtemisKit; other formats through AVAudioFile.
 @MainActor
 final class ArtemisAudio {
     private let engine = AVAudioEngine()
-    private var music: AVAudioPlayerNode?
-    private var effects: [String: AVAudioPlayerNode] = [:]
-    /// Nodes whose (non-looping) sound has finished.
-    private var finished: Set<ObjectIdentifier> = []
+
+    /// A playing sound: its tag gain (faded) and pan; the node's volume is gain x master.
+    private final class Channel {
+        let node: AVAudioPlayerNode
+        var gain: Float
+        var pan: Float
+        var finished = false
+        init(node: AVAudioPlayerNode, gain: Float, pan: Float) {
+            self.node = node
+            self.gain = gain
+            self.pan = pan
+        }
+    }
+
+    private var music: Channel?
+    private var effects: [String: Channel] = [:]
+    /// Master volume (0...1) for the music (nil) or an effect id, read every frame.
+    var masterVolume: @MainActor (String?) -> Float = { _ in 1 }
 
     func isPlaying(_ id: String) -> Bool {
-        guard let node = effects[id] else { return false }
-        return node.isPlaying && !finished.contains(ObjectIdentifier(node))
+        guard let channel = effects[id] else { return false }
+        return channel.node.isPlaying && !channel.finished
     }
+
+    /// For `get_sound_info`.
+    func info(_ id: String?) -> (playing: Bool, gain: Double, pan: Double)? {
+        guard let channel = id.map({ effects[$0] }) ?? music else { return (false, 0, 0) }
+        return (channel.node.isPlaying && !channel.finished, Double(channel.gain * 1000), Double(channel.pan * 1000))
+    }
+
+    var effectIDs: [String] { effects.keys.sorted() }
+
     private struct Fade {
-        let node: AVAudioPlayerNode
+        let channel: Channel
         let from: Float
         let to: Float
+        let pan: Bool
         let began: CFTimeInterval
         let duration: CFTimeInterval
         let completion: (() -> Void)?
     }
 
-    /// Running volume fades, advanced by `tick()` every frame.
-    private var fades: [ObjectIdentifier: Fade] = [:]
+    /// Running gain and pan fades, advanced by `tick()` every frame.
+    private var fades: [String: Fade] = [:]
 
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
@@ -34,25 +59,37 @@ final class ArtemisAudio {
     }
 
     func handle(_ tag: ArtemisTag, data: (String) -> Data?) {
+        let gain = tag["gain"].map { _ in tag.number("gain", default: 1000) }
+        let pan = tag["pan"].map { _ in tag.number("pan") }
         switch tag.name {
-        case "splay":
+        case "splay", "sfadein":
             stop(music, fadeMs: 0)
-            music = play(tag["file"], loop: tag["loop"] != "0", fadeIn: tag.number("time"), gain: tag.number("gain", default: 1000), data: data)
-        case "sstop":
+            music = play(tag["file"], loop: tag["loop"] != "0", fadeIn: tag.number("time"), gain: gain ?? 1000, pan: pan ?? 0, data: data)
+        case "sxfade":
+            // The old music fades out while the new one fades in.
+            stop(music, fadeMs: tag.number("time"))
+            music = play(tag["file"], loop: tag["loop"] != "0", fadeIn: tag.number("time"), gain: gain ?? 1000, pan: pan ?? 0, data: data)
+        case "sstop", "sfadeout":
             stop(music, fadeMs: tag.number("time"))
             music = nil
         case "sfade":
-            fade(music, to: tag.number("gain", default: 1000) / 1000, ms: tag.number("time"))
-        case "seplay", "voice":
+            fade(music, to: Float((gain ?? 1000) / 1000), ms: tag.number("time"), key: "music")
+        case "span":
+            fade(music, to: Float((pan ?? 0) / 1000), ms: tag.number("time"), key: "music.pan", pan: true)
+        case "seplay", "voice", "sefadein":
             let id = tag["id"] ?? "0"
             stop(effects[id], fadeMs: 0)
-            effects[id] = play(tag["file"], loop: tag["loop"] == "1", fadeIn: 0, gain: tag.number("gain", default: 1000), data: data)
-        case "sestop", "vstop":
+            effects[id] = play(tag["file"], loop: tag["loop"] == "1", fadeIn: tag.number("time"), gain: gain ?? 1000, pan: pan ?? 0, data: data)
+        case "sestop", "vstop", "sefadeout":
             let id = tag["id"] ?? "0"
             stop(effects[id], fadeMs: tag.number("time"))
             effects[id] = nil
         case "sefade":
-            fade(effects[tag["id"] ?? "0"], to: tag.number("gain", default: 1000) / 1000, ms: tag.number("time"))
+            let id = tag["id"] ?? "0"
+            fade(effects[id], to: Float((gain ?? 1000) / 1000), ms: tag.number("time"), key: "se." + id)
+        case "sepan":
+            let id = tag["id"] ?? "0"
+            fade(effects[id], to: Float((pan ?? 0) / 1000), ms: tag.number("time"), key: "se.pan." + id, pan: true)
         default:
             break
         }
@@ -90,7 +127,10 @@ final class ArtemisAudio {
     }
 
     func stopStream() {
-        if let stream { remove(stream) }
+        if let stream {
+            stream.stop()
+            if stream.engine != nil { engine.detach(stream) }
+        }
         stream = nil
         streamFormat = nil
     }
@@ -99,7 +139,7 @@ final class ArtemisAudio {
         stopStream()
         stop(music, fadeMs: 0)
         music = nil
-        for node in effects.values { stop(node, fadeMs: 0) }
+        for channel in effects.values { stop(channel, fadeMs: 0) }
         effects.removeAll()
         engine.stop()
     }
@@ -138,14 +178,14 @@ final class ArtemisAudio {
         return buffer
     }
 
-    private func play(_ file: String?, loop: Bool, fadeIn: Double, gain: Double, data: (String) -> Data?) -> AVAudioPlayerNode? {
+    private func play(_ file: String?, loop: Bool, fadeIn: Double, gain: Double, pan: Double, data: (String) -> Data?) -> Channel? {
         guard let file, !file.isEmpty, let buffer = buffer(file, data: data) else { return nil }
         let node = AVAudioPlayerNode()
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
         if !engine.isRunning { try? engine.start() }
-        let volume = Float(gain / 1000)
-        node.volume = fadeIn > 0 ? 0 : volume
+        let channel = Channel(node: node, gain: fadeIn > 0 ? 0 : Float(gain / 1000), pan: Float(pan / 1000))
+        node.pan = channel.pan
         // A-B repeat: "<name>_a" plays once, then "<name>_b" loops (when it exists).
         if loop, file.hasSuffix("_a"), let loopPart = self.buffer(String(file.dropLast(2)) + "_b", data: data),
            loopPart.format == buffer.format {
@@ -154,54 +194,77 @@ final class ArtemisAudio {
         } else if loop {
             node.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
         } else {
-            let key = ObjectIdentifier(node)
+            let key = ObjectIdentifier(channel)
             node.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
-                Task { @MainActor in self?.finished.insert(key) }
+                Task { @MainActor in self?.markFinished(key) }
             }
         }
         node.play()
-        if fadeIn > 0 { fade(node, to: Double(volume), ms: fadeIn) }
-        return node
+        if fadeIn > 0 { fade(channel, to: Float(gain / 1000), ms: fadeIn, key: "in." + String(UInt(bitPattern: ObjectIdentifier(channel).hashValue))) }
+        apply()
+        return channel
     }
 
-    private func stop(_ node: AVAudioPlayerNode?, fadeMs: Double) {
-        guard let node else { return }
-        if fadeMs > 0 {
-            fade(node, to: 0, ms: fadeMs) { [weak self] in self?.remove(node) }
-        } else {
-            remove(node)
+    private func markFinished(_ key: ObjectIdentifier) {
+        for channel in Array(effects.values) + [music].compactMap({ $0 }) where ObjectIdentifier(channel) == key {
+            channel.finished = true
         }
     }
 
-    private func remove(_ node: AVAudioPlayerNode) {
-        fades[ObjectIdentifier(node)] = nil
-        finished.remove(ObjectIdentifier(node))
-        node.stop()
-        if node.engine != nil { engine.detach(node) }
+    private func stop(_ channel: Channel?, fadeMs: Double) {
+        guard let channel else { return }
+        if fadeMs > 0 {
+            fade(channel, to: 0, ms: fadeMs, key: "out." + String(UInt(bitPattern: ObjectIdentifier(channel).hashValue))) { [weak self] in
+                self?.remove(channel)
+            }
+        } else {
+            remove(channel)
+        }
     }
 
-    private func fade(_ node: AVAudioPlayerNode?, to target: Double, ms: Double, completion: (() -> Void)? = nil) {
-        guard let node else { return }
+    private func remove(_ channel: Channel) {
+        fades = fades.filter { $0.value.channel !== channel }
+        channel.node.stop()
+        if channel.node.engine != nil { engine.detach(channel.node) }
+    }
+
+    private func fade(_ channel: Channel?, to target: Float, ms: Double, key: String, pan: Bool = false, completion: (() -> Void)? = nil) {
+        guard let channel else { return }
         guard ms > 0 else {
-            fades[ObjectIdentifier(node)] = nil
-            node.volume = Float(target)
+            fades[key] = nil
+            if pan { channel.pan = target } else { channel.gain = target }
+            apply()
             completion?()
             return
         }
-        fades[ObjectIdentifier(node)] = Fade(node: node, from: node.volume, to: Float(target), began: CACurrentMediaTime(),
-                                             duration: ms / 1000, completion: completion)
+        fades[key] = Fade(channel: channel, from: pan ? channel.pan : channel.gain, to: target, pan: pan,
+                          began: CACurrentMediaTime(), duration: ms / 1000, completion: completion)
     }
 
-    /// Advances fades; call every frame.
+    /// Node volumes and pans from the channels' gains and the master volumes.
+    private func apply() {
+        if let music {
+            music.node.volume = music.gain * masterVolume(nil)
+            music.node.pan = music.pan
+        }
+        for (id, channel) in effects {
+            channel.node.volume = channel.gain * masterVolume(id)
+            channel.node.pan = channel.pan
+        }
+    }
+
+    /// Advances fades and follows master volume changes; call every frame.
     func tick() {
         let now = CACurrentMediaTime()
         for (key, fade) in fades {
             let t = Float(min(1, (now - fade.began) / fade.duration))
-            fade.node.volume = fade.from + t * (fade.to - fade.from)
+            let value = fade.from + t * (fade.to - fade.from)
+            if fade.pan { fade.channel.pan = value } else { fade.channel.gain = value }
             if t >= 1 {
                 fades[key] = nil
                 fade.completion?()
             }
         }
+        apply()
     }
 }
