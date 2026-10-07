@@ -23,6 +23,16 @@ public enum SteamError: Error, Equatable, Sendable {
     case rateLimited
     /// The operation needs a logged-on (not anonymous) session.
     case notLoggedOn
+    /// Steam wouldn't hand out the key for a depot (usually: not owned).
+    case depotAccessDenied(depotID: UInt32, result: EResult)
+    /// The app has no Windows depots this account can download.
+    case noDownloadableDepots(appID: UInt32)
+    /// No content server offered HTTPS for this app.
+    case noContentServers
+    /// A chunk or manifest couldn't be fetched from any content server.
+    case contentUnavailable(String)
+    /// The manifest names a path outside the install folder.
+    case unsafePath(String)
 }
 
 extension SteamError: CustomStringConvertible {
@@ -40,6 +50,11 @@ extension SteamError: CustomStringConvertible {
         case .invalidSteamGuardCode: "That Steam Guard code wasn't accepted. Check it and try again."
         case .rateLimited: "Too many sign-in attempts. Wait a while and try again."
         case .notLoggedOn: "Sign in to Steam first."
+        case let .depotAccessDenied(depotID, result): "Steam refused access to depot \(depotID): \(result)."
+        case .noDownloadableDepots: "This game has no Windows build this account can download."
+        case .noContentServers: "No Steam content server is available right now."
+        case let .contentUnavailable(what): "Couldn't download \(what) from Steam. Check the connection and resume."
+        case let .unsafePath(path): "The game's file list has an invalid path: \(path)."
         }
     }
 }

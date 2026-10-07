@@ -51,6 +51,7 @@ public struct PackageInfo: Hashable, Sendable {
     public var keyValues: KeyValue
 
     public var appIDs: [UInt32] { keyValues["appids"]?.children.compactMap(\.uint32) ?? [] }
+    public var depotIDs: [UInt32] { keyValues["depotids"]?.children.compactMap(\.uint32) ?? [] }
 }
 
 public enum SessionState: Equatable, Sendable {

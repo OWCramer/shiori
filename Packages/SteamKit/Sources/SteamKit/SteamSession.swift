@@ -16,7 +16,7 @@ public actor SteamSession {
     private var connection: CMConnection?
     private var servers: [CMServer] = []
     private var serverIndex = 0
-    private var cellID: UInt32 = 0
+    private(set) var cellID: UInt32 = 0
 
     /// True while the user is signed in; drives automatic reconnect.
     private var staysLoggedOn = false
@@ -24,6 +24,8 @@ public actor SteamSession {
     private var reconnectTask: Task<Void, Never>?
 
     private var licenseList: [License]?
+    /// Package info for the account's active licences, from the last `ownedApps()`.
+    var ownedPackages: [PackageInfo]?
     private var licenseWaiters: [CheckedContinuation<[License], Error>] = []
     private var observers: [UUID: AsyncStream<SessionState>.Continuation] = [:]
 
@@ -280,6 +282,7 @@ public actor SteamSession {
         await disconnect()
         try? store.delete()
         licenseList = nil
+        ownedPackages = nil
         state = .signedOut
     }
 
@@ -458,7 +461,7 @@ public actor SteamSession {
         }
     }
 
-    private func loggedOnConnection() throws -> CMConnection {
+    func loggedOnConnection() throws -> CMConnection {
         guard case .loggedOn = state, let connection else { throw SteamError.notLoggedOn }
         return connection
     }
@@ -542,6 +545,7 @@ public actor SteamSession {
         // Package 0 is the base "Steam" licence every account has; it doesn't represent owned games.
         let licenses = try await licenses().filter { !$0.isRevoked && $0.packageID != 0 }
         let packages = try await packageInfo(for: licenses)
+        ownedPackages = packages
         let appIDs = Set(packages.flatMap(\.appIDs)).sorted()
         return try await appInfo(appIDs)
             .filter(\.isGame)

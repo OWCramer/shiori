@@ -15,7 +15,13 @@ let package = Package(
     targets: [
         .target(
             name: "SteamKit",
-            dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]
+            dependencies: ["CDecoders", .product(name: "SwiftProtobuf", package: "swift-protobuf")]
+        ),
+        // Raw LZMA and Zstandard decoders for depot chunks; see Sources/CDecoders/README.md.
+        .target(
+            name: "CDecoders",
+            exclude: ["README.md", "LICENSE-zstd"],
+            cSettings: [.define("ZSTD_DISABLE_ASM"), .define("ZSTD_NO_TRACE")]
         ),
         // Developer smoke test: connects to a real CM from the Mac. Not shipped in the app.
         .executableTarget(name: "steamkit-cli", dependencies: ["SteamKit"]),
