@@ -9,6 +9,13 @@ final class ArtemisAudio {
     private let engine = AVAudioEngine()
     private var music: AVAudioPlayerNode?
     private var effects: [String: AVAudioPlayerNode] = [:]
+    /// Nodes whose (non-looping) sound has finished.
+    private var finished: Set<ObjectIdentifier> = []
+
+    func isPlaying(_ id: String) -> Bool {
+        guard let node = effects[id] else { return false }
+        return node.isPlaying && !finished.contains(ObjectIdentifier(node))
+    }
     private struct Fade {
         let node: AVAudioPlayerNode
         let from: Float
@@ -106,8 +113,13 @@ final class ArtemisAudio {
            loopPart.format == buffer.format {
             node.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
             node.scheduleBuffer(loopPart, at: nil, options: [.loops], completionHandler: nil)
+        } else if loop {
+            node.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
         } else {
-            node.scheduleBuffer(buffer, at: nil, options: loop ? [.loops] : [], completionHandler: nil)
+            let key = ObjectIdentifier(node)
+            node.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                Task { @MainActor in self?.finished.insert(key) }
+            }
         }
         node.play()
         if fadeIn > 0 { fade(node, to: Double(volume), ms: fadeIn) }
@@ -125,6 +137,7 @@ final class ArtemisAudio {
 
     private func remove(_ node: AVAudioPlayerNode) {
         fades[ObjectIdentifier(node)] = nil
+        finished.remove(ObjectIdentifier(node))
         node.stop()
         if node.engine != nil { engine.detach(node) }
     }

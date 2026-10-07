@@ -174,10 +174,15 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         if player.stage.presentationCount != lastPresentation {
             lastPresentation = player.stage.presentationCount
             if let transition = player.stage.lastTransition, transition.duration > 0 {
-                let fade = CATransition()
-                fade.type = .fade
-                fade.duration = transition.duration / 1000
-                stageLayer.add(fade, forKey: "artemis.trans")
+                if transition.type == "2", let rule = transition.rule, let ruleImage = player.stage.image(rule),
+                   let mask = ArtemisRuleTransition(rule: ruleImage, vague: transition.vague) {
+                    startRuleTransition(mask, duration: transition.duration / 1000, player: player)
+                } else {
+                    let fade = CATransition()
+                    fade.type = .fade
+                    fade.duration = transition.duration / 1000
+                    stageLayer.add(fade, forKey: "artemis.trans")
+                }
             }
             sync(player.stage.root, into: stageLayer, full: true)
         } else if player.stage.tweenRevision != lastTweenRevision {
@@ -186,7 +191,62 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
         lastTweenRevision = player.stage.tweenRevision
         syncMessages(player)
+        stepRuleTransition()
         CATransaction.commit()
+    }
+
+    // MARK: Rule transitions
+
+    private var ruleOverlay: CALayer?
+    private var ruleMask: ArtemisRuleTransition?
+    private var ruleStart: CFTimeInterval = 0
+    private var ruleDuration: CFTimeInterval = 0
+
+    /// Freezes the outgoing frame on top, to be dissolved through the rule mask while the
+    /// new frame shows underneath.
+    private func startRuleTransition(_ mask: ArtemisRuleTransition, duration: CFTimeInterval, player: ArtemisPlayer) {
+        ruleOverlay?.removeFromSuperlayer()
+        let size = CGSize(width: player.stage.width, height: player.stage.height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let snapshot = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            for layer in stageLayer.sublayers ?? [] where layer !== messageLayer && layer !== ruleOverlay {
+                context.cgContext.saveGState()
+                layer.render(in: context.cgContext)
+                context.cgContext.restoreGState()
+            }
+        }
+        let overlay = CALayer()
+        overlay.frame = CGRect(origin: .zero, size: size)
+        overlay.contents = snapshot.cgImage
+        let maskLayer = CALayer()
+        maskLayer.frame = overlay.bounds
+        overlay.mask = maskLayer
+        stageLayer.insertSublayer(overlay, below: messageLayer)
+        ruleOverlay = overlay
+        ruleMask = mask
+        ruleStart = CACurrentMediaTime()
+        ruleDuration = max(0.01, duration)
+        stepRuleTransition()
+    }
+
+    private func stepRuleTransition() {
+        guard let overlay = ruleOverlay, let mask = ruleMask else { return }
+        let progress = (CACurrentMediaTime() - ruleStart) / ruleDuration
+        var transitionWaitEnded = true
+        if case .time = player?.wait { transitionWaitEnded = false }
+        // Done, skipped by a tap (the trans wait ended early), or skip mode.
+        if progress >= 1 || transitionWaitEnded || player?.skipMode == true {
+            overlay.removeFromSuperlayer()
+            ruleOverlay = nil
+            ruleMask = nil
+            return
+        }
+        overlay.mask?.contents = mask.oldFrameMask(progress: progress)
+        // Keep it above layers synced since, under the text.
+        if overlay.superlayer != nil, stageLayer.sublayers?.last(where: { $0 !== messageLayer }) !== overlay {
+            stageLayer.insertSublayer(overlay, below: messageLayer)
+        }
     }
 
     /// Mirrors `node`'s children into `parent`'s sublayers (message text stays on top).
@@ -220,7 +280,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
         // Order and prune.
         let current = parent.sublayers ?? []
-        for layer in current where layer !== messageLayer && !keep.contains(where: { $0 === layer }) && layer !== videoLayer {
+        for layer in current where layer !== messageLayer && layer !== ruleOverlay && !keep.contains(where: { $0 === layer }) && layer !== videoLayer {
             layer.removeFromSuperlayer()
             if let key = layers.first(where: { $0.value === layer })?.key { forget(key) }
         }
@@ -370,6 +430,10 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 
     func soundTag(_ tag: ArtemisTag, data: (String) -> Data?) {
         audio.handle(tag, data: data)
+    }
+
+    func isSoundPlaying(_ id: String) -> Bool {
+        audio.isPlaying(id)
     }
 
     func playVideo(_ data: Data, fileExtension: String, finished: @escaping () -> Void) -> Bool {
