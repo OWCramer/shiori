@@ -25,7 +25,10 @@ final class ControllerInput {
     /// Forced on with `-VNHubControllerMode` (debug) so the launcher can be tested without hardware.
     private(set) var isForced = false
 
-    var isActive: Bool { isConnected || isForced }
+    /// `-VNHubControllerMode NO` (debug) ignores controllers, e.g. the simulator's virtual one.
+    private(set) var isSuppressed = false
+
+    var isActive: Bool { isForced || (isConnected && !isSuppressed) }
 
     /// Receives each press, including repeats while a direction is held.
     var handler: ((PadAction) -> Void)?
@@ -43,6 +46,7 @@ final class ControllerInput {
     init() {
         #if DEBUG
         isForced = UserDefaults.standard.bool(forKey: "VNHubControllerMode")
+        isSuppressed = UserDefaults.standard.object(forKey: "VNHubControllerMode") != nil && !isForced
         // `-VNHubPadInput "3:right;4:a"` replays pad presses (seconds from launch).
         for step in (UserDefaults.standard.string(forKey: "VNHubPadInput") ?? "").split(separator: ";") {
             let parts = step.split(separator: ":")

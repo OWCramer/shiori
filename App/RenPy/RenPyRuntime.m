@@ -104,6 +104,11 @@ static void ScheduleScriptedInput(void) {
 }
 #endif
 
+/// SDL's window for the running game.
+static __weak UIWindow *gameWindow;
+static void HideHubWindows(void);
+static void RestoreGameLayout(void);
+
 static UIWindowScene *ActiveWindowScene(void) {
     UIWindowScene *fallback = nil;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -131,6 +136,9 @@ static void AttachSDLWindowsToScene(void) {
                 ? ((id (*)(id, SEL, UIWindowScene *))sceneInit)(self, @selector(initWithWindowScene:), scene)
                 : ((id (*)(id, SEL, CGRect))frameInit)(self, @selector(initWithFrame:), frame);
             [[VNHubGestures shared] attachToWindow:window];
+            gameWindow = window;
+            // Once SDL has shown it, keep the hub's own window from showing through.
+            dispatch_async(dispatch_get_main_queue(), ^{ HideHubWindows(); });
             return window;
         });
         const char *types = method_getTypeEncoding(class_getInstanceMethod(UIWindow.class, @selector(initWithFrame:)));
@@ -138,6 +146,16 @@ static void AttachSDLWindowsToScene(void) {
             class_replaceMethod(sdlWindow, @selector(initWithFrame:), replacement, types);
         }
     });
+}
+
+/// While a game runs it is the only thing on screen: hide the SwiftUI window, which would
+/// otherwise show beside or through SDL's after a rotation.
+static void HideHubWindows(void) {
+    UIWindow *game = gameWindow;
+    if (!game || !game.windowScene) return;
+    for (UIWindow *window in game.windowScene.windows) {
+        if (window != game) window.hidden = YES;
+    }
 }
 
 /// Visual novels are landscape; ask the scene to rotate rather than letterboxing a
@@ -152,12 +170,35 @@ static void RequestLandscape(void) {
     }
 }
 
+/// After a trip to the Home Screen the scene comes back in portrait first, and SDL's
+/// window keeps that portrait frame once it turns landscape again, so the game draws in a
+/// strip. Ask for landscape again and size the window to the scene once it has rotated.
+static void RestoreGameLayout(void) {
+    UIWindow *game = gameWindow;
+    if (!game) return;
+    RequestLandscape();
+    HideHubWindows();
+    for (NSNumber *delay in @[@0.0, @0.35, @0.9]) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIWindow *window = gameWindow;
+            if (!window.windowScene) return;
+            CGRect bounds = window.windowScene.coordinateSpace.bounds;
+            if (!CGRectEqualToRect(window.frame, bounds)) window.frame = bounds;
+            if (!window.isKeyWindow) [window makeKeyAndVisible];
+        });
+    }
+}
+
 int vnhub_renpy_run(const char *gameFolder, const char *launcherName, const char *saveDirectory) {
     if (running) return -1;
     running = 1;
 
     AttachSDLWindowsToScene();
     RequestLandscape();
+    // Coming back from the Home Screen (or Control Center, a call...) re-applies the layout.
+    id activation = [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
+                                                                     queue:NSOperationQueue.mainQueue
+                                                                usingBlock:^(NSNotification *note) { RestoreGameLayout(); }];
     SDL_SetMainReady();
 #if DEBUG
     ScheduleScriptedInput();
@@ -171,6 +212,7 @@ int vnhub_renpy_run(const char *gameFolder, const char *launcherName, const char
     int status = launcher_main(3, argv);
 
     free(argv0);
+    [NSNotificationCenter.defaultCenter removeObserver:activation];
     running = 0;
     return status;
 }

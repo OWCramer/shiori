@@ -8,6 +8,7 @@ struct GameDetailView: View {
     let game: LibraryGame
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
+    @Environment(LibraryCuration.self) private var curation
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmingDelete = false
     @State private var importingPatch = false
@@ -83,7 +84,7 @@ struct GameDetailView: View {
             parts.append(engineDescription(record.engine))
             parts.append(record.sizeBytes.formatted(.byteCount(style: .file)))
         } else {
-            if game.isVisualNovel { parts.append("Visual Novel") }
+            if curation.isVisualNovel(game) { parts.append("Visual Novel") }
             if let size = game.estimatedSize { parts.append(size.formatted(.byteCount(style: .file))) }
         }
         return parts.joined(separator: " · ")
@@ -145,6 +146,11 @@ struct GameDetailView: View {
     }
 
     @ViewBuilder private var moreActions: some View {
+        Button(curation.isVisualNovel(game) ? "Remove from Visual Novels" : "Add to Visual Novels",
+               systemImage: curation.isVisualNovel(game) ? "eye.slash" : "plus.circle") {
+            curation.toggle(game)
+        }
+        Divider()
         if record != nil {
             Button("Verify Files", systemImage: "checkmark.shield") { games.verify(appID: appID) }
             Button("Import Patch…", systemImage: "square.and.arrow.down") { importingPatch = true }
@@ -156,8 +162,6 @@ struct GameDetailView: View {
             Button("Delete Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
         } else if status != .notInstalled {
             Button("Delete Partial Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
-        } else {
-            Text("Download the game for more options")
         }
     }
 
@@ -232,7 +236,7 @@ struct GameDetailView: View {
         ScrollView(.horizontal) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
-                    if game.isVisualNovel {
+                    if curation.isVisualNovel(game) {
                         GlassChip("Visual Novel", systemImage: "book.pages", tint: .pink)
                             .glassEffectID("vn", in: glassNamespace)
                     }

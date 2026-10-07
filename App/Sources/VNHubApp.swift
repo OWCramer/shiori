@@ -5,6 +5,7 @@ struct VNHubApp: App {
     @State private var steam: SteamModel
     @State private var games: GameLibrary
     @State private var controllers = ControllerInput()
+    @State private var curation = LibraryCuration()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -21,6 +22,7 @@ struct VNHubApp: App {
                 .environment(steam)
                 .environment(games)
                 .environment(controllers)
+                .environment(curation)
                 .task { await games.syncAllSaves() }
             #if DEBUG
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }

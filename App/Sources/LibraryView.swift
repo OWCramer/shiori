@@ -4,7 +4,6 @@ import SwiftUI
 /// The owned-games grid: capsule art, filters, search, downloads and settings.
 struct LibraryView: View {
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All"
         case visualNovels = "Visual Novels"
         case installed = "Installed"
         var id: Self { self }
@@ -12,18 +11,19 @@ struct LibraryView: View {
 
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
+    @Environment(LibraryCuration.self) private var curation
     @Environment(\.horizontalSizeClass) private var sizeClass
     @AppStorage("libraryFilter") private var filter: Filter = .visualNovels
     @State private var query = ""
     @State private var path: [LibraryGame] = []
     @State private var showingDownloads = false
     @State private var showingSettings = false
+    @State private var showingAddGame = false
 
     private var filteredGames: [LibraryGame] {
         steam.library.filter { game in
             switch filter {
-            case .all: true
-            case .visualNovels: game.isVisualNovel
+            case .visualNovels: curation.isVisualNovel(game)
             case .installed: games.status(for: game.appID) != .notInstalled
             }
         }
@@ -37,6 +37,13 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
+                // In the scrolling content, under the large title, so it never covers it.
+                Picker("Show", selection: $filter) {
+                    ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
                 if let error = steam.libraryError {
                     Text(error).foregroundStyle(.red).font(.callout).padding(.horizontal)
                 }
@@ -46,19 +53,16 @@ struct LibraryView: View {
                             CapsuleCard(game: game, status: games.status(for: game.appID))
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(curation.isVisualNovel(game) ? "Remove from Visual Novels" : "Add to Visual Novels",
+                                   systemImage: curation.isVisualNovel(game) ? "eye.slash" : "plus.circle") {
+                                withAnimation { curation.toggle(game) }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 24)
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Picker("Show", selection: $filter) {
-                    ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
             }
             .overlay { placeholder }
             .searchable(text: $query, prompt: "Search your library")
@@ -75,6 +79,8 @@ struct LibraryView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionStatus() }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showingAddGame = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Add a game to Visual Novels")
                     Button {
                         showingDownloads = true
                     } label: {
@@ -89,6 +95,7 @@ struct LibraryView: View {
             }
             .sheet(isPresented: $showingDownloads) { DownloadsView(library: steam.library) }
             .sheet(isPresented: $showingSettings) { SettingsView() }
+            .sheet(isPresented: $showingAddGame) { AddVisualNovelView() }
         }
     }
 
@@ -103,7 +110,7 @@ struct LibraryView: View {
                                        description: Text("Open a game and tap Download."))
             } else if filter == .visualNovels, !steam.library.isEmpty {
                 ContentUnavailableView("No visual novels", systemImage: "books.vertical",
-                                       description: Text("None of your games has Steam's Visual Novel tag. Switch to All."))
+                                       description: Text("None of your games has Steam's Visual Novel tag. Tap + to add games."))
             } else if steam.isLoggedOn, steam.libraryError == nil {
                 ContentUnavailableView("No games", systemImage: "books.vertical")
             }
@@ -212,17 +219,57 @@ struct ConnectionStatus: View {
     @Environment(SteamModel.self) private var steam
 
     var body: some View {
+        // Nothing while connected; only say something when Steam isn't reachable.
         switch steam.state {
-        case .loggedOn:
-            Image(systemName: "circle.fill").foregroundStyle(.green).font(.caption2)
-                .accessibilityLabel("Connected to Steam")
-        case .connecting, .connectedAnonymously:
-            ProgressView()
+        case .loggedOn, .connecting, .connectedAnonymously:
+            EmptyView()
         case let .reconnecting(attempt):
             Label("Reconnecting (\(attempt))", systemImage: "wifi.exclamationmark")
                 .labelStyle(.titleAndIcon).font(.caption)
         case .signedOut:
-            Image(systemName: "circle").foregroundStyle(.secondary).font(.caption2)
+            Label("Offline", systemImage: "wifi.slash").labelStyle(.titleAndIcon).font(.caption)
+        }
+    }
+}
+
+/// Owned games that aren't in the Visual Novels tab, to add by hand.
+struct AddVisualNovelView: View {
+    @Environment(SteamModel.self) private var steam
+    @Environment(LibraryCuration.self) private var curation
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var candidates: [LibraryGame] {
+        steam.library
+            .filter { !curation.isVisualNovel($0) }
+            .filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(candidates) { game in
+                Button {
+                    withAnimation { curation.add(game) }
+                } label: {
+                    HStack(spacing: 12) {
+                        CapsuleArt(game: game)
+                            .frame(width: 36)
+                            .clipShape(.rect(cornerRadius: 4))
+                        Text(game.name).foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
+                    }
+                }
+            }
+            .overlay {
+                if candidates.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Your Steam games")
+            .navigationTitle("Add to Visual Novels")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 }

@@ -8,6 +8,7 @@ struct LauncherView: View {
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
     @Environment(ControllerInput.self) private var pad
+    @Environment(LibraryCuration.self) private var curation
     @AppStorage("libraryFilter") private var filter: LibraryView.Filter = .visualNovels
     @State private var selection = 0
     @State private var menu: LauncherMenu?
@@ -16,8 +17,7 @@ struct LauncherView: View {
     private var shelf: [LibraryGame] {
         steam.library.filter { game in
             switch filter {
-            case .all: true
-            case .visualNovels: game.isVisualNovel
+            case .visualNovels: curation.isVisualNovel(game)
             case .installed: games.status(for: game.appID) != .notInstalled
             }
         }
