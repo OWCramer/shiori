@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 /// The page for one game, in the style of the user's Tana app: hero artwork with the logo
 /// over it, a dark backdrop tinted by the art, and the details floating on glass.
 struct GameDetailView: View {
-    let game: LibraryGame
+    /// The game as navigated to; `game` follows the live library, so artwork picks show at once.
+    private let opened: LibraryGame
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
     @Environment(LibraryCuration.self) private var curation
@@ -21,7 +22,12 @@ struct GameDetailView: View {
     @State private var choosingArtwork = false
     @Namespace private var glassNamespace
 
-    private var appID: UInt32 { game.appID }
+    init(game: LibraryGame) {
+        opened = game
+    }
+
+    private var game: LibraryGame { steam.library.first { $0.appID == opened.appID } ?? opened }
+    private var appID: UInt32 { opened.appID }
     private var folder: URL { games.folder(appID: appID, name: game.name) }
     private var status: GameLibrary.Status { games.status(for: appID) }
     private var record: GameRecord? { if case let .installed(record) = status { record } else { nil } }
@@ -141,7 +147,18 @@ struct GameDetailView: View {
             wideButton("Verifying…", systemImage: "checkmark.shield", tint: .gray) {}
                 .disabled(true)
         case .installed:
-            if games.playBlocker(appID: appID) == nil {
+            if let phase = games.launchPhase(for: appID) {
+                Button {} label: {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text(phase.label)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .tint(.green)
+                .disabled(true)
+            } else if games.playBlocker(appID: appID) == nil {
                 wideButton("Play", systemImage: "play.fill", tint: .green) { games.play(appID: appID) }
             } else {
                 wideButton("Not playable yet", systemImage: "exclamationmark.triangle", tint: .gray) {}

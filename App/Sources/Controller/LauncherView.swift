@@ -108,6 +108,7 @@ struct LauncherView: View {
     private func statusLine(_ game: LibraryGame) -> String {
         switch games.status(for: game.appID) {
         case let .installed(record):
+            if let phase = games.launchPhase(for: game.appID) { return phase.label }
             if let blocker = games.playBlocker(appID: game.appID) { return blocker }
             return "Ready to play · \(record.sizeBytes.formatted(.byteCount(style: .file)))"
         case .notInstalled:

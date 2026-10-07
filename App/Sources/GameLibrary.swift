@@ -349,6 +349,26 @@ final class GameLibrary {
     /// The game being played, whose saves are pushed when the app backgrounds or the game quits.
     private var playingAppID: UInt32?
 
+    /// What Play is doing before the game appears.
+    enum LaunchPhase: Equatable {
+        case steamCloud, iCloud, starting
+
+        var label: String {
+            switch self {
+            case .steamCloud: "Getting Steam Cloud saves…"
+            case .iCloud: "Getting iCloud saves…"
+            case .starting: "Starting…"
+            }
+        }
+    }
+
+    /// The game being launched and how far along, until the game takes over the screen.
+    private(set) var launching: (appID: UInt32, phase: LaunchPhase)?
+
+    func launchPhase(for appID: UInt32) -> LaunchPhase? {
+        launching?.appID == appID ? launching?.phase : nil
+    }
+
     func isCloudSaveEnabled(_ appID: UInt32) -> Bool {
         UserDefaults.standard.object(forKey: "iCloudSaves.\(appID)") as? Bool ?? true
     }
@@ -422,7 +442,7 @@ final class GameLibrary {
 
     /// Hands the app over to the game. Never returns: the app exits when the game quits.
     func play(appID: UInt32) {
-        guard playBlocker(appID: appID) == nil, tasks[appID] == nil,
+        guard playBlocker(appID: appID) == nil, tasks[appID] == nil, launching == nil,
               case let .installed(record) = statuses[appID], let engine = record.engine
         else { return }
         let folder = folder(appID: appID, name: record.name)
@@ -431,6 +451,7 @@ final class GameLibrary {
         playingAppID = appID
         Task {
             // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
+            if isSteamCloudEnabled(appID) { launching = (appID, .steamCloud) }
             await pullSteamCloud(appID: appID)
             if canUploadSteamCloud(appID), case .loggedOn = await session.state {
                 let pending = (try? await session.cloudLaunchIntent(appID: appID, clientID: SteamCloudSync.clientID)) ?? []
@@ -438,7 +459,9 @@ final class GameLibrary {
                     log.notice("Steam Cloud: \(operation.machineName, privacy: .public) is \(operation.description, privacy: .public)")
                 }
             }
+            if isCloudSaveEnabled(appID) { launching = (appID, .iCloud) }
             await syncSaves(appID: appID, direction: .pull)
+            launching = (appID, .starting)
             log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
             // Start from a run-loop block, not the main dispatch queue: the game runs inside
             // this call for as long as it plays, and SDL's nested run loop can only drain the
