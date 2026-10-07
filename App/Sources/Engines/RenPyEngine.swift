@@ -176,8 +176,9 @@ extension RenPyEngine {
         UserDefaults.standard.set(enabled, forKey: "renpyPhoneLayout.\(appID)")
     }
 
-    /// Runs the game in this process until it quits, then exits the app: CPython can't be
-    /// restarted cleanly in-process, so returning to the hub means relaunching VN Hub.
+    /// Runs the game in this process until it quits and returns Ren'Py's exit status. CPython
+    /// can't be restarted cleanly in-process, so the app closes after the game (GameLibrary
+    /// syncs saves first); playing again means reopening Shiori.
     ///
     /// Ren'Py's launcher is pointed at a runner folder whose `base/main.py` is VN Hub's
     /// bootstrap and whose `base/lib` is the Python library: the game's own for Ren'Py 8
@@ -185,7 +186,7 @@ extension RenPyEngine {
     /// older games (`vnhub_main2.py`, which runs 7.8.7's `renpy.py` on the game's folder).
     /// Either way the bootstrap keeps caches out of the game's `base/`.
     @MainActor
-    static func launch(appID: UInt32, gameFolder: URL, match: EngineMatch, saves: URL, cache: URL, afterGame: () -> Void) -> Never {
+    static func launch(appID: UInt32, gameFolder: URL, match: EngineMatch, saves: URL, cache: URL) -> Int32 {
         let base = gameFolder.appendingPathComponent("base", isDirectory: true)
         var status: Int32 = 1
         if let runtime = runtime(for: match) {
@@ -219,8 +220,7 @@ extension RenPyEngine {
         if let data = try? JSONSerialization.data(withJSONObject: note, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL.applicationSupportDirectory.appendingPathComponent("last-game-session.json"))
         }
-        afterGame()
-        exit(status == 0 ? 0 : 1)
+        return status
     }
 
     private static func prepareRunner(_ runtime: RenPyRuntime, cache: URL, gameBase: URL) throws -> URL {

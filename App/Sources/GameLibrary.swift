@@ -318,21 +318,16 @@ final class GameLibrary {
 
     /// For the moment a game quits, just before VN Hub exits: upload to Steam Cloud and
     /// tell Steam the session is over, waiting up to `timeout` for it.
-    private func finishSteamCloudSession(appID: UInt32, timeout: TimeInterval) {
-        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID] else { return }
+    private func finishSteamCloudSession(appID: UInt32) async {
+        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID],
+              case .loggedOn = await session.state
+        else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
-        let session = session
-        let done = DispatchSemaphore(value: 0)
-        Task.detached {
-            defer { done.signal() }
-            guard case .loggedOn = await session.state else { return }
-            let result = try? await SteamCloudSync.push(session: session, appID: appID, saves: saves)
-            try? await session.cloudExitSyncDone(appID: appID, clientID: SteamCloudSync.clientID,
-                                                 uploadsCompleted: result?.failed.isEmpty ?? false,
-                                                 uploadsRequired: !(result?.uploaded.isEmpty ?? true))
-            log.notice("Steam Cloud on exit \(appID): \(result?.summary ?? "failed", privacy: .public)")
-        }
-        _ = done.wait(timeout: .now() + timeout)
+        let result = try? await SteamCloudSync.push(session: session, appID: appID, saves: saves)
+        try? await session.cloudExitSyncDone(appID: appID, clientID: SteamCloudSync.clientID,
+                                             uploadsCompleted: result?.failed.isEmpty ?? false,
+                                             uploadsRequired: !(result?.uploaded.isEmpty ?? true))
+        log.notice("Steam Cloud on exit \(appID): \(result?.summary ?? "failed", privacy: .public)")
     }
 
     // MARK: - Saves (iCloud)
@@ -405,9 +400,32 @@ final class GameLibrary {
 
     /// Synchronous push for the running game, when there's no time for a task: the app
     /// going to the background, or the game quitting just before VN Hub exits.
-    func pushRunningGameSaves(gameEnded: Bool = false) {
+    /// Set once a game has ended, while its saves go up before the app closes.
+    private(set) var endingSession: UInt32?
+
+    /// The game returned. Put the hub back with a "saving" screen, sync without blocking the
+    /// main thread (iOS kills an app whose main thread can't answer), then close.
+    private func gameEnded(appID: UInt32, status: Int32) {
+        launching = nil
+        endingSession = appID
+        vnhub_renpy_restore_hub()
+        let background = UIApplication.shared.beginBackgroundTask(withName: "Save sync after game")
+        Task {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await self.finishSteamCloudSession(appID: appID) }
+                group.addTask { try? await Task.sleep(for: .seconds(20)) }
+                await group.next()
+                group.cancelAll()
+            }
+            pushRunningGameSaves()
+            log.notice("Session \(appID) closed after save sync (game status \(status))")
+            UIApplication.shared.endBackgroundTask(background)
+            exit(status == 0 ? 0 : 1)
+        }
+    }
+
+    func pushRunningGameSaves() {
         guard let appID = playingAppID else { return }
-        if gameEnded { finishSteamCloudSession(appID: appID, timeout: 20) }
         guard isCloudSaveEnabled(appID), case let .installed(record) = statuses[appID] else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
         noteSyncOutcome(Self.syncNow(appID: appID, saves: saves, direction: .push), for: appID)
@@ -479,9 +497,9 @@ final class GameLibrary {
             // this call for as long as it plays, and SDL's nested run loop can only drain the
             // main queue (main-actor tasks, timers) if we aren't already occupying it.
             RunLoop.main.perform(inModes: [.default]) {
-                RenPyEngine.launch(appID: appID, gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID)) {
-                    MainActor.assumeIsolated { self.pushRunningGameSaves(gameEnded: true) }
-                }
+                let status = RenPyEngine.launch(appID: appID, gameFolder: folder, match: engine, saves: saves,
+                                                cache: Self.runtimeCache(appID: appID))
+                MainActor.assumeIsolated { self.gameEnded(appID: appID, status: status) }
             }
         }
     }

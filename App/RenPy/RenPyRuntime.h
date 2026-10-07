@@ -18,5 +18,8 @@ void vnhub_renpy_did_enter_background(void);
 void vnhub_renpy_will_enter_foreground(void);
 void vnhub_renpy_did_become_active(void);
 
+/// After a game has ended: hide its window and show the hub's windows again.
+void vnhub_renpy_restore_hub(void);
+
 /// True while `vnhub_renpy_run` is executing.
 int vnhub_renpy_is_running(void);

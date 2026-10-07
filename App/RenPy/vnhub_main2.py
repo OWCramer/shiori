@@ -56,9 +56,30 @@ def _record_exit(how):
     try:
         with open(os.path.join(CACHE, "exit.txt"), "w") as f:
             f.write("%s at %s\n" % (how, _time.ctime()))
-            _traceback.print_exc(file=f)
+            if sys.exc_info()[0] is not None:
+                _traceback.print_exc(file=f)
+            else:
+                _traceback.print_stack(file=f)
     except Exception:
         pass
+
+
+_MAIN_PID = os.getpid()
+_real_os_exit = os._exit
+
+
+def _os_exit(status):
+    # Only the game's own process; forked children (subprocess) exit through here too.
+    if os.getpid() == _MAIN_PID:
+        _record_exit("os._exit(%r)" % (status,))
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+    _real_os_exit(status)
+
+
+os._exit = _os_exit
 
 # The runner's lib/ and renpy/ are inside the app bundle; never try to write .pyo there.
 sys.dont_write_bytecode = True

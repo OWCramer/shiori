@@ -5,6 +5,10 @@
 #import <objc/message.h>
 #include <dlfcn.h>
 #include <execinfo.h>
+#include <fcntl.h>
+#include <mach/mach.h>
+#include <signal.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -65,6 +69,8 @@ static void PressKey(int scancode) {
 /// two-finger tap opens the game menu (Escape), long-press hides the text box (`h`).
 /// Both delay touches until they fail, so a recognised gesture never also reaches the
 /// game as a click, which would advance the dialogue.
+static double FootprintMB(void);
+
 @interface VNHubGestures : NSObject
 @end
 
@@ -91,14 +97,14 @@ static void PressKey(int scancode) {
 
 - (void)openMenu:(UITapGestureRecognizer *)recognizer {
     if (recognizer.state == UIGestureRecognizerStateRecognized) {
-        NSLog(@"Shiori gesture: game menu");
+        NSLog(@"Shiori gesture: game menu (%.0f MB)", FootprintMB());
         PressKey(ScancodeEscape);
     }
 }
 
 - (void)hideText:(UILongPressGestureRecognizer *)recognizer {
     if (recognizer.state == UIGestureRecognizerStateBegan) {
-        NSLog(@"Shiori gesture: hide text");
+        NSLog(@"Shiori gesture: hide text (%.0f MB)", FootprintMB());
         PressKey(ScancodeH);
     }
 }
@@ -147,6 +153,14 @@ static void ScheduleScriptedInput(void) {
 static __weak UIWindow *gameWindow;
 static void HideHubWindows(void);
 
+/// The app's memory footprint in MB, for the console log.
+static double FootprintMB(void) {
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return -1;
+    return info.phys_footprint / 1048576.0;
+}
+
 // MARK: - Exit tracing
 
 /// Something inside the runtime can end the process with exit() while a game runs, with
@@ -176,9 +190,32 @@ static void TraceNativeExit(void) {
     fclose(file);
 }
 
+static char signalPath[1024];
+
+/// Notes a terminating signal that crash reports don't cover (async-signal-safe calls
+/// only), then lets it take its default course. SIGPIPE is noted and ignored.
+static void TraceSignal(int sig) {
+    int file = open(signalPath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (file >= 0) {
+        char line[64];
+        int length = snprintf(line, sizeof line, "signal %d\n", sig);
+        write(file, line, (size_t)length);
+        close(file);
+    }
+    if (sig == SIGPIPE) return;
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 static void TraceExitsWhilePlaying(void) {
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ atexit(TraceNativeExit); });
+    dispatch_once(&once, ^{
+        atexit(TraceNativeExit);
+        const char *cache = getenv("VNHUB_CACHE");
+        if (cache) snprintf(signalPath, sizeof signalPath, "%s/signals.txt", cache);
+        int signals[] = {SIGPIPE, SIGTERM, SIGHUP, SIGINT, SIGQUIT, SIGUSR1, SIGUSR2, SIGALRM, SIGXCPU, SIGXFSZ, SIGSYS};
+        for (size_t i = 0; i < sizeof signals / sizeof *signals; i++) signal(signals[i], TraceSignal);
+    });
     char path[1024];
     const char *cache = getenv("VNHUB_CACHE");
     if (cache) {
@@ -557,6 +594,20 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
 }
 
 int vnhub_renpy_is_running(void) { return running; }
+
+void vnhub_renpy_restore_hub(void) {
+    UIWindow *game = gameWindow;
+    UIWindowScene *scene = game.windowScene ?: ActiveWindowScene();
+    game.hidden = YES;
+    coverWindow.hidden = YES;
+    coverWindow = nil;
+    for (UIWindow *window in scene.windows) {
+        if (window != game && [window isKindOfClass:UIWindow.class] && !window.isKeyWindow) window.hidden = NO;
+    }
+    for (UIWindow *window in scene.windows) {
+        if (window != game) { [window makeKeyAndVisible]; break; }
+    }
+}
 
 void vnhub_renpy_will_resign_active(void) { if (running && sdl.willResignActive) sdl.willResignActive(); }
 void vnhub_renpy_did_enter_background(void) { if (running && sdl.didEnterBackground) sdl.didEnterBackground(); }

@@ -61,8 +61,18 @@ struct VNHubApp: App {
 struct RootView: View {
     @Environment(SteamModel.self) private var steam
     @Environment(ControllerInput.self) private var controllers
+    @Environment(GameLibrary.self) private var games
 
     var body: some View {
+        content
+            .overlay {
+                if let appID = games.endingSession {
+                    SessionEndingView(game: steam.library.first { $0.appID == appID })
+                }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
         if steam.isLoggedOn || steam.hasStoredSession {
             // With a controller in hand the library becomes a console-style launcher.
             if controllers.isActive {
@@ -73,6 +83,37 @@ struct RootView: View {
         } else {
             SignInView()
         }
+    }
+}
+
+/// Shown between a game ending and the app closing, while its saves go up.
+struct SessionEndingView: View {
+    let game: LibraryGame?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let game {
+                RemoteImage(url: game.hero, fallback: game.header) { Color.black }
+                    .opacity(0.4)
+            }
+            VStack(spacing: 18) {
+                if let logo = game?.logo {
+                    RemoteImage(url: logo, contentMode: .fit) { EmptyView() }
+                        .frame(maxWidth: 320, maxHeight: 140)
+                }
+                ProgressView().tint(.white)
+                Text("Saving your progress…")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Text("Shiori closes when your saves are up. Reopen it to play again.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(32)
+        }
+        .ignoresSafeArea()
     }
 }
 
