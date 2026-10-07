@@ -7,6 +7,8 @@ struct VNHubApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Capsule and hero art from Steam's CDN; keep plenty on disk so the grid is instant.
+        URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
         let steam = SteamModel()
         _steam = State(initialValue: steam)
         _games = State(initialValue: GameLibrary(session: steam.session))
@@ -18,7 +20,7 @@ struct VNHubApp: App {
                 .environment(steam)
                 .environment(games)
             #if DEBUG
-                .task(id: steam.library.count) { DebugAutomation.run(steam: steam, games: games) }
+                .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
             #endif
         }
         .onChange(of: scenePhase) { old, phase in
@@ -60,7 +62,7 @@ enum DebugAutomation {
 
     static func run(steam: SteamModel, games: GameLibrary) {
         let defaults = UserDefaults.standard
-        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoDownload")), appID != 0,
+        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoDownload")), appID != 0, steam.isLoggedOn,
            !done.contains("download"), let app = steam.library.first(where: { $0.appID == appID })
         {
             done.insert("download")

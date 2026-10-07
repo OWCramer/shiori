@@ -1,3 +1,4 @@
+import BackgroundTasks
 import Observation
 import OSLog
 import SteamKit
@@ -26,6 +27,8 @@ struct GameRecord: Codable, Equatable {
 final class GameLibrary {
     enum Status: Equatable {
         case notInstalled
+        /// Waiting for the download ahead of it; one game downloads at a time.
+        case queued
         case preparing
         case downloading(DownloadProgress)
         /// A download was started and not finished; resuming continues from the finished chunks.
@@ -41,6 +44,12 @@ final class GameLibrary {
 
     private let session: SteamSession
     private var tasks: [UInt32: Task<Void, Never>] = [:]
+    /// The game downloading now, and the ones waiting behind it.
+    private(set) var activeDownload: UInt32?
+    private(set) var queue: [UInt32] = []
+    /// Keeps the active download running while VN Hub is in the background.
+    private var backgroundTask: BGContinuedProcessingTask?
+    private static let backgroundTaskPrefix = "com.owencramer.vnhub.download"
     /// Downloads paused because the app went to the background, to restart on return.
     private var resumeOnForeground: [UInt32: String] = [:]
 
@@ -65,8 +74,20 @@ final class GameLibrary {
 
     func status(for appID: UInt32) -> Status { statuses[appID] ?? .notInstalled }
 
-    var isDownloading: Bool {
-        statuses.values.contains { if case .downloading = $0 { true } else if case .preparing = $0 { true } else { false } }
+    var isDownloading: Bool { activeDownload != nil }
+
+    /// Downloads that are running, queued, paused or failed, for the downloads list.
+    var downloadItems: [UInt32] {
+        statuses.compactMap { appID, status in
+            switch status {
+            case .queued, .preparing, .downloading, .paused, .failed: appID
+            default: nil
+            }
+        }
+        .sorted { a, b in
+            let rank = { (id: UInt32) -> Int in id == self.activeDownload ? 0 : (self.queue.firstIndex(of: id).map { $0 + 1 } ?? 1000) }
+            return rank(a) < rank(b)
+        }
     }
 
     // MARK: - Folders
@@ -119,13 +140,21 @@ final class GameLibrary {
     // MARK: - Download
 
     /// Starts or resumes downloading the game into its folder.
-    func download(_ app: AppInfo) {
-        startDownload(appID: app.appID, name: app.name)
+    func download(_ game: LibraryGame) {
+        startDownload(appID: game.appID, name: game.name)
     }
 
     private func startDownload(appID: UInt32, name: String) {
         guard tasks[appID] == nil else { return }
         names[appID] = name
+        if let active = activeDownload, active != appID {
+            if !queue.contains(appID) { queue.append(appID) }
+            statuses[appID] = .queued
+            return
+        }
+        queue.removeAll { $0 == appID }
+        activeDownload = appID
+        beginBackgroundTask(appID: appID, name: name)
         let folder = folder(appID: appID, name: name)
         let install = install(appID: appID, folder: folder)
         statuses[appID] = .preparing
@@ -151,8 +180,18 @@ final class GameLibrary {
                 log.error("Download \(appID) failed: \(String(describing: error), privacy: .public)")
             }
             tasks[appID] = nil
+            activeDownload = nil
+            if let name = pendingDeletes.removeValue(forKey: appID) { performDelete(appID: appID, name: name) }
+            endBackgroundTask(success: { if case .installed = statuses[appID] { true } else { false } }())
             updateIdleTimer()
+            startNextQueued()
         }
+    }
+
+    private func startNextQueued() {
+        guard activeDownload == nil, let next = queue.first, let name = names[next] else { return }
+        queue.removeFirst()
+        startDownload(appID: next, name: name)
     }
 
     private func report(_ progress: DownloadProgress, for appID: UInt32) {
@@ -163,6 +202,7 @@ final class GameLibrary {
         case .downloading, .finishing:
             let before = lastProgress(appID).map { Int($0.fraction * 20) } ?? -1
             statuses[appID] = .downloading(progress)
+            updateBackgroundTask(progress)
             if Int(progress.fraction * 20) != before {
                 log.notice("Download \(appID): \(progress.completedBytes) of \(progress.totalBytes) bytes, \(progress.downloadedBytes) fetched")
             }
@@ -176,6 +216,11 @@ final class GameLibrary {
     }
 
     func pause(appID: UInt32) {
+        if queue.contains(appID) {
+            queue.removeAll { $0 == appID }
+            statuses[appID] = .paused(nil)
+            return
+        }
         tasks[appID]?.cancel()
     }
 
@@ -211,7 +256,7 @@ final class GameLibrary {
     /// Why the game can't be played, or nil if Play should be offered.
     func playBlocker(appID: UInt32) -> String? {
         guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
-        guard let engine = record.engine else { return "No supported engine was recognised in this game." }
+        guard let engine = record.engine else { return "Downloaded, not playable yet: VN Hub didn't recognise this game's engine." }
         guard engine.engine == RenPyEngine.id else {
             return "Downloaded, not playable yet: \(EngineDetection.displayName(for: engine.engine)) isn't supported."
         }
@@ -261,14 +306,27 @@ final class GameLibrary {
             }
             statuses[appID] = .installed(record)
             tasks[appID] = nil
+            if let name = pendingDeletes.removeValue(forKey: appID) { performDelete(appID: appID, name: name) }
         }
     }
 
     // MARK: - Delete
 
+    /// Deletes the game's folder and bookkeeping. A running download or verify is stopped
+    /// first, so nothing writes into the folder while it's being removed.
     func delete(appID: UInt32, name: String) {
-        tasks[appID]?.cancel()
-        tasks[appID] = nil
+        queue.removeAll { $0 == appID }
+        if let task = tasks[appID] {
+            pendingDeletes[appID] = name
+            task.cancel()
+            return
+        }
+        performDelete(appID: appID, name: name)
+    }
+
+    private var pendingDeletes: [UInt32: String] = [:]
+
+    private func performDelete(appID: UInt32, name: String) {
         let folder = folder(appID: appID, name: name)
         try? install(appID: appID, folder: folder).removeState()
         try? FileManager.default.removeItem(at: Self.runtimeCache(appID: appID))
@@ -278,16 +336,84 @@ final class GameLibrary {
         updateIdleTimer()
     }
 
+    // MARK: - Background continuation
+
+    /// Identifiers iOS accepted a launch handler for; submitting without one throws an
+    /// exception, and registering one twice kills the app.
+    private var registeredTaskIdentifiers: Set<String> = []
+    private var refusedTaskIdentifiers: Set<String> = []
+
+    /// Continued-processing handlers are registered on demand, one per concrete identifier
+    /// matching the `.*` entry in Info.plist.
+    private func registerBackgroundTask(_ identifier: String) -> Bool {
+        if registeredTaskIdentifiers.contains(identifier) { return true }
+        if refusedTaskIdentifiers.contains(identifier) { return false }
+        let accepted = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
+            MainActor.assumeIsolated { self.adopt(task) }
+        }
+        if accepted { registeredTaskIdentifiers.insert(identifier) } else { refusedTaskIdentifiers.insert(identifier) }
+        log.notice("Background download handler for \(identifier, privacy: .public): \(accepted)")
+        return accepted
+    }
+
+    /// Asks iOS to keep the download running if the user leaves the app. iOS shows its own
+    /// progress UI for it and may decline or end it; then the download pauses as before.
+    private func beginBackgroundTask(appID: UInt32, name: String) {
+        let identifier = "\(Self.backgroundTaskPrefix).\(appID)"
+        guard UIApplication.shared.applicationState == .active, registerBackgroundTask(identifier) else { return }
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: "Downloading \(name)", subtitle: "Starting…")
+        request.strategy = .fail
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            log.notice("Background continuation unavailable: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func adopt(_ task: BGTask) {
+        guard let task = task as? BGContinuedProcessingTask else { return }
+        guard let appID = activeDownload, task.identifier.hasSuffix(".\(appID)") else {
+            task.setTaskCompleted(success: false)
+            return
+        }
+        task.progress.totalUnitCount = 1000
+        task.expirationHandler = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                // iOS needs the time back: pause, and pick up again when the app returns.
+                if let name = self.name(of: appID) { self.resumeOnForeground[appID] = name }
+                self.backgroundTask = nil
+                self.tasks[appID]?.cancel()
+                task.setTaskCompleted(success: false)
+            }
+        }
+        backgroundTask = task
+        log.notice("Background continuation granted for \(appID)")
+    }
+
+    private func updateBackgroundTask(_ progress: DownloadProgress) {
+        guard let task = backgroundTask else { return }
+        task.progress.completedUnitCount = Int64(progress.fraction * 1000)
+        let done = progress.completedBytes.formatted(.byteCount(style: .file))
+        let total = progress.totalBytes.formatted(.byteCount(style: .file))
+        task.updateTitle(task.title, subtitle: "\(done) of \(total)")
+    }
+
+    private func endBackgroundTask(success: Bool) {
+        guard let task = backgroundTask else { return }
+        backgroundTask = nil
+        task.setTaskCompleted(success: success)
+    }
+
     // MARK: - App lifecycle
 
     /// iOS suspends the app shortly after it leaves the screen, which would stall the CDN
     /// requests mid-flight. Pause cleanly instead and pick up again on return.
     func didEnterBackground() {
-        for (appID, task) in tasks {
-            guard case .downloading = statuses[appID] else { continue }
-            if let name = name(of: appID) { resumeOnForeground[appID] = name }
-            task.cancel()
-        }
+        // With a continued-processing task the download keeps going; otherwise pause it.
+        guard backgroundTask == nil, let appID = activeDownload, let task = tasks[appID] else { return }
+        if let name = name(of: appID) { resumeOnForeground[appID] = name }
+        task.cancel()
     }
 
     func willEnterForeground() {

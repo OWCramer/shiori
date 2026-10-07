@@ -2,60 +2,62 @@ import SteamKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Per-game screen: install, pause, resume, verify and delete, plus where the files are.
+/// The page for one game, in the style of the user's Tana app: hero artwork with the logo
+/// over it, a dark backdrop tinted by the art, and the details floating on glass.
 struct GameDetailView: View {
-    let app: AppInfo
+    let game: LibraryGame
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
+    @Environment(\.scenePhase) private var scenePhase
     @State private var confirmingDelete = false
     @State private var importingPatch = false
     @State private var confirmingRemovePatches = false
     @State private var patchFiles: [PatchStore.PatchFile] = []
     @State private var patchMessage: String?
-    @Environment(\.scenePhase) private var scenePhase
+    @State private var overscroll: CGFloat = 0
+    @Namespace private var glassNamespace
 
-    private var folder: URL { games.folder(appID: app.appID, name: app.name) }
-
-    private var status: GameLibrary.Status { games.status(for: app.appID) }
+    private var appID: UInt32 { game.appID }
+    private var folder: URL { games.folder(appID: appID, name: game.name) }
+    private var status: GameLibrary.Status { games.status(for: appID) }
+    private var record: GameRecord? { if case let .installed(record) = status { record } else { nil } }
 
     var body: some View {
-        List {
-            Section {
-                LabeledContent("App ID", value: String(app.appID))
-                if case .installed = status {} else if let size = estimatedSize {
-                    LabeledContent("Size (approx.)", value: size.formatted(.byteCount(style: .file)))
-                }
-            }
-
-            Section { statusContent }
-
-            if case let .installed(record) = status {
-                Section("Installed") {
-                    LabeledContent("Engine", value: engineDescription(record.engine))
-                    if let python = record.engine?.details["python"] {
-                        LabeledContent("Python", value: python)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                GameHeroHeader(game: game, subtitle: subtitle, overscroll: overscroll)
+                actionRow
+                progressCard
+                playBlockerNote
+                chips
+                if let record { statTiles(record) }
+                if record != nil {
+                    GameSection(title: "Patches", systemImage: "bandage") { patchesCard }
+                    if let report = games.verifyReports[appID] {
+                        GameSection(title: "Verify", systemImage: "checkmark.shield") {
+                            VerifyReportView(report: report, patchCount: patchFiles.count).glassCard()
+                        }
                     }
-                    LabeledContent("Size", value: record.sizeBytes.formatted(.byteCount(style: .file)))
-                    LabeledContent("Folder", value: "On My \(UIDevice.current.localizedModel) › VN Hub › Games › \(games.folder(appID: app.appID, name: app.name).lastPathComponent)")
-                        .font(.footnote)
+                    GameSection(title: "Files", systemImage: "folder") { filesCard }
                 }
-                patchesSection
-                if let report = games.verifyReports[app.appID] {
-                    Section("Last verify") { VerifyReportView(report: report, patchCount: patchFiles.count) }
-                }
-                Section {
-                    Button("Delete download", role: .destructive) { confirmingDelete = true }
-                }
+                detailsFooter
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 40)
         }
-        .navigationTitle(app.name)
+        .scrollOverscroll($overscroll)
+        .ignoresSafeArea(edges: .top)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .background { GameBackdrop(game: game) }
+        .environment(\.colorScheme, .dark)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
         .onAppear(perform: reloadPatches)
         .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
-        .onChange(of: games.status(for: app.appID)) { reloadPatches() }
-        .fileImporter(isPresented: $importingPatch, allowedContentTypes: [.zip, .folder, .item]) { result in
-            importPatch(result)
-        }
+        .onChange(of: status) { reloadPatches() }
+        .fileImporter(isPresented: $importingPatch, allowedContentTypes: [.zip, .folder, .item]) { importPatch($0) }
         .confirmationDialog("Remove all patches?", isPresented: $confirmingRemovePatches, titleVisibility: .visible) {
             Button("Remove \(patchFiles.count) patch files", role: .destructive) {
                 try? PatchStore.removeAll(gameFolder: folder)
@@ -64,93 +66,308 @@ struct GameDetailView: View {
         } message: {
             Text("The game goes back to exactly what Steam delivered. Saves are kept.")
         }
-        .confirmationDialog("Delete \(app.name)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete game files and saves", role: .destructive) { games.delete(appID: app.appID, name: app.name) }
+        .confirmationDialog("Delete \(game.name)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete game files and saves", role: .destructive) { games.delete(appID: appID, name: game.name) }
         } message: {
             Text("This removes the game's folder, including any patches and saves in it.")
         }
     }
 
-    @ViewBuilder private var statusContent: some View {
+    // MARK: - Header
+
+    /// Engine · size, or "Visual Novel" before it's downloaded.
+    private var subtitle: String {
+        var parts: [String] = []
+        if let record {
+            parts.append(engineDescription(record.engine))
+            parts.append(record.sizeBytes.formatted(.byteCount(style: .file)))
+        } else {
+            if game.isVisualNovel { parts.append("Visual Novel") }
+            if let size = game.estimatedSize { parts.append(size.formatted(.byteCount(style: .file))) }
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// One prominent primary action for the game's state, and a circular menu.
+    private var actionRow: some View {
+        HStack(spacing: 12) {
+            primaryAction
+                .font(.headline)
+                .buttonStyle(.glassProminent)
+
+            Menu {
+                moreActions
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.headline)
+                    .frame(width: 22, height: 22)
+                    .padding(14)
+            }
+            .buttonStyle(.glass)
+            .accessibilityLabel("More")
+        }
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder private var primaryAction: some View {
         switch status {
         case .notInstalled:
-            Button("Download") { games.download(app) }
+            wideButton("Download", systemImage: "arrow.down.circle.fill", tint: .blue) { games.download(game) }
                 .disabled(!steam.isLoggedOn)
-        case .preparing:
-            HStack {
-                ProgressView()
-                Text("Preparing download…").padding(.leading, 8)
-            }
-            Button("Pause") { games.pause(appID: app.appID) }
-        case let .downloading(progress):
-            DownloadProgressView(progress: progress)
-            Button("Pause") { games.pause(appID: app.appID) }
-        case let .paused(progress):
-            if let progress { DownloadProgressView(progress: progress) }
-            Text("Paused").foregroundStyle(.secondary)
-            Button("Resume") { games.resume(appID: app.appID, name: app.name) }
+        case .queued:
+            wideButton("Queued", systemImage: "clock", tint: .gray) { games.pause(appID: appID) }
+        case .preparing, .downloading:
+            wideButton("Pause", systemImage: "pause.fill", tint: .orange) { games.pause(appID: appID) }
+        case .paused, .failed:
+            wideButton("Resume", systemImage: "arrow.down.circle.fill", tint: .blue) { games.resume(appID: appID, name: game.name) }
                 .disabled(!steam.isLoggedOn)
-            Button("Delete partial download", role: .destructive) { confirmingDelete = true }
-        case let .verifying(progress):
-            ProgressView(value: progress.fraction) {
-                Text("Verifying files…")
-            } currentValueLabel: {
-                Text("\(progress.checkedBytes.formatted(.byteCount(style: .file))) of \(progress.totalBytes.formatted(.byteCount(style: .file)))")
-            }
+        case .verifying:
+            wideButton("Verifying…", systemImage: "checkmark.shield", tint: .gray) {}
+                .disabled(true)
         case .installed:
-            if let blocker = games.playBlocker(appID: app.appID) {
-                Label(blocker, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+            if games.playBlocker(appID: appID) == nil {
+                wideButton("Play", systemImage: "play.fill", tint: .green) { games.play(appID: appID) }
             } else {
-                Button {
-                    games.play(appID: app.appID)
-                } label: {
-                    Label("Play", systemImage: "play.fill").font(.headline)
-                }
-            }
-            Button("Verify files") { games.verify(appID: app.appID) }
-        case let .failed(message, canResume):
-            Text(message).foregroundStyle(.red)
-            if canResume {
-                Button("Resume") { games.resume(appID: app.appID, name: app.name) }
-                    .disabled(!steam.isLoggedOn)
+                wideButton("Not playable yet", systemImage: "exclamationmark.triangle", tint: .gray) {}
+                    .disabled(true)
             }
         }
     }
 
-    @ViewBuilder private var patchesSection: some View {
-        Section {
-            if patchFiles.isEmpty {
-                Text("No patches. Files in the game's patch/game folder replace or add to its game folder.")
-                    .font(.footnote).foregroundStyle(.secondary)
+    private func wideButton(_ title: String, systemImage: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+        }
+        .tint(tint)
+    }
+
+    @ViewBuilder private var moreActions: some View {
+        if record != nil {
+            Button("Verify Files", systemImage: "checkmark.shield") { games.verify(appID: appID) }
+            Button("Import Patch…", systemImage: "square.and.arrow.down") { importingPatch = true }
+            Button("Open Folder in Files", systemImage: "folder") { openInFiles() }
+            if !patchFiles.isEmpty {
+                Button("Remove All Patches", systemImage: "arrow.uturn.backward") { confirmingRemovePatches = true }
             }
-            ForEach(patchFiles.prefix(30)) { file in
+            Divider()
+            Button("Delete Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+        } else if status != .notInstalled {
+            Button("Delete Partial Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+        } else {
+            Text("Download the game for more options")
+        }
+    }
+
+    // MARK: - Status
+
+    @ViewBuilder private var progressCard: some View {
+        switch status {
+        case .preparing:
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Preparing download…").font(.subheadline)
+            }
+            .glassCard()
+            .padding(.horizontal, 20)
+        case let .downloading(progress):
+            downloadProgress(progress, label: progress.phase == .finishing ? "Finishing…" : "Downloading")
+        case let .paused(progress):
+            if let progress { downloadProgress(progress, label: "Paused") }
+        case .queued:
+            Label("Waiting for the download ahead of it", systemImage: "clock")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .glassCard()
+                .padding(.horizontal, 20)
+        case let .failed(message, _):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline).foregroundStyle(.red)
+                .glassCard()
+                .padding(.horizontal, 20)
+        case let .verifying(progress):
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(file.path).font(.footnote.monospaced()).lineLimit(2)
+                    Text("Verifying files").font(.subheadline.weight(.semibold))
                     Spacer()
-                    // Only loose base files can be checked here; a patch may also replace a
-                    // file packed inside one of the game's archives.
+                    Text(progress.fraction.formatted(.percent.precision(.fractionLength(0)))).font(.subheadline.monospacedDigit())
+                }
+                GlassProgressBar(fraction: progress.fraction, tint: .teal)
+            }
+            .glassCard()
+            .padding(.horizontal, 20)
+        default:
+            EmptyView()
+        }
+    }
+
+    private func downloadProgress(_ progress: DownloadProgress, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(label).font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(progress.fraction.formatted(.percent.precision(.fractionLength(0))))
+                    .font(.subheadline.monospacedDigit())
+            }
+            GlassProgressBar(fraction: progress.fraction, tint: .blue)
+            Text("\(progress.completedBytes.formatted(.byteCount(style: .file))) of \(progress.totalBytes.formatted(.byteCount(style: .file)))")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .glassCard()
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder private var playBlockerNote: some View {
+        if record != nil, let blocker = games.playBlocker(appID: appID) {
+            Label(blocker, systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+        }
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal) {
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    if game.isVisualNovel {
+                        GlassChip("Visual Novel", systemImage: "book.pages", tint: .pink)
+                            .glassEffectID("vn", in: glassNamespace)
+                    }
+                    if let engine = record?.engine {
+                        GlassChip(EngineDetection.displayName(for: engine.engine), systemImage: "gearshape.2",
+                                  tint: engine.engine == RenPyEngine.id ? .green : .orange)
+                            .glassEffectID("engine", in: glassNamespace)
+                    }
+                    if !patchFiles.isEmpty {
+                        GlassChip("Patched", systemImage: "bandage", tint: .orange)
+                            .glassEffectID("patched", in: glassNamespace)
+                    }
+                    if let report = games.verifyReports[appID] {
+                        GlassChip(report.isClean ? "Verified" : "Files differ",
+                                  systemImage: report.isClean ? "checkmark.seal.fill" : "exclamationmark.triangle",
+                                  tint: report.isClean ? .teal : .yellow)
+                            .glassEffectID("verify", in: glassNamespace)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    /// Two tiles per row; a grid always fits the width it's given.
+    private func statTiles(_ record: GameRecord) -> some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            StatTile(value: record.sizeBytes.formatted(.byteCount(style: .file)), label: "On this \(UIDevice.current.localizedModel)",
+                     systemImage: "internaldrive", tint: .blue)
+            StatTile(value: record.engine?.version.map { shortVersion($0) } ?? "—",
+                     label: record.engine.map { "\(EngineDetection.displayName(for: $0.engine)) version" } ?? "Engine not recognised",
+                     systemImage: "gearshape.2", tint: .green)
+            StatTile(value: "\(patchFiles.count)", label: patchFiles.count == 1 ? "Patch file" : "Patch files",
+                     systemImage: "bandage", tint: .orange)
+            StatTile(value: "\(saveCount)", label: saveCount == 1 ? "Save" : "Saves",
+                     systemImage: "square.and.arrow.down.on.square", tint: .purple)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func shortVersion(_ version: String) -> String {
+        version.split(separator: ".").prefix(3).joined(separator: ".")
+    }
+
+    private var saveCount: Int {
+        let saves = folder.appendingPathComponent("saves")
+        return ((try? FileManager.default.contentsOfDirectory(atPath: saves.path)) ?? []).filter { $0.hasSuffix(".save") }.count
+    }
+
+    // MARK: - Cards
+
+    private var patchesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if patchFiles.isEmpty {
+                Text("No patches. Files in this game's patch/game folder replace or add to its game folder, and are picked up the next time you play.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(patchFiles.prefix(20)) { file in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(file.path).font(.footnote.monospaced()).lineLimit(2)
+                    Spacer(minLength: 8)
                     if file.overridesBase {
-                        Text("Replaces").font(.caption).foregroundStyle(.orange)
+                        Text("Replaces").font(.caption.weight(.semibold)).foregroundStyle(.orange)
                     }
                 }
             }
-            if patchFiles.count > 30 {
-                Text("and \(patchFiles.count - 30) more").font(.footnote).foregroundStyle(.secondary)
+            if patchFiles.count > 20 {
+                Text("and \(patchFiles.count - 20) more").font(.caption).foregroundStyle(.secondary)
             }
             if let patchMessage {
-                Text(patchMessage).font(.footnote).foregroundStyle(.secondary)
+                Text(patchMessage).font(.caption).foregroundStyle(.secondary)
             }
-            Button("Import patch…", systemImage: "square.and.arrow.down") { importingPatch = true }
-            Button("Open folder in Files", systemImage: "folder") { openInFiles() }
-            if !patchFiles.isEmpty {
-                Button("Remove all patches", systemImage: "arrow.uturn.backward", role: .destructive) {
-                    confirmingRemovePatches = true
+            HStack(spacing: 8) {
+                Button("Import", systemImage: "square.and.arrow.down") { importingPatch = true }
+                    .buttonStyle(.glass)
+                if !patchFiles.isEmpty {
+                    Button("Remove All", systemImage: "arrow.uturn.backward", role: .destructive) { confirmingRemovePatches = true }
+                        .buttonStyle(.glass)
+                        .tint(.red)
                 }
             }
-        } header: {
-            Text("Patches")
+            .font(.subheadline)
+            .padding(.top, 4)
+        }
+        .glassCard()
+    }
+
+    private var filesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("On My \(UIDevice.current.localizedModel) › VN Hub › Games › \(folder.lastPathComponent)")
+                .font(.subheadline)
+            Text("base holds what Steam delivered, patch your changes, saves the game's saves.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Open in Files", systemImage: "folder") { openInFiles() }
+                .buttonStyle(.glass)
+                .font(.subheadline)
+        }
+        .glassCard()
+    }
+
+    private var detailsFooter: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            footerRow("App ID", String(appID))
+            if let record {
+                footerRow("Downloaded", record.installedAt.formatted(date: .abbreviated, time: .omitted))
+                footerRow("Depots", record.depots.map { String($0.depotID) }.joined(separator: ", "))
+                if let python = record.engine?.details["python"] { footerRow("Python", python) }
+            } else if let size = game.estimatedSize {
+                footerRow("Size (approx.)", size.formatted(.byteCount(style: .file)))
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+    }
+
+    private func footerRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+            Spacer()
+            Text(value).foregroundStyle(.primary).multilineTextAlignment(.trailing)
         }
     }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if record != nil {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Open in Files", systemImage: "folder") { openInFiles() }
+            }
+        }
+    }
+
+    // MARK: - Actions
 
     private func reloadPatches() {
         patchFiles = PatchStore.list(gameFolder: folder)
@@ -177,31 +394,10 @@ struct GameDetailView: View {
         if let url = components.url { UIApplication.shared.open(url) }
     }
 
-    private var estimatedSize: UInt64? {
-        // Base-game Windows depots' sizes from PICS; DLC and ownership are settled when downloading.
-        let depots = DepotSelection.windowsDepots(of: app, owned: Set(app.keyValues["depots"]?.children.compactMap { UInt32($0.name) } ?? []))
-            .filter { app.keyValues[path: "depots", String($0.depotID), "dlcappid"] == nil }
-        let total = depots.reduce(0) { $0 + $1.size }
-        return total > 0 ? total : nil
-    }
-
     private func engineDescription(_ engine: EngineMatch?) -> String {
-        guard let engine else { return "Not recognised" }
+        guard let engine else { return "Engine not recognised" }
         let name = EngineDetection.displayName(for: engine.engine)
-        return engine.version.map { "\(name) \($0)" } ?? name
-    }
-}
-
-private struct DownloadProgressView: View {
-    let progress: DownloadProgress
-
-    var body: some View {
-        ProgressView(value: progress.fraction) {
-            Text(progress.phase == .finishing ? "Finishing…" : "Downloading…")
-        } currentValueLabel: {
-            Text("\(progress.completedBytes.formatted(.byteCount(style: .file))) of \(progress.totalBytes.formatted(.byteCount(style: .file))) · \(progress.fraction.formatted(.percent.precision(.fractionLength(0))))")
-                .monospacedDigit()
-        }
+        return engine.version.map { "\(name) \(shortVersion($0))" } ?? name
     }
 }
 
@@ -210,26 +406,29 @@ private struct VerifyReportView: View {
     let patchCount: Int
 
     var body: some View {
-        if report.isClean {
-            Label("All \(report.checkedFiles) files match Steam", systemImage: "checkmark.seal.fill")
-                .foregroundStyle(.green)
-        } else {
-            Label("\(report.problems.count) of \(report.checkedFiles) files differ from Steam", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            ForEach(report.problems.keys.sorted().prefix(20), id: \.self) { path in
-                VStack(alignment: .leading) {
-                    Text(path).font(.footnote.monospaced())
-                    Text(describe(report.problems[path]!)).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            if report.isClean {
+                Label("All \(report.checkedFiles) files match Steam", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.teal)
+            } else {
+                Label("\(report.problems.count) of \(report.checkedFiles) files differ from Steam", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                ForEach(report.problems.keys.sorted().prefix(20), id: \.self) { path in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(path).font(.footnote.monospaced())
+                        Text(describe(report.problems[path]!)).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
+            if !report.extraFiles.isEmpty {
+                Text("\(report.extraFiles.count) extra files in base that aren't from Steam").font(.caption).foregroundStyle(.secondary)
+            }
+            if patchCount > 0 {
+                Text("\(patchCount) patch file\(patchCount == 1 ? "" : "s") are layered on top; they live in patch/, not in the Steam files.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
-        if !report.extraFiles.isEmpty {
-            Text("\(report.extraFiles.count) extra files not from Steam").foregroundStyle(.secondary)
-        }
-        if patchCount > 0 {
-            Text("\(patchCount) patch file\(patchCount == 1 ? "" : "s") layered on top (see Patches); they aren't part of the Steam files.")
-                .font(.footnote).foregroundStyle(.secondary)
-        }
+        .font(.subheadline)
     }
 
     private func describe(_ problem: VerifyReport.Problem) -> String {

@@ -89,6 +89,14 @@ struct PICSFixtureTests {
         #expect(app.name == "Highway Blossoms")
         #expect(app.isGame)
         #expect(kv["depots"] != nil)
+        #expect(app.isVisualNovel)
+        #expect(app.storeTags.first == 44868)
+        let base = "https://shared.steamstatic.com/store_item_assets/steam/apps/451760/"
+        #expect(app.capsuleURL()?.absoluteString == base + "library_600x900.jpg")
+        #expect(app.capsuleURL(large: true)?.absoluteString == base + "library_600x900_2x.jpg")
+        #expect(app.heroURL()?.absoluteString == base + "library_hero.jpg")
+        #expect(app.logoURL()?.absoluteString == base + "logo.png")
+        #expect(app.headerURL?.absoluteString == base + "header.jpg")
     }
 
     @Test func parsesAnonymousPackageInfo() throws {

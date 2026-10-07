@@ -38,6 +38,45 @@ public struct AppInfo: Hashable, Sendable, Identifiable {
     public var type: String { keyValues[path: "common", "type"]?.value ?? "" }
     public var isGame: Bool { type.caseInsensitiveCompare("game") == .orderedSame }
 
+    /// Steam store tag ids, most relevant first.
+    public var storeTags: [UInt32] { keyValues[path: "common", "store_tags"]?.children.compactMap(\.uint32) ?? [] }
+
+    /// Steam's "Visual Novel" store tag.
+    public static let visualNovelTag: UInt32 = 3799
+    public var isVisualNovel: Bool { storeTags.contains(Self.visualNovelTag) }
+
+    /// Portrait library capsule (600×900, or 1200×1800 with `large`).
+    public func capsuleURL(large: Bool = false) -> URL? {
+        libraryAsset("library_capsule", large: large) ?? assetURL(large ? "library_600x900_2x.jpg" : "library_600x900.jpg")
+    }
+
+    /// Wide library hero banner.
+    public func heroURL(large: Bool = false) -> URL? {
+        libraryAsset("library_hero", large: large) ?? assetURL(large ? "library_hero_2x.jpg" : "library_hero.jpg")
+    }
+
+    /// Transparent title logo drawn over the hero.
+    public func logoURL(large: Bool = false) -> URL? {
+        libraryAsset("library_logo", large: large)
+    }
+
+    /// Landscape store header (460×215), the fallback when a game has no library art.
+    public var headerURL: URL? {
+        assetURL(keyValues[path: "common", "header_image", "english"]?.value ?? "header.jpg")
+    }
+
+    private func libraryAsset(_ kind: String, large: Bool) -> URL? {
+        let images = keyValues[path: "common", "library_assets_full", kind]
+        let image = (large ? images?["image2x"] : nil) ?? images?["image"]
+        guard let file = image?["english"]?.value ?? image?.children.first?.value else { return nil }
+        return assetURL(file)
+    }
+
+    /// Store assets live on Steam's public CDN, keyed by app id; newer ones carry a hash path.
+    private func assetURL(_ file: String) -> URL? {
+        URL(string: "https://shared.steamstatic.com/store_item_assets/steam/apps/\(appID)/\(file)")
+    }
+
     public init(appID: UInt32, changeNumber: UInt32, keyValues: KeyValue) {
         self.appID = appID
         self.changeNumber = changeNumber

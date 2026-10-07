@@ -2,7 +2,7 @@ name: VNHub
 options:
   bundleIdPrefix: com.owencramer
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "26.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -22,7 +22,10 @@ targets:
       - App/Sources
       - App/Resources
       - path: App/RenPy
-        excludes: ["*.py"]
+        excludes: ["*.py", "IAPHelper.m"]
+      # Ren'Py's own StoreKit 1 helper, kept as shipped in renios.
+      - path: App/RenPy/IAPHelper.m
+        compilerFlags: ["-Wno-deprecated-declarations"]
       - path: App/RenPy/vnhub_main.py
         buildPhase: resources
     # Merged with the generated Info.plist. Game folders in Documents show up in the Files
@@ -33,6 +36,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIFileSharingEnabled: true
+        # iOS 26 continued-processing tasks keep a download running in the background.
+        BGTaskSchedulerPermittedIdentifiers: ["com.owencramer.vnhub.download.*"]
+        UIBackgroundModes: ["processing"]
         LSSupportsOpeningDocumentsInPlace: true
     dependencies:
       - package: SteamKit

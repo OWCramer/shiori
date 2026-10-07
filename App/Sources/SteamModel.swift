@@ -17,7 +17,8 @@ final class SteamModel {
 
     private(set) var state: SessionState = .signedOut
     private(set) var signIn: SignIn = .idle
-    private(set) var library: [AppInfo] = []
+    /// Owned games, from the on-disk cache until Steam answers.
+    private(set) var library: [LibraryGame] = LibraryCache.load()
     private(set) var isLoadingLibrary = false
     private(set) var libraryError: String?
     private(set) var resumeError: String?
@@ -131,6 +132,7 @@ final class SteamModel {
     func signOut() async {
         await session.signOut()
         library = []
+        LibraryCache.clear()
         hasStoredSession = false
     }
 
@@ -140,7 +142,8 @@ final class SteamModel {
         libraryError = nil
         defer { isLoadingLibrary = false }
         do {
-            library = try await session.ownedApps()
+            library = try await session.ownedApps().map(LibraryGame.init)
+            LibraryCache.save(library)
         } catch {
             libraryError = Self.message(for: error)
         }
