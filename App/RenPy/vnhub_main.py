@@ -122,6 +122,50 @@ def _patch_renpy():
     loader.get_path = get_path
     loader.load = load
 
+    # Gamepad diagnostics: whether Ren'Py sees a controller and gets its events.
+    controller = renpy.display.controller
+    original_init = controller.init
+    original_start = controller.start
+    original_post = controller.post_event
+    logged = [0]
+
+    def _say(text):
+        print("Shiori pad: " + text)
+        sys.stdout.flush()
+
+    def init():
+        original_init()
+        try:
+            import pygame_sdl2
+            _say("init, pad_enabled=%r, controllers=%r, joysticks=%r" % (
+                renpy.game.preferences.pad_enabled, pygame_sdl2.controller.get_count(),
+                pygame_sdl2.joystick.get_count()))
+        except Exception as e:
+            _say("init (%r)" % (e,))
+
+    def start(index):
+        _say("start %r" % (index,))
+        return original_start(index)
+
+    def post_event(control, state, repeat):
+        if logged[0] < 60 and not repeat:
+            logged[0] += 1
+            _say("%s %s focused=%r" % (control, state, renpy.display.interface.keyboard_focused))
+        return original_post(control, state, repeat)
+
+    ticks = [0]
+
+    def report_focus():
+        ticks[0] += 1
+        if ticks[0] in (100, 600):
+            _say("keyboard_focused=%r mouse_focused=%r" % (
+                renpy.display.interface.keyboard_focused, getattr(renpy.display.interface, "mouse_focused", None)))
+
+    renpy.config.periodic_callbacks.append(report_focus)
+    controller.init = init
+    controller.start = start
+    controller.post_event = post_event
+
     # bootstrap sets config.logdir to the game's base folder just before main();
     # log.txt and traceback.txt go to the cache instead.
     original_main = renpy.main.main
