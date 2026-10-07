@@ -9,6 +9,7 @@ struct GameDetailView: View {
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
     @Environment(LibraryCuration.self) private var curation
+    @Environment(EngineScanStore.self) private var engineScans
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmingDelete = false
     @State private var importingPatch = false
@@ -30,6 +31,7 @@ struct GameDetailView: View {
                 actionRow
                 progressCard
                 playBlockerNote
+                engineScanNote
                 chips
                 if let record { statTiles(record) }
                 if record != nil {
@@ -57,6 +59,9 @@ struct GameDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
         .onAppear(perform: reloadPatches)
+        .task(id: steam.isLoggedOn) {
+            if record == nil, steam.isLoggedOn { engineScans.scan([appID]) }
+        }
         .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
         .onChange(of: status) { reloadPatches() }
         .fileImporter(isPresented: $importingPatch, allowedContentTypes: [.zip, .folder, .item]) { importPatch($0) }
@@ -150,6 +155,10 @@ struct GameDetailView: View {
                systemImage: curation.isVisualNovel(game) ? "eye.slash" : "plus.circle") {
             curation.toggle(game)
         }
+        if record == nil {
+            Button("Check Engine Again", systemImage: "magnifyingglass") { engineScans.scan([appID], force: true) }
+                .disabled(!steam.isLoggedOn)
+        }
         Divider()
         if record != nil {
             Button("Verify Files", systemImage: "checkmark.shield") { games.verify(appID: appID) }
@@ -221,6 +230,44 @@ struct GameDetailView: View {
         }
         .glassCard()
         .padding(.horizontal, 20)
+    }
+
+    /// Before download: the engine read from Steam's manifests and whether it'll play.
+    @ViewBuilder private var engineScanNote: some View {
+        if record == nil {
+            if let scan = engineScans.result(for: appID) {
+                if let error = scan.error {
+                    Label("Couldn't check the engine: \(error)", systemImage: "questionmark.circle")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20)
+                } else {
+                    let playability = Playability(scan.engine)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(engineLine(scan), systemImage: playability == .playable ? "checkmark.circle.fill" : "exclamationmark.triangle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(playability == .playable ? .green : .orange)
+                        Text(playabilityText(playability)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    .glassCard()
+                    .padding(.horizontal, 20)
+                }
+            } else if engineScans.scanning == appID {
+                Label("Checking the engine…", systemImage: "magnifyingglass").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20)
+            }
+        }
+    }
+
+    private func engineLine(_ scan: EngineScanResult) -> String {
+        let engine = engineDescription(scan.engine)
+        return scan.installSize > 0 ? "\(engine) · \(scan.installSize.formatted(.byteCount(style: .file)))" : engine
+    }
+
+    private func playabilityText(_ playability: Playability) -> String {
+        switch playability {
+        case .playable: "Playable in VN Hub."
+        case let .needsRuntime(reason): reason
+        case let .unsupportedEngine(name): "\(name) games can be downloaded and patched, but not played in VN Hub yet."
+        case .unknownEngine: "VN Hub doesn't recognise this game's engine."
+        }
     }
 
     @ViewBuilder private var playBlockerNote: some View {

@@ -12,6 +12,7 @@ struct LibraryView: View {
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
     @Environment(LibraryCuration.self) private var curation
+    @Environment(EngineScanStore.self) private var engineScans
     @Environment(\.horizontalSizeClass) private var sizeClass
     @AppStorage("libraryFilter") private var filter: Filter = .visualNovels
     @State private var query = ""
@@ -69,6 +70,12 @@ struct LibraryView: View {
             .refreshable { await steam.loadLibrary() }
             .navigationTitle("Library")
             .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
+            // Learn each visual novel's engine from its manifests, so the grid can say
+            // what's playable before anything is downloaded.
+            .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {
+                guard steam.isLoggedOn else { return }
+                engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && games.status(for: $0.appID) == .notInstalled }.map(\.appID))
+            }
             #if DEBUG
             // `-VNHubOpenGame <appid>` opens that game's screen once the library loads.
             .task(id: steam.library.count) {
@@ -122,11 +129,13 @@ struct LibraryView: View {
 struct CapsuleCard: View {
     let game: LibraryGame
     let status: GameLibrary.Status
+    @Environment(EngineScanStore.self) private var engineScans
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             CapsuleArt(game: game)
                 .overlay(alignment: .bottom) { statusOverlay }
+                .overlay(alignment: .topLeading) { engineBadge }
                 .clipShape(.rect(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.08)))
                 .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
@@ -137,6 +146,21 @@ struct CapsuleCard: View {
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
+    }
+
+    /// Before download: what the game runs on, from its manifests. Green when playable.
+    @ViewBuilder private var engineBadge: some View {
+        if status == .notInstalled, let scan = engineScans.result(for: game.appID), scan.error == nil {
+            let playable = Playability(scan.engine) == .playable
+            Text(Playability.badge(scan.engine))
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(playable ? Color.green.opacity(0.85) : Color.black.opacity(0.6), in: .capsule)
+                .padding(6)
+                .accessibilityLabel(playable ? "Playable, \(Playability.badge(scan.engine))" : Playability.badge(scan.engine))
+        }
     }
 
     @ViewBuilder private var statusOverlay: some View {
