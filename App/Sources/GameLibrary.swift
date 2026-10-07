@@ -251,6 +251,77 @@ final class GameLibrary {
         return record
     }
 
+    // MARK: - Saves (iCloud)
+
+    enum SaveSyncState: Equatable {
+        case idle
+        case syncing
+        case synced(Date, String)
+        case unavailable
+        case failed(String)
+    }
+
+    private(set) var saveSync: [UInt32: SaveSyncState] = [:]
+    /// The game being played, whose saves are pushed when the app backgrounds or the game quits.
+    private var playingAppID: UInt32?
+
+    func isCloudSaveEnabled(_ appID: UInt32) -> Bool {
+        UserDefaults.standard.object(forKey: "iCloudSaves.\(appID)") as? Bool ?? true
+    }
+
+    func setCloudSave(_ appID: UInt32, enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "iCloudSaves.\(appID)")
+        if enabled { Task { await syncSaves(appID: appID, direction: .both) } }
+    }
+
+    /// Syncs one game's saves with iCloud off the main thread and records the outcome.
+    /// A sync already running for the game is waited for first, so two never overlap.
+    func syncSaves(appID: UInt32, direction: SaveSync.Direction) async {
+        guard isCloudSaveEnabled(appID), case let .installed(record) = statuses[appID] else { return }
+        if let running = syncTasks[appID] { await running.value }
+        let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+        saveSync[appID] = .syncing
+        let task = Task.detached(priority: .userInitiated) { Self.syncNow(appID: appID, saves: saves, direction: direction) }
+        syncTasks[appID] = Task { _ = await task.value }
+        let outcome = await task.value
+        syncTasks[appID] = nil
+        noteSyncOutcome(outcome, for: appID)
+    }
+
+    private var syncTasks: [UInt32: Task<Void, Never>] = [:]
+
+    /// Pulls every installed game's saves, e.g. at launch.
+    func syncAllSaves() async {
+        let installed = statuses.compactMap { appID, status in if case .installed = status { appID } else { nil } }
+        for appID in installed { await syncSaves(appID: appID, direction: .both) }
+    }
+
+    /// Synchronous push for the running game, when there's no time for a task: the app
+    /// going to the background, or the game quitting just before VN Hub exits.
+    func pushRunningGameSaves() {
+        guard let appID = playingAppID, isCloudSaveEnabled(appID), case let .installed(record) = statuses[appID] else { return }
+        let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+        noteSyncOutcome(Self.syncNow(appID: appID, saves: saves, direction: .push), for: appID)
+    }
+
+    private func noteSyncOutcome(_ outcome: Result<SaveSync.Result, Error>, for appID: UInt32) {
+        switch outcome {
+        case let .success(result):
+            saveSync[appID] = .synced(.now, result.summary)
+            log.notice("Saves \(appID): \(result.summary, privacy: .public)")
+        case let .failure(error as SaveSync.Error) where error == .unavailable:
+            saveSync[appID] = .unavailable
+        case let .failure(error):
+            saveSync[appID] = .failed(error.localizedDescription)
+            log.error("Save sync \(appID) failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private nonisolated static func syncNow(appID: UInt32, saves: URL, direction: SaveSync.Direction) -> Result<SaveSync.Result, Error> {
+        guard let root = SaveSync.remoteRoot() else { return .failure(SaveSync.Error.unavailable) }
+        return Result { try SaveSync.sync(local: saves, remote: root.appendingPathComponent(String(appID), isDirectory: true), direction: direction) }
+    }
+
     // MARK: - Play
 
     /// Why the game can't be played, or nil if Play should be offered.
@@ -271,12 +342,19 @@ final class GameLibrary {
         let folder = folder(appID: appID, name: record.name)
         let saves = folder.appendingPathComponent("saves", isDirectory: true)
         try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
-        log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
-        // Start from a run-loop block, not the main dispatch queue: the game runs inside this
-        // call for as long as it plays, and SDL's nested run loop can only drain the main
-        // queue (main-actor tasks, timers) if we aren't already occupying it.
-        RunLoop.main.perform(inModes: [.default]) {
-            RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID))
+        playingAppID = appID
+        Task {
+            // Bring down saves made on other devices first.
+            await syncSaves(appID: appID, direction: .pull)
+            log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
+            // Start from a run-loop block, not the main dispatch queue: the game runs inside
+            // this call for as long as it plays, and SDL's nested run loop can only drain the
+            // main queue (main-actor tasks, timers) if we aren't already occupying it.
+            RunLoop.main.perform(inModes: [.default]) {
+                RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID)) {
+                    MainActor.assumeIsolated { self.pushRunningGameSaves() }
+                }
+            }
         }
     }
 

@@ -19,6 +19,7 @@ struct VNHubApp: App {
             RootView()
                 .environment(steam)
                 .environment(games)
+                .task { await games.syncAllSaves() }
             #if DEBUG
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
             #endif
@@ -27,6 +28,7 @@ struct VNHubApp: App {
             switch phase {
             case .background:
                 vnhub_renpy_did_enter_background()
+                if vnhub_renpy_is_running() != 0 { games.pushRunningGameSaves() }
                 games.didEnterBackground()
             case .inactive where old == .active:
                 vnhub_renpy_will_resign_active()

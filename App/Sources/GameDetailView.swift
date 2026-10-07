@@ -32,6 +32,7 @@ struct GameDetailView: View {
                 chips
                 if let record { statTiles(record) }
                 if record != nil {
+                    GameSection(title: "Saves", systemImage: "icloud") { savesCard }
                     GameSection(title: "Patches", systemImage: "bandage") { patchesCard }
                     if let report = games.verifyReports[appID] {
                         GameSection(title: "Verify", systemImage: "checkmark.shield") {
@@ -318,6 +319,52 @@ struct GameDetailView: View {
             .padding(.top, 4)
         }
         .glassCard()
+    }
+
+    private var savesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: Binding(
+                get: { games.isCloudSaveEnabled(appID) },
+                set: { games.setCloudSave(appID, enabled: $0) }
+            )) {
+                Label("Sync with iCloud", systemImage: "icloud")
+            }
+            .font(.subheadline)
+
+            if games.isCloudSaveEnabled(appID) {
+                HStack(spacing: 8) {
+                    syncStatus
+                    Spacer(minLength: 8)
+                    Button("Sync Now", systemImage: "arrow.triangle.2.circlepath") {
+                        Task { await games.syncSaves(appID: appID, direction: .both) }
+                    }
+                    .buttonStyle(.glass)
+                    .font(.subheadline)
+                    .disabled(games.saveSync[appID] == .syncing)
+                }
+            }
+            Text("Saves download from iCloud before you play and upload when you stop. If two devices changed the same save, the older copy is kept in saves/conflicts.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .glassCard()
+    }
+
+    @ViewBuilder private var syncStatus: some View {
+        switch games.saveSync[appID] ?? .idle {
+        case .idle:
+            Text("Not synced yet").font(.caption).foregroundStyle(.secondary)
+        case .syncing:
+            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Syncing…").font(.caption) }
+        case let .synced(date, summary):
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary).font(.caption.weight(.semibold))
+                Text(date, format: .relative(presentation: .named)).font(.caption2).foregroundStyle(.secondary)
+            }
+        case .unavailable:
+            Label("iCloud unavailable", systemImage: "icloud.slash").font(.caption).foregroundStyle(.orange)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.icloud").font(.caption).foregroundStyle(.red).lineLimit(3)
+        }
     }
 
     private var filesCard: some View {

@@ -107,7 +107,7 @@ extension RenPyEngine {
     /// bootstrap (`vnhub_main.py`) and whose `base/lib` links to the game's Python library.
     /// The bootstrap keeps caches out of the game's `base/` and then runs the game's launcher.
     @MainActor
-    static func launch(gameFolder: URL, match: EngineMatch, saves: URL, cache: URL) -> Never {
+    static func launch(gameFolder: URL, match: EngineMatch, saves: URL, cache: URL, afterGame: () -> Void) -> Never {
         let base = gameFolder.appendingPathComponent("base", isDirectory: true)
         let status: Int32
         do {
@@ -122,6 +122,7 @@ extension RenPyEngine {
             status = 1
         }
         NSLog("VN Hub: Ren'Py exited with status %d", status)
+        afterGame()
         exit(status == 0 ? 0 : 1)
     }
 
