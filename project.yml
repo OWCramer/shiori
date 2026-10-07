@@ -47,6 +47,10 @@ targets:
         BGTaskSchedulerPermittedIdentifiers: ["com.owencramer.vnhub.download.*"]
         UIBackgroundModes: ["processing"]
         LSSupportsOpeningDocumentsInPlace: true
+        # Game Mode (lower Bluetooth latency for controllers and AirPods, background work
+        # throttled) while the app is full screen: opt in, and say it's a game.
+        GCSupportsGameMode: true
+        LSApplicationCategoryType: public.app-category.adventure-games
     # iCloud Documents container that mirrors each game's saves/ (SaveSync).
     entitlements:
       path: App/VNHub.entitlements
