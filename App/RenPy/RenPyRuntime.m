@@ -18,16 +18,62 @@ void SDL_OnApplicationDidBecomeActive(void);
 
 static int running = 0;
 
-#if DEBUG
-// SDL internals (non-static in libSDL2.a), used only to replay scripted input in testing.
+// SDL internals (non-static in libSDL2.a).
 typedef struct SDL_Window SDL_Window;
 SDL_Window *SDL_GL_GetCurrentWindow(void);
-int SDL_SendMouseMotion(SDL_Window *window, unsigned int mouseID, int relative, int x, int y);
-int SDL_SendMouseButton(SDL_Window *window, unsigned int mouseID, unsigned char state, unsigned char button);
 int SDL_SendKeyboardKey(unsigned char state, int scancode);
 
+enum { ScancodeH = 11, ScancodeEscape = 41, ScancodeReturn = 40 };
+
+static void PressKey(int scancode) {
+    SDL_SendKeyboardKey(1, scancode);
+    SDL_SendKeyboardKey(0, scancode);
+}
+
+/// Touch gestures from the spec, on top of Ren'Py's own touch handling (tap advances):
+/// two-finger tap opens the game menu (Escape), long-press hides the text box (`h`).
+/// Both delay touches until they fail, so a recognised gesture never also reaches the
+/// game as a click, which would advance the dialogue.
+@interface VNHubGestures : NSObject
+@end
+
+@implementation VNHubGestures
+
++ (instancetype)shared {
+    static VNHubGestures *shared;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ shared = [VNHubGestures new]; });
+    return shared;
+}
+
+- (void)attachToWindow:(UIWindow *)window {
+    UITapGestureRecognizer *menu = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openMenu:)];
+    menu.numberOfTouchesRequired = 2;
+    menu.delaysTouchesBegan = YES;
+    [window addGestureRecognizer:menu];
+
+    UILongPressGestureRecognizer *hide = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(hideText:)];
+    hide.minimumPressDuration = 0.45; // Just ahead of Ren'Py's own 0.5 s long-press.
+    hide.delaysTouchesBegan = YES;
+    [window addGestureRecognizer:hide];
+}
+
+- (void)openMenu:(UITapGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateRecognized) PressKey(ScancodeEscape);
+}
+
+- (void)hideText:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateBegan) PressKey(ScancodeH);
+}
+
+@end
+
+#if DEBUG
+int SDL_SendMouseMotion(SDL_Window *window, unsigned int mouseID, int relative, int x, int y);
+int SDL_SendMouseButton(SDL_Window *window, unsigned int mouseID, unsigned char state, unsigned char button);
+
 /// Replays input from the `VNHUB_INPUT` environment variable: `;`-separated steps of
-/// `<seconds>:<x>,<y>` (tap at window points), `<seconds>:esc` or `<seconds>:enter`,
+/// `<seconds>:<x>,<y>` (tap at window points), `<seconds>:esc`, `:enter` or `:h`,
 /// timed from game start. Simulator testing only.
 static void ScheduleScriptedInput(void) {
     const char *script = getenv("VNHUB_INPUT");
@@ -42,10 +88,8 @@ static void ScheduleScriptedInput(void) {
             SDL_Window *window = SDL_GL_GetCurrentWindow();
             if (!window) return;
             NSLog(@"VN Hub input: %@", action);
-            if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"]) {
-                int scancode = [action isEqualToString:@"esc"] ? 41 : 40;
-                SDL_SendKeyboardKey(1, scancode);
-                SDL_SendKeyboardKey(0, scancode);
+            if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"] || [action isEqualToString:@"h"]) {
+                PressKey([action isEqualToString:@"esc"] ? ScancodeEscape : [action isEqualToString:@"h"] ? ScancodeH : ScancodeReturn);
                 return;
             }
             NSArray<NSString *> *xy = [action componentsSeparatedByString:@","];
@@ -72,7 +116,8 @@ static UIWindowScene *ActiveWindowScene(void) {
 
 /// SDL 2.0.20 creates its UIWindow with -initWithFrame:, which in a scene-based app
 /// (SwiftUI) gives a window attached to no scene, so it never appears. Give SDL's window
-/// class an -initWithFrame: that attaches it to the active scene instead.
+/// class an -initWithFrame: that attaches it to the active scene instead, and add the
+/// touch gestures while we're there.
 static void AttachSDLWindowsToScene(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -82,10 +127,11 @@ static void AttachSDLWindowsToScene(void) {
         IMP frameInit = class_getMethodImplementation(UIWindow.class, @selector(initWithFrame:));
         IMP replacement = imp_implementationWithBlock(^id(UIWindow *self, CGRect frame) {
             UIWindowScene *scene = ActiveWindowScene();
-            if (scene) {
-                return ((id (*)(id, SEL, UIWindowScene *))sceneInit)(self, @selector(initWithWindowScene:), scene);
-            }
-            return ((id (*)(id, SEL, CGRect))frameInit)(self, @selector(initWithFrame:), frame);
+            UIWindow *window = scene
+                ? ((id (*)(id, SEL, UIWindowScene *))sceneInit)(self, @selector(initWithWindowScene:), scene)
+                : ((id (*)(id, SEL, CGRect))frameInit)(self, @selector(initWithFrame:), frame);
+            [[VNHubGestures shared] attachToWindow:window];
+            return window;
         });
         const char *types = method_getTypeEncoding(class_getInstanceMethod(UIWindow.class, @selector(initWithFrame:)));
         if (!class_addMethod(sdlWindow, @selector(initWithFrame:), replacement, types)) {
