@@ -295,14 +295,27 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 return layer
             }()
             apply(child, to: caLayer)
-            if let image = child.image {
+            if let image = child.displayImage {
                 if images[child.id] != ObjectIdentifier(image) {
                     caLayer.contents = image
                     images[child.id] = ObjectIdentifier(image)
                 }
+                // clip: the shown part of the image, in unit coordinates.
+                if let clip = child.clip, image.width > 0, image.height > 0 {
+                    caLayer.contentsRect = CGRect(x: clip.minX / Double(image.width), y: clip.minY / Double(image.height),
+                                                  width: clip.width / Double(image.width), height: clip.height / Double(image.height))
+                } else {
+                    caLayer.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+                }
             } else if images[child.id] != nil {
                 caLayer.contents = nil
                 images[child.id] = nil
+            }
+            switch child.blendMode {
+            case "add": caLayer.compositingFilter = "linearDodgeBlendMode"
+            case "screen": caLayer.compositingFilter = "screenBlendMode"
+            case "multiply": caLayer.compositingFilter = "multiplyBlendMode"
+            default: caLayer.compositingFilter = nil
             }
             if let color = child.color {
                 caLayer.backgroundColor = CGColor(red: Double((color >> 16) & 0xFF) / 255, green: Double((color >> 8) & 0xFF) / 255,
@@ -405,9 +418,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 
     func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard recognizer is UIPanGestureRecognizer, let player else { return true }
-        let point = stagePoint(recognizer)
-        return player.wait == .stop
-            && (player.stage.eventTarget(at: point, type: "dragin") ?? player.stage.eventTarget(at: point, type: "drag")) != nil
+        return player.canDrag(at: stagePoint(recognizer))
     }
 
     @objc private func dragged(_ recognizer: UIPanGestureRecognizer) {
