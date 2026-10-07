@@ -72,6 +72,20 @@ enum DebugAutomation {
             if let input = defaults.string(forKey: "VNHubInput") { setenv("VNHUB_INPUT", input, 1) }
             games.play(appID: appID)
         }
+        // `-VNHubImportPatch <file in tmp/> -VNHubPatchGame <appid>` imports a patch.
+        if let name = defaults.string(forKey: "VNHubImportPatch"), !done.contains("import"),
+           let appID = UInt32(exactly: defaults.integer(forKey: "VNHubPatchGame")), appID != 0,
+           let gameName = steam.library.first(where: { $0.appID == appID })?.name
+        {
+            done.insert("import")
+            let source = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            do {
+                let count = try PatchStore.importItem(at: source, gameFolder: games.folder(appID: appID, name: gameName))
+                NSLog("VN Hub: imported %d patch files from %@", count, name)
+            } catch {
+                NSLog("VN Hub: patch import failed: %@", String(describing: error))
+            }
+        }
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoVerify")), appID != 0, !done.contains("verify") {
             done.insert("verify")
             games.verify(appID: appID)

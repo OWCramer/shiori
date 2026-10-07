@@ -185,7 +185,7 @@ final class GameLibrary {
 
     private static func prepareFolder(_ folder: URL) throws {
         let fm = FileManager.default
-        for sub in ["base", "patch", "saves"] {
+        for sub in ["base", "patch/game", "saves"] {
             try fm.createDirectory(at: folder.appendingPathComponent(sub, isDirectory: true), withIntermediateDirectories: true)
         }
         // The game can always be downloaded again; keep gigabytes out of iCloud device backups.
