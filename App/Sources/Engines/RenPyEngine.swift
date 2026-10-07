@@ -115,6 +115,7 @@ extension RenPyEngine {
             setenv("VNHUB_GAME_BASE", base.path, 1)
             setenv("VNHUB_LAUNCHER", match.details["launcher"] ?? "main.py", 1)
             setenv("VNHUB_CACHE", cache.path, 1)
+            setenv("VNHUB_PATCH_GAME", gameFolder.appendingPathComponent("patch/game", isDirectory: true).path, 1)
             status = vnhub_renpy_run(runner.path, "main", saves.path)
         } catch {
             NSLog("VN Hub: couldn't prepare the Ren'Py runner: %@", String(describing: error))

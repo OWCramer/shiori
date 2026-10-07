@@ -4,6 +4,10 @@
 #
 # It keeps the game's base/ folder byte-identical to what Steam delivered, so verify stays
 # meaningful: Python bytecode and Ren'Py's cache/ files are written under VNHUB_CACHE.
+#
+# It also layers the game's patch/game/ folder (VNHUB_PATCH_GAME) over base/game/: loose
+# files and scripts there shadow the game's own, and archives (.rpa) in either folder are
+# ordered as if they all sat in one game/ folder, as they would on PC.
 
 import os
 import sys
@@ -12,6 +16,7 @@ import runpy
 GAME_BASE = os.environ["VNHUB_GAME_BASE"]
 LAUNCHER = os.environ["VNHUB_LAUNCHER"]
 CACHE = os.environ["VNHUB_CACHE"]
+PATCH_GAME = os.environ.get("VNHUB_PATCH_GAME", "")
 
 # Compiled .pyc files go to the cache instead of base/**/__pycache__.
 sys.pycache_prefix = os.path.join(CACHE, "pycache")
@@ -62,6 +67,47 @@ def _patch_renpy():
         return original_main()
 
     renpy.main.main = main
+
+    if PATCH_GAME and os.path.isdir(PATCH_GAME) and _has_files(PATCH_GAME):
+        _layer_patches()
+
+
+def _has_files(directory):
+    for _root, _dirs, files in os.walk(directory):
+        if any(not name.startswith(".") for name in files):
+            return True
+    return False
+
+
+def _layer_patches():
+    # main() sets config.searchpath = [gamedir] and then asks the launcher script for the
+    # common directory; that call is the hook for putting patch/game/ first.
+    launcher = renpy.__main__
+    original_path_to_common = launcher.path_to_common
+
+    def path_to_common(renpy_base):
+        searchpath = renpy.config.searchpath
+        if PATCH_GAME not in searchpath:
+            searchpath.insert(0, PATCH_GAME)
+        return original_path_to_common(renpy_base)
+
+    launcher.path_to_common = path_to_common
+
+    # main() lists archives directory by directory; on PC they all share game/, sorted and
+    # reversed so later names take priority. Restore that order across both folders.
+    loader = renpy.loader
+    original_index_archives = loader.index_archives
+    ordered = [False]
+
+    def index_archives():
+        if not ordered[0]:
+            ordered[0] = True
+            names = sorted(set(renpy.config.archives), reverse=True)
+            renpy.config.archives[:] = names
+            print("VN Hub: patch layer active, archives:", names)
+        return original_index_archives()
+
+    loader.index_archives = index_archives
 
 
 _original_import_all = renpy.import_all
