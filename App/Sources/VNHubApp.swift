@@ -68,6 +68,8 @@ enum DebugAutomation {
         }
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoPlay")), appID != 0, !done.contains("play") {
             done.insert("play")
+            // `-VNHubInput "<s>:<x>,<y>;<s>:esc;…"` replays taps and keys into the game.
+            if let input = defaults.string(forKey: "VNHubInput") { setenv("VNHUB_INPUT", input, 1) }
             games.play(appID: appID)
         }
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoVerify")), appID != 0, !done.contains("verify") {

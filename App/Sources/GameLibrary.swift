@@ -227,8 +227,10 @@ final class GameLibrary {
         let saves = folder.appendingPathComponent("saves", isDirectory: true)
         try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
-        // Let SwiftUI finish the tap before the game takes over the main thread.
-        DispatchQueue.main.async {
+        // Start from a run-loop block, not the main dispatch queue: the game runs inside this
+        // call for as long as it plays, and SDL's nested run loop can only drain the main
+        // queue (main-actor tasks, timers) if we aren't already occupying it.
+        RunLoop.main.perform(inModes: [.default]) {
             RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID))
         }
     }
