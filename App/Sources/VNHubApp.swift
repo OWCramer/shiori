@@ -14,7 +14,9 @@ struct VNHubApp: App {
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
         let steam = SteamModel()
         _steam = State(initialValue: steam)
-        _games = State(initialValue: GameLibrary(session: steam.session))
+        let games = GameLibrary(session: steam.session)
+        games.libraryEntry = { [weak steam] appID in steam?.library.first { $0.appID == appID } }
+        _games = State(initialValue: games)
         _engineScans = State(initialValue: EngineScanStore(session: steam.session))
     }
 

@@ -362,6 +362,9 @@ final class GameLibrary {
         }
     }
 
+    /// The library entry for a game (with picked artwork), for the launch cover. Set by the app.
+    var libraryEntry: (UInt32) -> LibraryGame? = { _ in nil }
+
     /// The game being launched and how far along, until the game takes over the screen.
     private(set) var launching: (appID: UInt32, phase: LaunchPhase)?
 
@@ -449,7 +452,11 @@ final class GameLibrary {
         let saves = folder.appendingPathComponent("saves", isDirectory: true)
         try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         playingAppID = appID
+        let entry = libraryEntry(appID)
+        let coverFolder = Self.runtimeCache(appID: appID).appendingPathComponent("cover", isDirectory: true)
         Task {
+            // The launch cover's art downloads while saves sync (usually from URLCache).
+            async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
             // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
             if isSteamCloudEnabled(appID) { launching = (appID, .steamCloud) }
             await pullSteamCloud(appID: appID)
@@ -462,6 +469,11 @@ final class GameLibrary {
             if isCloudSaveEnabled(appID) { launching = (appID, .iCloud) }
             await syncSaves(appID: appID, direction: .pull)
             launching = (appID, .starting)
+            let (heroFile, logoFile) = await cover
+            for (name, file) in [("VNHUB_COVER_HERO", heroFile), ("VNHUB_COVER_LOGO", logoFile)] {
+                if let file { setenv(name, file.path, 1) } else { unsetenv(name) }
+            }
+            setenv("VNHUB_COVER_TITLE", record.name, 1)
             log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
             // Start from a run-loop block, not the main dispatch queue: the game runs inside
             // this call for as long as it plays, and SDL's nested run loop can only drain the
@@ -472,6 +484,26 @@ final class GameLibrary {
                 }
             }
         }
+    }
+
+    /// Saves the cover's banner and logo to files the runtime can load. Gives up quickly:
+    /// the cover falls back to the game's name.
+    nonisolated private static func fetchCover(hero: URL?, logo: URL?, into folder: URL) async -> (URL?, URL?) {
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func fetch(_ url: URL?, as name: String) async -> URL? {
+            guard let url else { return nil }
+            let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 4)
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse).map({ (200 ..< 300).contains($0.statusCode) }) ?? true,
+                  UIImage(data: data) != nil
+            else { return nil }
+            let file = folder.appendingPathComponent(name)
+            return (try? data.write(to: file)) != nil ? file : nil
+        }
+        async let heroFile = fetch(hero, as: "hero")
+        async let logoFile = fetch(logo, as: "logo")
+        return await (heroFile, logoFile)
     }
 
     // MARK: - Verify

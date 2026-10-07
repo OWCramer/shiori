@@ -2,6 +2,7 @@
 
 @import UIKit;
 #import <objc/runtime.h>
+#import <objc/message.h>
 #include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
@@ -133,6 +134,175 @@ static void ScheduleScriptedInput(void) {
 /// SDL's window for the running game.
 static __weak UIWindow *gameWindow;
 static void HideHubWindows(void);
+
+// MARK: - Launch cover
+
+static UIWindowScene *ActiveWindowScene(void);
+
+/// Landscape, no status bar or home indicator, like the game that follows.
+@interface VNHubCoverController : UIViewController
+@end
+
+@implementation VNHubCoverController
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
+- (BOOL)prefersStatusBarHidden { return YES; }
+- (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+@end
+
+static UIWindow *coverWindow;
+static BOOL coverLeaving;
+
+/// Fades the cover out (once) and drops its window.
+static void DismissCover(void) {
+    if (!coverWindow || coverLeaving) return;
+    coverLeaving = YES;
+    UIWindow *window = coverWindow;
+    [UIView animateWithDuration:0.45 delay:0.2 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        window.alpha = 0;
+    } completion:^(BOOL finished) {
+        window.hidden = YES;
+        if (coverWindow == window) coverWindow = nil;
+    }];
+}
+
+/// The game's banner art, logo and a spinner, from the moment Play hands over until Ren'Py
+/// draws its first real frame. Paths come from VNHUB_COVER_HERO / _LOGO (Swift fetches
+/// them while saves sync); without them, the game's name on black.
+static void ShowCover(void) {
+    UIWindowScene *scene = ActiveWindowScene();
+    if (!scene) return;
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:scene];
+    window.windowLevel = UIWindowLevelNormal + 10;
+    window.userInteractionEnabled = NO;
+    window.backgroundColor = UIColor.blackColor;
+    VNHubCoverController *controller = [VNHubCoverController new];
+    window.rootViewController = controller;
+    UIView *root = controller.view;
+    root.backgroundColor = UIColor.blackColor;
+
+    const char *heroPath = getenv("VNHUB_COVER_HERO");
+    UIImage *hero = heroPath ? [UIImage imageWithContentsOfFile:@(heroPath)] : nil;
+    if (hero) {
+        UIImageView *art = [[UIImageView alloc] initWithImage:hero];
+        art.frame = root.bounds;
+        art.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        art.contentMode = UIViewContentModeScaleAspectFill;
+        art.clipsToBounds = YES;
+        art.alpha = 0.55;
+        [root addSubview:art];
+    }
+
+    const char *logoPath = getenv("VNHUB_COVER_LOGO");
+    UIImage *logo = logoPath ? [UIImage imageWithContentsOfFile:@(logoPath)] : nil;
+    UIView *mark;
+    if (logo) {
+        UIImageView *logoView = [[UIImageView alloc] initWithImage:logo];
+        logoView.contentMode = UIViewContentModeScaleAspectFit;
+        logoView.layer.shadowColor = UIColor.blackColor.CGColor;
+        logoView.layer.shadowOpacity = 0.6;
+        logoView.layer.shadowRadius = 12;
+        logoView.layer.shadowOffset = CGSizeMake(0, 4);
+        mark = logoView;
+    } else {
+        UILabel *title = [UILabel new];
+        const char *name = getenv("VNHUB_COVER_TITLE");
+        title.text = name ? @(name) : @"";
+        title.font = [UIFont systemFontOfSize:34 weight:UIFontWeightHeavy];
+        title.textColor = UIColor.whiteColor;
+        title.textAlignment = NSTextAlignmentCenter;
+        title.numberOfLines = 2;
+        mark = title;
+    }
+    mark.translatesAutoresizingMaskIntoConstraints = NO;
+    [root addSubview:mark];
+
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    spinner.color = [UIColor colorWithWhite:1 alpha:0.85];
+    spinner.translatesAutoresizingMaskIntoConstraints = NO;
+    [spinner startAnimating];
+    [root addSubview:spinner];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [mark.centerXAnchor constraintEqualToAnchor:root.centerXAnchor],
+        [mark.centerYAnchor constraintEqualToAnchor:root.centerYAnchor constant:-16],
+        [mark.widthAnchor constraintLessThanOrEqualToAnchor:root.widthAnchor multiplier:0.5],
+        [mark.heightAnchor constraintLessThanOrEqualToAnchor:root.heightAnchor multiplier:0.36],
+        [spinner.centerXAnchor constraintEqualToAnchor:root.centerXAnchor],
+        [spinner.topAnchor constraintEqualToAnchor:mark.bottomAnchor constant:28],
+    ]];
+    if (logo) {
+        // Keep the logo's proportions inside those limits.
+        NSLayoutConstraint *aspect = [mark.widthAnchor constraintEqualToAnchor:mark.heightAnchor
+                                                                    multiplier:logo.size.width / MAX(logo.size.height, 1)];
+        NSLayoutConstraint *wide = [mark.widthAnchor constraintEqualToAnchor:root.widthAnchor multiplier:0.5];
+        wide.priority = UILayoutPriorityDefaultHigh;
+        [NSLayoutConstraint activateConstraints:@[aspect, wide]];
+    }
+
+    window.hidden = NO;
+    coverWindow = window;
+    coverLeaving = NO;
+    // Whatever happens, don't hide the game for long.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ DismissCover(); });
+}
+
+/// Lets the turn to landscape finish before Python starts: Python blocks the main thread
+/// for a second or two, which would freeze the rotation halfway.
+static void FinishRotation(void) {
+    UIWindowScene *scene = ActiveWindowScene();
+    // Already landscape (an iPad on its side): nothing is animating.
+    if (UIInterfaceOrientationIsLandscape(scene.effectiveGeometry.interfaceOrientation)) {
+        [CATransaction flush];
+        return;
+    }
+    CFTimeInterval start = CACurrentMediaTime(), landscapeAt = 0;
+    while (CACurrentMediaTime() - start < 1.5) {
+        BOOL landscape = UIInterfaceOrientationIsLandscape(scene.effectiveGeometry.interfaceOrientation);
+        if (landscape && landscapeAt == 0) landscapeAt = CACurrentMediaTime();
+        // Otherwise give the rotation animation time to play out.
+        if (landscapeAt > 0 && CACurrentMediaTime() - landscapeAt > 0.45) break;
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    }
+    [CATransaction flush];
+}
+
+typedef void (*ReadPixelsFunction)(int, int, int, int, unsigned, unsigned, void *);
+
+/// Whether the frame about to be presented has something other than black in it, from a
+/// row across the middle (letterbox bars are at the sides or the top and bottom).
+static BOOL FrameHasContent(UIView *view) {
+    static ReadPixelsFunction readPixels;
+    if (!readPixels) readPixels = (ReadPixelsFunction)dlsym(RTLD_DEFAULT, "glReadPixels");
+    if (!readPixels || ![view respondsToSelector:@selector(backingWidth)]) return NO;
+    int width = ((int (*)(id, SEL))objc_msgSend)(view, @selector(backingWidth));
+    int height = ((int (*)(id, SEL))objc_msgSend)(view, @selector(backingHeight));
+    if (width <= 0 || height <= 0) return NO;
+    uint8_t *row = calloc((size_t)width, 4);
+    readPixels(0, height / 2, width, 1, 0x1908 /* GL_RGBA */, 0x1401 /* GL_UNSIGNED_BYTE */, row);
+    int lit = 0;
+    for (int x = 0; x < width; x++) {
+        uint8_t *p = row + x * 4;
+        if (MAX(p[0], MAX(p[1], p[2])) > 24) lit++;
+    }
+    free(row);
+    return lit > width / 20;
+}
+
+/// Lifts the cover on the first frame with real content in it.
+static void WatchForFirstFrame(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class glView = NSClassFromString(@"SDL_uikitopenglview");
+        Method method = glView ? class_getInstanceMethod(glView, @selector(swapBuffers)) : NULL;
+        if (!method) return;
+        IMP original = method_getImplementation(method);
+        method_setImplementation(method, imp_implementationWithBlock(^(UIView *view) {
+            if (coverWindow && !coverLeaving && FrameHasContent(view)) DismissCover();
+            ((void (*)(id, SEL))original)(view, @selector(swapBuffers));
+        }));
+    });
+}
+
 static void RestoreGameLayout(void);
 static void FitGameViews(void);
 
@@ -182,7 +352,7 @@ static void HideHubWindows(void) {
     UIWindow *game = gameWindow;
     if (!game || !game.windowScene) return;
     for (UIWindow *window in game.windowScene.windows) {
-        if (window != game) window.hidden = YES;
+        if (window != game && window != coverWindow) window.hidden = YES;
     }
 }
 
@@ -243,7 +413,10 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
     running = 1;
 
     AttachSDLWindowsToScene();
+    WatchForFirstFrame();
+    ShowCover();
     RequestLandscape();
+    FinishRotation();
     // Coming back from the Home Screen (or Control Center, a call...) re-applies the layout.
     id activation = [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
                                                                      queue:NSOperationQueue.mainQueue
