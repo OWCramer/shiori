@@ -444,7 +444,7 @@ final class GameLibrary {
             // this call for as long as it plays, and SDL's nested run loop can only drain the
             // main queue (main-actor tasks, timers) if we aren't already occupying it.
             RunLoop.main.perform(inModes: [.default]) {
-                RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID)) {
+                RenPyEngine.launch(appID: appID, gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID)) {
                     MainActor.assumeIsolated { self.pushRunningGameSaves(gameEnded: true) }
                 }
             }

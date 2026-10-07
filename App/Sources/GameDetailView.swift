@@ -17,6 +17,7 @@ struct GameDetailView: View {
     @State private var patchFiles: [PatchStore.PatchFile] = []
     @State private var patchMessage: String?
     @State private var overscroll: CGFloat = 0
+    @State private var phoneLayout = false
     @Namespace private var glassNamespace
 
     private var appID: UInt32 { game.appID }
@@ -58,7 +59,10 @@ struct GameDetailView: View {
         .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
-        .onAppear(perform: reloadPatches)
+        .onAppear {
+            reloadPatches()
+            phoneLayout = RenPyEngine.usesPhoneLayout(appID: appID)
+        }
         .task(id: steam.isLoggedOn) {
             if record == nil, steam.isLoggedOn { engineScans.scan([appID]) }
         }
@@ -160,6 +164,14 @@ struct GameDetailView: View {
                 .disabled(!steam.isLoggedOn)
         }
         Divider()
+        if record?.engine?.engine == RenPyEngine.id {
+            Toggle(isOn: Binding(
+                get: { phoneLayout },
+                set: { phoneLayout = $0; RenPyEngine.setPhoneLayout($0, appID: appID) }
+            )) {
+                Label("Phone Layout", systemImage: "iphone")
+            }
+        }
         if record != nil {
             Button("Verify Files", systemImage: "checkmark.shield") { games.verify(appID: appID) }
             Button("Import Patch…", systemImage: "square.and.arrow.down") { importingPatch = true }

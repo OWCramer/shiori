@@ -164,6 +164,17 @@ extension RenPyEngine {
         return nil
     }
 
+    /// Whether a game runs with Ren'Py's phone screens ("small", "touch", "mobile"
+    /// variants). Off by default: these are PC builds, and most never designed phone
+    /// screens, so Ren'Py would fall back to its template's leftovers.
+    static func usesPhoneLayout(appID: UInt32) -> Bool {
+        UserDefaults.standard.bool(forKey: "renpyPhoneLayout.\(appID)")
+    }
+
+    static func setPhoneLayout(_ enabled: Bool, appID: UInt32) {
+        UserDefaults.standard.set(enabled, forKey: "renpyPhoneLayout.\(appID)")
+    }
+
     /// Runs the game in this process until it quits, then exits the app: CPython can't be
     /// restarted cleanly in-process, so returning to the hub means relaunching VN Hub.
     ///
@@ -173,7 +184,7 @@ extension RenPyEngine {
     /// older games (`vnhub_main2.py`, which runs 7.8.7's `renpy.py` on the game's folder).
     /// Either way the bootstrap keeps caches out of the game's `base/`.
     @MainActor
-    static func launch(gameFolder: URL, match: EngineMatch, saves: URL, cache: URL, afterGame: () -> Void) -> Never {
+    static func launch(appID: UInt32, gameFolder: URL, match: EngineMatch, saves: URL, cache: URL, afterGame: () -> Void) -> Never {
         let base = gameFolder.appendingPathComponent("base", isDirectory: true)
         var status: Int32 = 1
         if let runtime = runtime(for: match) {
@@ -182,6 +193,12 @@ extension RenPyEngine {
                 setenv("VNHUB_GAME_BASE", base.path, 1)
                 setenv("VNHUB_LAUNCHER", match.details["launcher"] ?? "main.py", 1)
                 setenv("VNHUB_CACHE", cache.path, 1)
+                if usesPhoneLayout(appID: appID) {
+                    unsetenv("RENPY_VARIANT")
+                } else {
+                    // The screen variants Ren'Py picks on a PC.
+                    setenv("RENPY_VARIANT", "large pc", 1)
+                }
                 setenv("VNHUB_PATCH_GAME", gameFolder.appendingPathComponent("patch/game", isDirectory: true).path, 1)
                 NSLog("VN Hub: running Ren'Py %@ game on %@", match.version ?? "?", runtime.framework)
                 status = vnhub_renpy_run(runtime.framework, runner.path, "main", saves.path)
