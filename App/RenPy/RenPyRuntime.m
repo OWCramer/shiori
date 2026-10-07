@@ -4,6 +4,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #include <dlfcn.h>
+#include <execinfo.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -89,11 +90,17 @@ static void PressKey(int scancode) {
 }
 
 - (void)openMenu:(UITapGestureRecognizer *)recognizer {
-    if (recognizer.state == UIGestureRecognizerStateRecognized) PressKey(ScancodeEscape);
+    if (recognizer.state == UIGestureRecognizerStateRecognized) {
+        NSLog(@"Shiori gesture: game menu");
+        PressKey(ScancodeEscape);
+    }
 }
 
 - (void)hideText:(UILongPressGestureRecognizer *)recognizer {
-    if (recognizer.state == UIGestureRecognizerStateBegan) PressKey(ScancodeH);
+    if (recognizer.state == UIGestureRecognizerStateBegan) {
+        NSLog(@"Shiori gesture: hide text");
+        PressKey(ScancodeH);
+    }
 }
 
 @end
@@ -140,6 +147,46 @@ static void ScheduleScriptedInput(void) {
 static __weak UIWindow *gameWindow;
 static void HideHubWindows(void);
 
+// MARK: - Exit tracing
+
+/// Something inside the runtime can end the process with exit() while a game runs, with
+/// no crash report and no Python error. Record who: the native stack (image + offset per
+/// frame, to symbolicate with atos) goes to <cache>/native-exit.txt.
+static void TraceNativeExit(void) {
+    const char *cache = getenv("VNHUB_CACHE");
+    if (!cache) return;
+    char path[1024];
+    snprintf(path, sizeof path, "%s/native-exit.txt", cache);
+    FILE *file = fopen(path, "w");
+    if (!file) return;
+    time_t now = time(NULL);
+    fprintf(file, "exit() at %s", ctime(&now));
+    void *frames[96];
+    int count = backtrace(frames, 96);
+    for (int i = 0; i < count; i++) {
+        Dl_info info;
+        if (dladdr(frames[i], &info) && info.dli_fname) {
+            const char *image = strrchr(info.dli_fname, '/');
+            fprintf(file, "%2d %-28s base %p offset 0x%lx %s\n", i, image ? image + 1 : info.dli_fname, info.dli_fbase,
+                    (unsigned long)((char *)frames[i] - (char *)info.dli_fbase), info.dli_sname ?: "?");
+        } else {
+            fprintf(file, "%2d %p\n", i, frames[i]);
+        }
+    }
+    fclose(file);
+}
+
+static void TraceExitsWhilePlaying(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ atexit(TraceNativeExit); });
+    char path[1024];
+    const char *cache = getenv("VNHUB_CACHE");
+    if (cache) {
+        snprintf(path, sizeof path, "%s/native-exit.txt", cache);
+        unlink(path);
+    }
+}
+
 // MARK: - Multi-finger touches
 
 /// Touches SDL has already been given, and whether the current sequence ever had two or
@@ -175,6 +222,8 @@ static void FilterMultiFingerTouches(void) {
                 NSSet<UITouch *> *all = event.allTouches;
                 if (all.count >= 2 && !multiFingerSequence) {
                     multiFingerSequence = YES;
+                    NSLog(@"Shiori touches: swallowing a %lu-finger sequence (%lu already sent)",
+                          (unsigned long)all.count, (unsigned long)forwardedTouches.count);
                     // End what SDL already started, so no finger is left "pressed".
                     if (forwardedTouches.count > 0) {
                         NSSet *started = [forwardedTouches copy];
@@ -481,6 +530,7 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
     AttachSDLWindowsToScene();
     WatchForFirstFrame();
     FilterMultiFingerTouches();
+    TraceExitsWhilePlaying();
     ShowCover();
     RequestLandscape();
     FinishRotation();
