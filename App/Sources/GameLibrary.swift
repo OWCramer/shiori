@@ -469,7 +469,14 @@ final class GameLibrary {
         var id: UInt32 { appID }
     }
 
-    var artemisSession: ArtemisSession?
+    var artemisSession: ArtemisSession? {
+        didSet {
+            // Leaving an Artemis game: send its saves up.
+            if let ended = oldValue, artemisSession == nil {
+                Task { await syncSaves(appID: ended.appID, direction: .push) }
+            }
+        }
+    }
 
     /// Hands the app over to the game. Never returns: the app exits when the game quits.
     func play(appID: UInt32) {
@@ -478,7 +485,13 @@ final class GameLibrary {
         else { return }
         let folder = folder(appID: appID, name: record.name)
         if engine.engine == "artemis" {
-            artemisSession = ArtemisSession(appID: appID, folder: folder)
+            // ArtemisKit's saves aren't the PC's format, so no Steam Cloud; iCloud mirrors them.
+            launching = (appID, .iCloud)
+            Task {
+                await syncSaves(appID: appID, direction: .pull)
+                launching = nil
+                artemisSession = ArtemisSession(appID: appID, folder: folder)
+            }
             return
         }
         let saves = folder.appendingPathComponent("saves", isDirectory: true)

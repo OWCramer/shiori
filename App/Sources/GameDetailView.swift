@@ -418,23 +418,34 @@ struct GameDetailView: View {
         .glassCard()
     }
 
+    @ViewBuilder private var steamCloudSection: some View {
+        Toggle(isOn: Binding(
+            get: { games.isSteamCloudEnabled(appID) },
+            set: { games.setSteamCloud(appID, enabled: $0) }
+        )) {
+            Label("Steam Cloud", systemImage: "cloud")
+        }
+        .font(.subheadline)
+        if games.isSteamCloudEnabled(appID) {
+            statusLine(games.steamCloud[appID])
+            Text(!SteamCloudSync.uploadsEnabled
+                ? "Downloads saves from your PC before you play. Uploading is off; turn it on in Settings."
+                : games.canUploadSteamCloud(appID)
+                ? "Downloads saves from your PC before you play and uploads newer ones when you stop, backing up the cloud copy first."
+                : "Downloads saves from your PC before you play. Saves made here stay on this device: Shiori runs this game on a newer Ren'Py than your PC, which might not load them.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private var savesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: Binding(
-                get: { games.isSteamCloudEnabled(appID) },
-                set: { games.setSteamCloud(appID, enabled: $0) }
-            )) {
-                Label("Steam Cloud", systemImage: "cloud")
-            }
-            .font(.subheadline)
-            if games.isSteamCloudEnabled(appID) {
-                statusLine(games.steamCloud[appID])
-                Text(!SteamCloudSync.uploadsEnabled
-                    ? "Downloads saves from your PC before you play. Uploading is off; turn it on in Settings."
-                    : games.canUploadSteamCloud(appID)
-                    ? "Downloads saves from your PC before you play and uploads newer ones when you stop, backing up the cloud copy first."
-                    : "Downloads saves from your PC before you play. Saves made here stay on this device: Shiori runs this game on a newer Ren'Py than your PC, which might not load them.")
+            if record?.engine?.engine == "artemis" {
+                Label("Steam Cloud", systemImage: "cloud.slash")
+                    .font(.subheadline)
+                Text("Saves made here use Shiori's own format for Artemis games, so they can't go to or come from your PC through Steam Cloud. iCloud keeps them in step between your devices.")
                     .font(.caption).foregroundStyle(.secondary)
+            } else {
+                steamCloudSection
             }
 
             Divider().opacity(0.4)
