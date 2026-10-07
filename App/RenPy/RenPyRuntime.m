@@ -111,22 +111,27 @@ static void ScheduleScriptedInput(void) {
         if (parts.count != 2) continue;
         double delay = parts[0].doubleValue;
         NSString *action = parts[1];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            SDL_Window *window = sdl.currentWindow ? sdl.currentWindow() : NULL;
-            if (!window || !sdl.sendMouseMotion || !sdl.sendMouseButton) return;
+        // Run-loop timers, not the main queue: while Ren'Py runs, SDL turns the run loop
+        // itself, and main-queue blocks stop being serviced after the first.
+        NSTimer *timer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *t) {
             NSLog(@"VN Hub input: %@", action);
             if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"] || [action isEqualToString:@"h"]) {
                 PressKey([action isEqualToString:@"esc"] ? ScancodeEscape : [action isEqualToString:@"h"] ? ScancodeH : ScancodeReturn);
                 return;
             }
+            // Taps need SDL's window, which is only "current" while Ren'Py draws.
+            SDL_Window *window = sdl.currentWindow ? sdl.currentWindow() : NULL;
+            if (!window || !sdl.sendMouseMotion || !sdl.sendMouseButton) return;
             NSArray<NSString *> *xy = [action componentsSeparatedByString:@","];
             if (xy.count != 2) return;
             sdl.sendMouseMotion(window, xy[0].intValue, xy[1].intValue);
             sdl.sendMouseButton(window, 1, 1);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 80 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            NSTimer *release = [NSTimer timerWithTimeInterval:0.08 repeats:NO block:^(NSTimer *r) {
                 sdl.sendMouseButton(window, 0, 1);
-            });
-        });
+            }];
+            [NSRunLoop.mainRunLoop addTimer:release forMode:NSRunLoopCommonModes];
+        }];
+        [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
     }
 }
 #endif
@@ -134,6 +139,67 @@ static void ScheduleScriptedInput(void) {
 /// SDL's window for the running game.
 static __weak UIWindow *gameWindow;
 static void HideHubWindows(void);
+
+// MARK: - Multi-finger touches
+
+/// Touches SDL has already been given, and whether the current sequence ever had two or
+/// more fingers down.
+static NSMutableSet<UITouch *> *forwardedTouches;
+static BOOL multiFingerSequence;
+
+/// Keeps multi-finger touches away from the game. Two fingers are Shiori's game-menu
+/// gesture; when the tap recognizer gives up on one (fingers held, moved, or landing
+/// apart, as happens when it's tapped repeatedly), iOS delivers the held-back touches to
+/// SDL, which turns them into a click wherever the first finger was. In the game menu
+/// that can be Quit, then Yes. Any sequence that has two fingers down at once is
+/// swallowed instead; touches SDL already had are cancelled, as UIKit itself would.
+static void FilterMultiFingerTouches(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class view = NSClassFromString(@"SDL_uikitview");
+        if (!view) return;
+        forwardedTouches = [NSMutableSet set];
+        SEL cancelled = @selector(touchesCancelled:withEvent:);
+        IMP originalCancelled = method_getImplementation(class_getInstanceMethod(view, cancelled));
+        for (NSString *name in @[@"touchesBegan:withEvent:", @"touchesMoved:withEvent:",
+                                 @"touchesEnded:withEvent:", @"touchesCancelled:withEvent:"]) {
+            SEL selector = NSSelectorFromString(name);
+            Method method = class_getInstanceMethod(view, selector);
+            if (!method) continue;
+            IMP original = method_getImplementation(method);
+            BOOL began = [name hasPrefix:@"touchesBegan"];
+            BOOL finishing = [name hasPrefix:@"touchesEnded"] || [name hasPrefix:@"touchesCancelled"];
+            method_setImplementation(method, imp_implementationWithBlock(^(UIView *self, NSSet<UITouch *> *touches, UIEvent *event) {
+                // Count every finger in the event, lifted or not: touches the tap recognizer
+                // held back arrive late, sometimes already ended.
+                NSSet<UITouch *> *all = event.allTouches;
+                if (all.count >= 2 && !multiFingerSequence) {
+                    multiFingerSequence = YES;
+                    // End what SDL already started, so no finger is left "pressed".
+                    if (forwardedTouches.count > 0) {
+                        NSSet *started = [forwardedTouches copy];
+                        [forwardedTouches removeAllObjects];
+                        ((void (*)(id, SEL, NSSet *, UIEvent *))originalCancelled)(self, cancelled, started, event);
+                    }
+                }
+                if (multiFingerSequence) {
+                    // The sequence is over once every finger has lifted.
+                    if (finishing) {
+                        BOOL lifted = YES;
+                        for (UITouch *touch in all) {
+                            if (touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled) lifted = NO;
+                        }
+                        if (lifted) multiFingerSequence = NO;
+                    }
+                    return;
+                }
+                if (began) [forwardedTouches unionSet:touches];
+                if (finishing) [forwardedTouches minusSet:touches];
+                ((void (*)(id, SEL, NSSet *, UIEvent *))original)(self, selector, touches, event);
+            }));
+        }
+    });
+}
 
 // MARK: - Launch cover
 
@@ -414,6 +480,7 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
 
     AttachSDLWindowsToScene();
     WatchForFirstFrame();
+    FilterMultiFingerTouches();
     ShowCover();
     RequestLandscape();
     FinishRotation();

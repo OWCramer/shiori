@@ -208,6 +208,16 @@ extension RenPyEngine {
             }
         }
         NSLog("VN Hub: Ren'Py exited with status %d", status)
+        // A game quitting closes the app (v1), which can look like a crash; keep a note of
+        // how the last session ended, with Ren'Py's own error if there was one.
+        let note: [String: Any] = [
+            "appID": appID, "status": Int(status), "ended": ISO8601DateFormatter().string(from: .now),
+            "runtime": runtime(for: match)?.framework ?? "none",
+            "error": (try? String(contentsOf: cache.appendingPathComponent("last_error.txt"), encoding: .utf8)) ?? "",
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: note, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL.applicationSupportDirectory.appendingPathComponent("last-game-session.json"))
+        }
         afterGame()
         exit(status == 0 ? 0 : 1)
     }
@@ -217,6 +227,7 @@ extension RenPyEngine {
         let runner = cache.appendingPathComponent("runner", isDirectory: true)
         let runnerBase = runner.appendingPathComponent("base", isDirectory: true)
         try? fm.removeItem(at: runner)
+        try? fm.removeItem(at: cache.appendingPathComponent("last_error.txt"))
         try fm.createDirectory(at: runnerBase, withIntermediateDirectories: true)
         let bootstrapName: String
         if runtime.usesGameEngine {
