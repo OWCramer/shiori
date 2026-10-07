@@ -108,6 +108,7 @@ static void ScheduleScriptedInput(void) {
 static __weak UIWindow *gameWindow;
 static void HideHubWindows(void);
 static void RestoreGameLayout(void);
+static void FitGameViews(void);
 
 static UIWindowScene *ActiveWindowScene(void) {
     UIWindowScene *fallback = nil;
@@ -139,6 +140,7 @@ static void AttachSDLWindowsToScene(void) {
             gameWindow = window;
             // Once SDL has shown it, keep the hub's own window from showing through.
             dispatch_async(dispatch_get_main_queue(), ^{ HideHubWindows(); });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ FitGameViews(); });
             return window;
         });
         const char *types = method_getTypeEncoding(class_getInstanceMethod(UIWindow.class, @selector(initWithFrame:)));
@@ -170,22 +172,42 @@ static void RequestLandscape(void) {
     }
 }
 
-/// After a trip to the Home Screen the scene comes back in portrait first, and SDL's
-/// window keeps that portrait frame once it turns landscape again, so the game draws in a
-/// strip. Ask for landscape again and size the window to the scene once it has rotated.
+/// Makes SDL's views track the window. When the app returns to the foreground Ren'Py
+/// rebuilds its GL context, and SDL creates a fresh GL view sized to whatever the window
+/// was at that instant (often the portrait background snapshot) with no autoresizing, so
+/// it stays portrait-sized in a landscape window and ignores later rotations.
+static void FitGameViews(void) {
+    UIWindow *window = gameWindow;
+    if (!window.windowScene) return;
+    CGRect bounds = window.windowScene.coordinateSpace.bounds;
+    if (!CGRectEqualToRect(window.frame, bounds)) window.frame = bounds;
+    // SDL makes its GL view the view controller's root view. When it's recreated in the
+    // background, UIKit leaves it at the portrait size inside the landscape container.
+    UIView *root = window.rootViewController.view;
+    UIView *container = root.superview ?: window;
+    if (root && !CGRectEqualToRect(root.frame, container.bounds)) {
+#if DEBUG
+        NSLog(@"VN Hub layout: resizing %@ from %@ to %@", NSStringFromClass(root.class),
+              NSStringFromCGRect(root.frame), NSStringFromCGRect(container.bounds));
+#endif
+        root.frame = container.bounds;
+        root.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        // SDL tells Ren'Py about the new size from the view controller's layout pass.
+        [root setNeedsLayout];
+        [root layoutIfNeeded];
+    }
+    if (!window.isKeyWindow) [window makeKeyAndVisible];
+}
+
+/// Coming back from the Home Screen: ask for landscape again and refit SDL's views a few
+/// times, since Ren'Py recreates its GL view shortly after the app becomes active.
 static void RestoreGameLayout(void) {
-    UIWindow *game = gameWindow;
-    if (!game) return;
+    if (!gameWindow) return;
     RequestLandscape();
     HideHubWindows();
-    for (NSNumber *delay in @[@0.0, @0.35, @0.9]) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            UIWindow *window = gameWindow;
-            if (!window.windowScene) return;
-            CGRect bounds = window.windowScene.coordinateSpace.bounds;
-            if (!CGRectEqualToRect(window.frame, bounds)) window.frame = bounds;
-            if (!window.isKeyWindow) [window makeKeyAndVisible];
-        });
+    for (NSNumber *delay in @[@0.0, @0.3, @0.8, @1.5, @3.0]) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ FitGameViews(); });
     }
 }
 
