@@ -20,6 +20,7 @@ struct GameDetailView: View {
     @State private var overscroll: CGFloat = 0
     @State private var phoneLayout = false
     @State private var choosingArtwork = false
+    @State private var browsingArchives = false
     @Namespace private var glassNamespace
 
     init(game: LibraryGame) {
@@ -66,6 +67,9 @@ struct GameDetailView: View {
         .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
+        .sheet(isPresented: $browsingArchives) {
+            ArchiveBrowserView(gameFolder: folder)
+        }
         .sheet(isPresented: $choosingArtwork) {
             ArtworkPickerView(appID: appID)
                 .environment(steam.artwork)
@@ -73,6 +77,10 @@ struct GameDetailView: View {
         .onAppear {
             reloadPatches()
             phoneLayout = RenPyEngine.usesPhoneLayout(appID: appID)
+            #if DEBUG
+            // `-VNHubBrowseArchives YES` (with -VNHubOpenGame) opens the archive browser.
+            if UserDefaults.standard.bool(forKey: "VNHubBrowseArchives") { browsingArchives = true }
+            #endif
         }
         .task(id: steam.isLoggedOn) {
             if record == nil, steam.isLoggedOn { engineScans.scan([appID]) }
@@ -196,6 +204,9 @@ struct GameDetailView: View {
             }
         }
         if record != nil {
+            if record?.engine?.engine == "artemis" {
+                Button("Browse Archives", systemImage: "archivebox") { browsingArchives = true }
+            }
             Button("Verify Files", systemImage: "checkmark.shield") { games.verify(appID: appID) }
             Button("Import Patch…", systemImage: "square.and.arrow.down") { importingPatch = true }
             Button("Open Folder in Files", systemImage: "folder") { openInFiles() }

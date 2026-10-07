@@ -160,6 +160,31 @@ enum DebugAutomation {
             done.insert("cloud")
             Task { await games.pullSteamCloud(appID: appID) }
         }
+        // `-VNHubPreviewFiles <appid>` writes the game's depot file list (from manifests only,
+        // nothing downloaded) to tmp/preview-<appid>.txt.
+        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubPreviewFiles")), appID != 0,
+           steam.isLoggedOn, !done.contains("preview")
+        {
+            done.insert("preview")
+            Task {
+                do {
+                    let preview = try await steam.session.preview(appID: appID)
+                    let url = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(appID).txt")
+                    try preview.paths.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+                    NSLog("VN Hub preview: %d paths for %u at %@", preview.paths.count, appID, url.path)
+                    // `-VNHubPreviewFetch <path>` also fetches one small file (≤ 40 MB).
+                    if let path = defaults.string(forKey: "VNHubPreviewFetch"),
+                       let data = try await preview.contents(of: path, maxSize: 40 << 20)
+                    {
+                        let file = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(appID)-" + (path as NSString).lastPathComponent)
+                        try data.write(to: file)
+                        NSLog("VN Hub preview: fetched %@ (%d bytes)", path, data.count)
+                    }
+                } catch {
+                    NSLog("VN Hub preview failed: %@", String(describing: error))
+                }
+            }
+        }
         // `-VNHubSteamCloudDryRun <appid>` logs what an upload would send, without writing.
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubSteamCloudDryRun")), appID != 0,
            steam.isLoggedOn, !done.contains("dryrun"), let game = steam.library.first(where: { $0.appID == appID })
