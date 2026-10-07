@@ -83,10 +83,10 @@ enum SteamCloudSync {
 
     // MARK: - Uploads (off until the user switches them on)
 
-    /// Global switch for writing to Steam Cloud. Off by default: uploads replace the files
-    /// the PC client syncs, so they stay off until explicitly enabled in Settings.
+    /// Global switch for writing to Steam Cloud (Settings). On by default since the user enabled
+    /// uploads on 2026-10-07; every replaced cloud file is backed up locally first.
     static var uploadsEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "steamCloudUploads") }
+        get { UserDefaults.standard.object(forKey: "steamCloudUploads") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "steamCloudUploads") }
     }
 
