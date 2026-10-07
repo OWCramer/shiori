@@ -63,12 +63,32 @@ public enum SessionState: Equatable, Sendable {
     case reconnecting(attempt: Int)
 }
 
-public enum QRSignInEvent: Equatable, Sendable {
-    /// Show this URL as a QR code, or open it on the same device to approve in the Steam app.
+public enum SignInEvent: Equatable, Sendable {
+    /// QR sign-in: show this URL as a QR code to scan with the Steam app on another device.
     /// Steam rotates the challenge, so a new URL can arrive while waiting.
     case challenge(URL)
-    /// The Steam app has the prompt open but hasn't approved yet.
+    /// Password sign-in: how Steam wants this sign-in confirmed.
+    case steamGuard(SteamGuardPrompt)
+    /// QR sign-in: the code was scanned; waiting for approval in the Steam app.
     case awaitingConfirmation
     /// Approved, token stored and logged on.
     case signedIn(accountName: String)
+}
+
+public struct SteamGuardPrompt: Equatable, Sendable {
+    public enum CodeKind: Equatable, Sendable {
+        /// Code from the Steam Guard authenticator in the Steam app.
+        case authenticator
+        /// Code emailed to the account.
+        case email
+    }
+
+    /// A sign-in request appears in the Steam app (works on the same phone).
+    public var canApproveInSteamApp: Bool
+    /// A confirmation link is emailed.
+    public var canConfirmByEmail: Bool
+    /// A code can be typed in and sent with `submitSteamGuardCode`.
+    public var code: CodeKind?
+    /// For email codes, the address domain Steam sent it to.
+    public var emailHint: String?
 }

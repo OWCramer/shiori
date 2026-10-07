@@ -1,7 +1,7 @@
 import Foundation
 import SwiftProtobuf
 
-/// A Steam client session: QR sign-in, logon with the stored refresh token, heartbeat,
+/// A Steam client session: QR or password + Steam Guard sign-in, logon with the stored refresh token, heartbeat,
 /// automatic reconnect, and library lookups through PICS.
 ///
 /// One connection at a time, and requests are made one after another as the official
@@ -67,73 +67,205 @@ public actor SteamSession {
         }
     }
 
-    /// Starts a QR sign-in. The stream yields challenge URLs to display (or open in the
-    /// Steam app on the same device) and finishes with `.signedIn` once approved.
-    /// Cancelling the consuming task abandons the attempt.
-    public nonisolated func beginQRSignIn() -> AsyncThrowingStream<QRSignInEvent, Error> {
+    /// Starts a QR sign-in, for approving by scanning with the Steam app on another device.
+    /// The stream yields challenge URLs to display and finishes with `.signedIn` once
+    /// approved. Cancelling the consuming task abandons the attempt.
+    public nonisolated func beginQRSignIn() -> AsyncThrowingStream<SignInEvent, Error> {
         AsyncThrowingStream { continuation in
-            let task = Task { await self.runQRSignIn(continuation) }
+            let task = Task { await self.runSignIn(continuation) { try await self.startQRAuth($0) } }
             continuation.onTermination = { _ in task.cancel() }
         }
     }
 
-    private func runQRSignIn(_ events: AsyncThrowingStream<QRSignInEvent, Error>.Continuation) async {
-        do {
-            state = .connecting
-            let connection = try await connect()
-            state = .connectedAnonymously
-
-            var request = CAuthentication_BeginAuthSessionViaQR_Request()
-            request.websiteID = "Client"
-            request.deviceDetails.deviceFriendlyName = configuration.deviceName
-            request.deviceDetails.platformType = .kEauthTokenPlatformTypeSteamClient
-            request.deviceDetails.osType = configuration.osType
-            let begin: CAuthentication_BeginAuthSessionViaQR_Response = try await connection.callService(
-                "Authentication.BeginAuthSessionViaQR#1", request, authenticated: false
-            )
-            if let url = URL(string: begin.challengeURL) { events.yield(.challenge(url)) }
-
-            var clientID = begin.clientID
-            var sawRemoteInteraction = false
-            while true {
-                try await Task.sleep(for: .seconds(Double(max(begin.interval, 1))))
-
-                var poll = CAuthentication_PollAuthSessionStatus_Request()
-                poll.clientID = clientID
-                poll.requestID = begin.requestID
-                let status: CAuthentication_PollAuthSessionStatus_Response
-                do {
-                    status = try await connection.callService(
-                        "Authentication.PollAuthSessionStatus#1", poll, authenticated: false
-                    )
-                } catch let SteamError.serviceCallFailed(_, result) where [.expired, .fileNotFound, .fail].contains(result) {
-                    throw SteamError.qrSignInExpired
-                }
-
-                if status.newClientID != 0 { clientID = status.newClientID }
-                if !status.newChallengeURL.isEmpty, let url = URL(string: status.newChallengeURL) {
-                    events.yield(.challenge(url))
-                }
-                if status.hadRemoteInteraction, !sawRemoteInteraction {
-                    sawRemoteInteraction = true
-                    events.yield(.awaitingConfirmation)
-                }
-                if !status.refreshToken.isEmpty {
-                    let stored = StoredSession(accountName: status.accountName, refreshToken: status.refreshToken)
-                    try store.save(stored)
-                    staysLoggedOn = true
-                    try await logOn(with: stored)
-                    events.yield(.signedIn(accountName: stored.accountName))
-                    events.finish()
-                    return
+    /// Starts a username/password sign-in. The password is RSA-encrypted with Steam's
+    /// per-account key and sent once; it is never stored. The stream yields
+    /// `.steamGuard` describing how Steam wants the sign-in confirmed (approve in the
+    /// Steam app, or a code for `submitSteamGuardCode`) and finishes with `.signedIn`.
+    public nonisolated func beginCredentialsSignIn(accountName: String, password: String) -> AsyncThrowingStream<SignInEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                await self.runSignIn(continuation) {
+                    try await self.startCredentialsAuth(accountName: accountName, password: password, events: $0)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Sends a Steam Guard code (authenticator or email) for the credentials sign-in in progress.
+    /// Throws `.invalidSteamGuardCode` if Steam rejects it; the sign-in stays open for another try.
+    public func submitSteamGuardCode(_ code: String) async throws {
+        guard let pending = pendingGuardCode else { throw SteamError.notSignedIn }
+        var request = CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request()
+        request.clientID = pending.clientID
+        request.steamid = pending.steamID
+        request.code = code.trimmingCharacters(in: .whitespaces).uppercased()
+        request.codeType = pending.type
+        do {
+            let _: CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response = try await connect().callService(
+                "Authentication.UpdateAuthSessionWithSteamGuardCode#1", request, authenticated: false
+            )
+        } catch let SteamError.serviceCallFailed(_, result) where result == .duplicateRequest {
+            // Already approved in the Steam app; the next poll picks up the token.
+        } catch let SteamError.serviceCallFailed(_, result) where [.invalidLoginAuthCode, .twoFactorCodeMismatch].contains(result) {
+            throw SteamError.invalidSteamGuardCode
+        }
+    }
+
+    private struct PendingGuardCode {
+        var clientID: UInt64
+        var steamID: UInt64
+        var type: EAuthSessionGuardType
+    }
+
+    private var pendingGuardCode: PendingGuardCode?
+
+    /// What a started auth session needs polled.
+    private struct AuthTicket {
+        var clientID: UInt64
+        var requestID: Data
+        var interval: Float
+    }
+
+    private func runSignIn(
+        _ events: AsyncThrowingStream<SignInEvent, Error>.Continuation,
+        start: (AsyncThrowingStream<SignInEvent, Error>.Continuation) async throws -> AuthTicket
+    ) async {
+        do {
+            state = .connecting
+            _ = try await connect()
+            state = .connectedAnonymously
+            let ticket = try await start(events)
+            let stored = try await pollUntilApproved(ticket, events: events)
+            pendingGuardCode = nil
+            try store.save(stored)
+            staysLoggedOn = true
+            try await logOn(with: stored)
+            events.yield(.signedIn(accountName: stored.accountName))
+            events.finish()
         } catch {
+            pendingGuardCode = nil
             if !staysLoggedOn {
                 await disconnect()
                 state = .signedOut
             }
             events.finish(throwing: error)
+        }
+    }
+
+    private func startQRAuth(_ events: AsyncThrowingStream<SignInEvent, Error>.Continuation) async throws -> AuthTicket {
+        var request = CAuthentication_BeginAuthSessionViaQR_Request()
+        request.websiteID = "Client"
+        request.deviceDetails = deviceDetails
+        let begin: CAuthentication_BeginAuthSessionViaQR_Response = try await connect().callService(
+            "Authentication.BeginAuthSessionViaQR#1", request, authenticated: false
+        )
+        if let url = URL(string: begin.challengeURL) { events.yield(.challenge(url)) }
+        return AuthTicket(clientID: begin.clientID, requestID: begin.requestID, interval: begin.interval)
+    }
+
+    private func startCredentialsAuth(
+        accountName: String,
+        password: String,
+        events: AsyncThrowingStream<SignInEvent, Error>.Continuation
+    ) async throws -> AuthTicket {
+        let connection = try await connect()
+        var keyRequest = CAuthentication_GetPasswordRSAPublicKey_Request()
+        keyRequest.accountName = accountName
+        let key: CAuthentication_GetPasswordRSAPublicKey_Response = try await connection.callService(
+            "Authentication.GetPasswordRSAPublicKey#1", keyRequest, authenticated: false
+        )
+
+        var request = CAuthentication_BeginAuthSessionViaCredentials_Request()
+        request.accountName = accountName
+        request.encryptedPassword = try PasswordEncryption.encrypt(password, modulusHex: key.publickeyMod, exponentHex: key.publickeyExp)
+        request.encryptionTimestamp = key.timestamp
+        request.persistence = .kEsessionPersistencePersistent
+        request.websiteID = "Client"
+        request.deviceDetails = deviceDetails
+        let begin: CAuthentication_BeginAuthSessionViaCredentials_Response
+        do {
+            begin = try await connection.callService(
+                "Authentication.BeginAuthSessionViaCredentials#1", request, authenticated: false
+            )
+        } catch let SteamError.serviceCallFailed(_, result) where result == .invalidPassword {
+            throw SteamError.invalidCredentials
+        } catch let SteamError.serviceCallFailed(_, result) where result == .rateLimitExceeded {
+            throw SteamError.rateLimited
+        }
+
+        let confirmations = begin.allowedConfirmations
+        let codeConfirmation = confirmations.first { [.kEauthSessionGuardTypeDeviceCode, .kEauthSessionGuardTypeEmailCode].contains($0.confirmationType) }
+        if let codeConfirmation {
+            pendingGuardCode = PendingGuardCode(clientID: begin.clientID, steamID: begin.steamid, type: codeConfirmation.confirmationType)
+        }
+        let prompt = SteamGuardPrompt(
+            canApproveInSteamApp: confirmations.contains { $0.confirmationType == .kEauthSessionGuardTypeDeviceConfirmation },
+            canConfirmByEmail: confirmations.contains { $0.confirmationType == .kEauthSessionGuardTypeEmailConfirmation },
+            code: codeConfirmation.map { $0.confirmationType == .kEauthSessionGuardTypeDeviceCode ? .authenticator : .email },
+            emailHint: codeConfirmation?.associatedMessage.isEmpty == false ? codeConfirmation?.associatedMessage : nil
+        )
+        // An account without Steam Guard only lists `None` and is approved on the first poll.
+        if prompt.canApproveInSteamApp || prompt.canConfirmByEmail || prompt.code != nil {
+            events.yield(.steamGuard(prompt))
+        }
+        return AuthTicket(clientID: begin.clientID, requestID: begin.requestID, interval: begin.interval)
+    }
+
+    private var deviceDetails: CAuthentication_DeviceDetails {
+        var details = CAuthentication_DeviceDetails()
+        details.deviceFriendlyName = configuration.deviceName
+        details.platformType = .kEauthTokenPlatformTypeSteamClient
+        details.osType = configuration.osType
+        return details
+    }
+
+    /// Polls until the auth session yields a refresh token. Approving usually means leaving
+    /// the app for the Steam app, and iOS may drop the socket meanwhile, so a lost
+    /// connection is re-established and polling carries on with the same session.
+    private func pollUntilApproved(
+        _ ticket: AuthTicket,
+        events: AsyncThrowingStream<SignInEvent, Error>.Continuation
+    ) async throws -> StoredSession {
+        var clientID = ticket.clientID
+        var sawRemoteInteraction = false
+        var connectionFailures = 0
+        while true {
+            try await Task.sleep(for: .seconds(Double(max(ticket.interval, 1))))
+
+            var poll = CAuthentication_PollAuthSessionStatus_Request()
+            poll.clientID = clientID
+            poll.requestID = ticket.requestID
+            let status: CAuthentication_PollAuthSessionStatus_Response
+            do {
+                let connection = try await connect()
+                if state != .connectedAnonymously { state = .connectedAnonymously }
+                status = try await connection.callService(
+                    "Authentication.PollAuthSessionStatus#1", poll, authenticated: false
+                )
+                connectionFailures = 0
+            } catch let SteamError.serviceCallFailed(_, result) where [.expired, .fileNotFound, .fail].contains(result) {
+                throw SteamError.signInExpired
+            } catch let error as SteamError where !error.isServiceFailure {
+                connectionFailures += 1
+                if connectionFailures >= 5 { throw error }
+                continue
+            }
+
+            if status.newClientID != 0 {
+                clientID = status.newClientID
+                pendingGuardCode?.clientID = clientID
+            }
+            if !status.newChallengeURL.isEmpty, let url = URL(string: status.newChallengeURL) {
+                events.yield(.challenge(url))
+            }
+            if status.hadRemoteInteraction, !sawRemoteInteraction {
+                sawRemoteInteraction = true
+                events.yield(.awaitingConfirmation)
+            }
+            if !status.refreshToken.isEmpty {
+                return StoredSession(accountName: status.accountName, refreshToken: status.refreshToken)
+            }
         }
     }
 

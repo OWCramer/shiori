@@ -21,9 +21,12 @@ public struct EResult: RawRepresentable, Hashable, Sendable, CustomStringConvert
     public static let notLoggedOn = EResult(rawValue: 21)
     public static let revoked = EResult(rawValue: 26)
     public static let expired = EResult(rawValue: 27)
+    public static let duplicateRequest = EResult(rawValue: 29)
     public static let tryAnotherCM = EResult(rawValue: 48)
     public static let accountLogonDenied = EResult(rawValue: 63)
+    public static let invalidLoginAuthCode = EResult(rawValue: 65)
     public static let rateLimitExceeded = EResult(rawValue: 84)
+    public static let twoFactorCodeMismatch = EResult(rawValue: 88)
     public static let invalidSignature = EResult(rawValue: 103) // also returned for a revoked/invalid refresh token
 
     public var description: String {
@@ -31,8 +34,8 @@ public struct EResult: RawRepresentable, Hashable, Sendable, CustomStringConvert
             0: "Invalid", 1: "OK", 2: "Fail", 3: "NoConnection", 5: "InvalidPassword",
             6: "LoggedInElsewhere", 7: "InvalidProtocolVer", 8: "InvalidParam", 9: "FileNotFound",
             10: "Busy", 15: "AccessDenied", 16: "Timeout", 17: "Banned", 20: "ServiceUnavailable",
-            21: "NotLoggedOn", 26: "Revoked", 27: "Expired", 48: "TryAnotherCM", 63: "AccountLogonDenied",
-            84: "RateLimitExceeded", 103: "InvalidSignature",
+            21: "NotLoggedOn", 26: "Revoked", 27: "Expired", 29: "DuplicateRequest", 48: "TryAnotherCM", 63: "AccountLogonDenied", 65: "InvalidLoginAuthCode",
+            84: "RateLimitExceeded", 88: "TwoFactorCodeMismatch", 103: "InvalidSignature",
         ]
         return "\(names[rawValue] ?? "EResult") (\(rawValue))"
     }

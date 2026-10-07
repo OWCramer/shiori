@@ -5,6 +5,8 @@
 //       raw buffers as test fixtures.
 //   steamkit-cli qr [seconds]
 //       Starts a QR sign-in and prints the challenge URL. Nothing is stored.
+//   STEAM_PASSWORD=... steamkit-cli creds <account>
+//       Starts a password sign-in and prints the Steam Guard prompt or error. Nothing is stored.
 
 import Foundation
 @_spi(Debug) import SteamKit
@@ -57,8 +59,24 @@ func qr(_ args: [String]) async throws {
     print("cancelled after \(seconds)s; state:", await session.state)
 }
 
+func credentials(_ args: [String]) async throws {
+    guard let account = args.first, let password = ProcessInfo.processInfo.environment["STEAM_PASSWORD"] else {
+        print("usage: STEAM_PASSWORD=... steamkit-cli creds <account>")
+        return
+    }
+    let task = Task {
+        for try await event in session.beginCredentialsSignIn(accountName: account, password: password) { print("creds:", event) }
+    }
+    do {
+        try await task.value
+    } catch {
+        print("creds error:", error)
+    }
+}
+
 do {
     switch arguments.first {
+    case "creds": try await credentials(Array(arguments.dropFirst()))
     case "anon": try await anonymous(Array(arguments.dropFirst()))
     case "qr": try await qr(Array(arguments.dropFirst()))
     default: print("usage: steamkit-cli anon <appid>... [--fixtures dir] | qr [seconds]")

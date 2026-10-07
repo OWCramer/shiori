@@ -7,8 +7,11 @@ import UIKit
 final class SteamModel {
     enum SignIn: Equatable {
         case idle
-        case starting
-        case showing(URL, awaitingConfirmation: Bool)
+        case working
+        /// Password sign-in waiting on Steam Guard.
+        case steamGuard(SteamGuardPrompt, codeError: String?, isSubmittingCode: Bool)
+        /// QR sign-in, for scanning with the Steam app on another device.
+        case qr(URL, scanned: Bool)
         case failed(String)
     }
 
@@ -62,18 +65,47 @@ final class SteamModel {
         }
     }
 
+    func signIn(accountName: String, password: String) {
+        run(session.beginCredentialsSignIn(accountName: accountName, password: password))
+    }
+
     func startQRSignIn() {
+        run(session.beginQRSignIn())
+    }
+
+    func submitSteamGuardCode(_ code: String) {
+        guard case let .steamGuard(prompt, _, false) = signIn else { return }
+        signIn = .steamGuard(prompt, codeError: nil, isSubmittingCode: true)
+        Task {
+            var codeError: String?
+            do {
+                try await session.submitSteamGuardCode(code)
+            } catch {
+                codeError = Self.message(for: error)
+            }
+            // The sign-in may have completed (or failed) while the code was in flight.
+            if case .steamGuard = signIn { signIn = .steamGuard(prompt, codeError: codeError, isSubmittingCode: false) }
+        }
+    }
+
+    private func run(_ events: AsyncThrowingStream<SignInEvent, Error>) {
         signInTask?.cancel()
         resumeError = nil
-        signIn = .starting
+        signIn = .working
         signInTask = Task {
+            // Approving means switching to the Steam app; ask iOS for time so the
+            // connection survives a short trip away.
+            let background = UIApplication.shared.beginBackgroundTask(withName: "Steam sign-in")
+            defer { UIApplication.shared.endBackgroundTask(background) }
             do {
-                for try await event in session.beginQRSignIn() {
+                for try await event in events {
                     switch event {
                     case let .challenge(url):
-                        signIn = .showing(url, awaitingConfirmation: false)
+                        signIn = .qr(url, scanned: false)
                     case .awaitingConfirmation:
-                        if case let .showing(url, _) = signIn { signIn = .showing(url, awaitingConfirmation: true) }
+                        if case let .qr(url, _) = signIn { signIn = .qr(url, scanned: true) }
+                    case let .steamGuard(prompt):
+                        signIn = .steamGuard(prompt, codeError: nil, isSubmittingCode: false)
                     case .signedIn:
                         signIn = .idle
                     }
@@ -81,7 +113,7 @@ final class SteamModel {
             } catch is CancellationError {
                 signIn = .idle
             } catch {
-                signIn = .failed((error as? SteamError)?.description ?? error.localizedDescription)
+                signIn = .failed(Self.message(for: error))
             }
         }
     }
@@ -90,6 +122,10 @@ final class SteamModel {
         signInTask?.cancel()
         signInTask = nil
         signIn = .idle
+    }
+
+    private static func message(for error: Error) -> String {
+        (error as? SteamError)?.description ?? error.localizedDescription
     }
 
     func signOut() async {
@@ -106,7 +142,7 @@ final class SteamModel {
         do {
             library = try await session.ownedApps()
         } catch {
-            libraryError = (error as? SteamError)?.description ?? error.localizedDescription
+            libraryError = Self.message(for: error)
         }
     }
 
