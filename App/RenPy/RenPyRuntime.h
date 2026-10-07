@@ -21,5 +21,10 @@ void vnhub_renpy_did_become_active(void);
 /// After a game has ended: hide its window and show the hub's windows again.
 void vnhub_renpy_restore_hub(void);
 
+/// Controller input for the running game, as SDL game-controller events
+/// (SDL_GameControllerButton / SDL_GameControllerAxis numbering).
+void vnhub_renpy_controller_button(int button, int down);
+void vnhub_renpy_controller_axis(int axis, int value);
+
 /// True while `vnhub_renpy_run` is executing.
 int vnhub_renpy_is_running(void);

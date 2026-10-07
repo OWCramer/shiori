@@ -35,6 +35,9 @@ static struct {
     int (*sendKey)(unsigned char state, int scancode);
     int (*sendMouseMotion)(SDL_Window *window, int x, int y);
     int (*sendMouseButton)(SDL_Window *window, unsigned char state, unsigned char button);
+    // Controller input posted as SDL game-controller events (runtime_shim.c).
+    int (*controllerButton)(int button, int down);
+    int (*controllerAxis)(int axis, int value);
 } sdl;
 
 static BOOL LoadRuntime(const char *name) {
@@ -55,6 +58,8 @@ static BOOL LoadRuntime(const char *name) {
     sdl.sendKey = dlsym(sdl.handle, "vnhub_sdl_send_key");
     sdl.sendMouseMotion = dlsym(sdl.handle, "vnhub_sdl_send_mouse_motion");
     sdl.sendMouseButton = dlsym(sdl.handle, "vnhub_sdl_send_mouse_button");
+    sdl.controllerButton = dlsym(sdl.handle, "vnhub_sdl_controller_button");
+    sdl.controllerAxis = dlsym(sdl.handle, "vnhub_sdl_controller_axis");
     return sdl.launcherMain && sdl.setMainReady;
 }
 
@@ -129,7 +134,16 @@ static void ScheduleScriptedInput(void) {
         // itself, and main-queue blocks stop being serviced after the first.
         NSTimer *timer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *t) {
             NSLog(@"VN Hub input: %@", action);
-            if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"] || [action isEqualToString:@"h"]) {
+            if ([action hasPrefix:@"pad"]) {
+                int button = [action substringFromIndex:3].intValue;
+                vnhub_renpy_controller_button(button, 1);
+                NSTimer *release = [NSTimer timerWithTimeInterval:0.08 repeats:NO block:^(NSTimer *r) {
+                    vnhub_renpy_controller_button(button, 0);
+                }];
+                [NSRunLoop.mainRunLoop addTimer:release forMode:NSRunLoopCommonModes];
+                return;
+            }
+                        if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"] || [action isEqualToString:@"h"]) {
                 PressKey([action isEqualToString:@"esc"] ? ScancodeEscape : [action isEqualToString:@"h"] ? ScancodeH : ScancodeReturn);
                 return;
             }
@@ -455,6 +469,13 @@ static void WatchForFirstFrame(void) {
                 watching = YES;
                 void (*watchInput)(void) = sdl.handle ? dlsym(sdl.handle, "vnhub_sdl_watch_input") : NULL;
                 if (watchInput) watchInput();
+                int (*hasFocus)(void) = sdl.handle ? dlsym(sdl.handle, "vnhub_sdl_has_keyboard_focus") : NULL;
+                if (hasFocus) {
+                    NSLog(@"Shiori SDL: keyboard focus %s at first frame", hasFocus() ? "set" : "NOT set");
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                        NSLog(@"Shiori SDL: keyboard focus %s after 5 s", hasFocus() ? "set" : "NOT set");
+                    });
+                }
             }
             if (coverWindow && !coverLeaving && FrameHasContent(view)) DismissCover();
             ((void (*)(id, SEL))original)(view, @selector(swapBuffers));
@@ -603,6 +624,14 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
 }
 
 int vnhub_renpy_is_running(void) { return running; }
+
+void vnhub_renpy_controller_button(int button, int down) {
+    if (running && sdl.controllerButton) sdl.controllerButton(button, down);
+}
+
+void vnhub_renpy_controller_axis(int axis, int value) {
+    if (running && sdl.controllerAxis) sdl.controllerAxis(axis, value);
+}
 
 void vnhub_renpy_restore_hub(void) {
     UIWindow *game = gameWindow;

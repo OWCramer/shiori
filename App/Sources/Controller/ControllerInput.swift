@@ -100,17 +100,14 @@ final class ControllerInput {
         }
     }
 
-    /// Buttons GameController reports as pressed while a game runs (diagnostics).
-    private var gameHeld: Set<String> = []
+    /// What the running game was last told about the pad, to send only changes.
+    private var gameButtons: [Int: Bool] = [:]
+    private var gameAxes: [Int: Int] = [:]
 
     private func poll() {
         guard let pad = controller?.extendedGamepad else { return }
         if vnhub_renpy_is_running() != 0 {
-            // The game reads the pad through SDL; just note what GameController itself sees,
-            // to tell lost input from input SDL ignores.
-            let now = Set(pad.allButtons.filter(\.isPressed).map { $0.localizedName ?? "?" })
-            for name in now.subtracting(gameHeld) { NSLog("Shiori GC: %@ pressed", name) }
-            gameHeld = now
+            forwardToGame(pad)
             return
         }
         let stick = pad.leftThumbstick
@@ -140,6 +137,36 @@ final class ControllerInput {
                 held.remove(action)
                 repeatAt[action] = nil
             }
+        }
+    }
+
+    /// SDL's iOS controller driver yields no input for some controllers (a Backbone at
+    /// least), though GameController sees every press. While a game runs, pass the pad's
+    /// state to it as SDL game-controller events (SDL_GameControllerButton/Axis numbers).
+    private func forwardToGame(_ pad: GCExtendedGamepad) {
+        let buttons: [Int: Bool] = [
+            0: pad.buttonA.isPressed, 1: pad.buttonB.isPressed,
+            2: pad.buttonX.isPressed, 3: pad.buttonY.isPressed,
+            4: pad.buttonOptions?.isPressed ?? false, 6: pad.buttonMenu.isPressed,
+            7: pad.leftThumbstickButton?.isPressed ?? false, 8: pad.rightThumbstickButton?.isPressed ?? false,
+            9: pad.leftShoulder.isPressed, 10: pad.rightShoulder.isPressed,
+            11: pad.dpad.up.isPressed, 12: pad.dpad.down.isPressed,
+            13: pad.dpad.left.isPressed, 14: pad.dpad.right.isPressed,
+        ]
+        for (button, down) in buttons where gameButtons[button, default: false] != down {
+            gameButtons[button] = down
+            vnhub_renpy_controller_button(Int32(button), down ? 1 : 0)
+        }
+        func stick(_ value: Float) -> Int { Int((max(-1, min(1, value)) * 32767).rounded()) }
+        // SDL's Y axes point down; GameController's point up. Triggers run 0...32767.
+        let axes: [Int: Int] = [
+            0: stick(pad.leftThumbstick.xAxis.value), 1: -stick(pad.leftThumbstick.yAxis.value),
+            2: stick(pad.rightThumbstick.xAxis.value), 3: -stick(pad.rightThumbstick.yAxis.value),
+            4: stick(pad.leftTrigger.value), 5: stick(pad.rightTrigger.value),
+        ]
+        for (axis, value) in axes where abs(gameAxes[axis, default: 0] - value) > 512 || (value == 0 && gameAxes[axis, default: 0] != 0) {
+            gameAxes[axis] = value
+            vnhub_renpy_controller_axis(Int32(axis), Int32(value))
         }
     }
 

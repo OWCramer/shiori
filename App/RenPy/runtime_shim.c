@@ -26,9 +26,13 @@ __attribute__((visibility("default"))) int vnhub_sdl_send_mouse_button(SDL_Windo
 typedef int (*SDL_EventFilter)(void *userdata, void *event);
 void SDL_AddEventWatch(SDL_EventFilter filter, void *userdata);
 
+static int injecting = 0;
+static int native_controller_events = 0;
+
 static int vnhub_input_watch(void *userdata, void *event) {
     static int logged = 0;
     uint32_t type = *(uint32_t *)event;
+    if (!injecting && (type == 0x650 || type == 0x651 || type == 0x652)) native_controller_events++;
     const uint8_t *bytes = event;
     // SDL_JoyButtonEvent / SDL_ControllerButtonEvent: type, timestamp, which, button, state.
     switch (type) {
@@ -48,4 +52,64 @@ static int vnhub_input_watch(void *userdata, void *event) {
 
 __attribute__((visibility("default"))) void vnhub_sdl_watch_input(void) {
     SDL_AddEventWatch(vnhub_input_watch, 0);
+}
+
+// SDL's own keyboard-focus window (NULL when SDL thinks no window has focus, in which
+// case it drops joystick input unless SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS is set).
+SDL_Window *SDL_GetKeyboardFocus(void);
+
+__attribute__((visibility("default"))) int vnhub_sdl_has_keyboard_focus(void) {
+    return SDL_GetKeyboardFocus() != 0;
+}
+
+// Controller input from Shiori. SDL's iOS (MFi) joystick driver produces no events for
+// some controllers (a Backbone, at least) even though GameController reports every
+// press, so Shiori reads the pad itself while a game runs and posts standard SDL
+// game-controller events for the first controller. Ren'Py and the game see them as
+// ordinary pad input. Stops as soon as SDL produces controller events of its own.
+int SDL_PushEvent(void *event);
+int32_t SDL_JoystickGetDeviceInstanceID(int device_index);
+uint32_t SDL_GetTicks(void);
+
+typedef struct {
+    uint32_t type, timestamp;
+    int32_t which;
+    uint8_t button, state, padding1, padding2;
+} vnhub_button_event;
+
+typedef struct {
+    uint32_t type, timestamp;
+    int32_t which;
+    uint8_t axis, padding1, padding2, padding3;
+    int16_t value;
+    uint16_t padding4;
+} vnhub_axis_event;
+
+static int vnhub_push(void *event) {
+    injecting = 1;
+    int result = SDL_PushEvent(event);
+    injecting = 0;
+    return result;
+}
+
+__attribute__((visibility("default"))) int vnhub_sdl_controller_button(int button, int down) {
+    if (native_controller_events) return 0;
+    union { vnhub_button_event button; uint8_t bytes[64]; } event = { 0 };
+    event.button.type = down ? 0x651 : 0x652; // SDL_CONTROLLERBUTTONDOWN / UP
+    event.button.timestamp = SDL_GetTicks();
+    event.button.which = SDL_JoystickGetDeviceInstanceID(0);
+    event.button.button = (uint8_t)button;
+    event.button.state = down ? 1 : 0;
+    return vnhub_push(&event);
+}
+
+__attribute__((visibility("default"))) int vnhub_sdl_controller_axis(int axis, int value) {
+    if (native_controller_events) return 0;
+    union { vnhub_axis_event axis; uint8_t bytes[64]; } event = { 0 };
+    event.axis.type = 0x650; // SDL_CONTROLLERAXISMOTION
+    event.axis.timestamp = SDL_GetTicks();
+    event.axis.which = SDL_JoystickGetDeviceInstanceID(0);
+    event.axis.axis = (uint8_t)axis;
+    event.axis.value = (int16_t)value;
+    return vnhub_push(&event);
 }

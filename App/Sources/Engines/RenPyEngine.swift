@@ -201,6 +201,9 @@ extension RenPyEngine {
                     // The screen variants Ren'Py picks on a PC.
                     setenv("RENPY_VARIANT", "large pc", 1)
                 }
+                // SDL drops controller input whenever it thinks no window has keyboard focus,
+                // which its iOS backend doesn't always record for our scene-attached window.
+                setenv("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1", 1)
                 setenv("VNHUB_PATCH_GAME", gameFolder.appendingPathComponent("patch/game", isDirectory: true).path, 1)
                 NSLog("VN Hub: running Ren'Py %@ game on %@", match.version ?? "?", runtime.framework)
                 status = vnhub_renpy_run(runtime.framework, runner.path, "main", saves.path)
