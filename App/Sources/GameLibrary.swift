@@ -201,6 +201,33 @@ final class GameLibrary {
         return record
     }
 
+    // MARK: - Play
+
+    /// Why the game can't be played, or nil if Play should be offered.
+    func playBlocker(appID: UInt32) -> String? {
+        guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
+        guard let engine = record.engine else { return "No supported engine was recognised in this game." }
+        guard engine.engine == RenPyEngine.id else {
+            return "Downloaded, not playable yet: \(EngineDetection.displayName(for: engine.engine)) isn't supported."
+        }
+        return RenPyEngine.incompatibility(engine)
+    }
+
+    /// Hands the app over to the game. Never returns: the app exits when the game quits.
+    func play(appID: UInt32) {
+        guard playBlocker(appID: appID) == nil, tasks[appID] == nil,
+              case let .installed(record) = statuses[appID], let engine = record.engine
+        else { return }
+        let folder = folder(appID: appID, name: record.name)
+        let saves = folder.appendingPathComponent("saves", isDirectory: true)
+        try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
+        log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
+        // Let SwiftUI finish the tap before the game takes over the main thread.
+        DispatchQueue.main.async {
+            RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves)
+        }
+    }
+
     // MARK: - Verify
 
     func verify(appID: UInt32) {

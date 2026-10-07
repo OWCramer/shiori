@@ -75,7 +75,15 @@ struct GameDetailView: View {
                 Text("\(progress.checkedBytes.formatted(.byteCount(style: .file))) of \(progress.totalBytes.formatted(.byteCount(style: .file)))")
             }
         case .installed:
-            Label("Downloaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            if let blocker = games.playBlocker(appID: app.appID) {
+                Label(blocker, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+            } else {
+                Button {
+                    games.play(appID: app.appID)
+                } label: {
+                    Label("Play", systemImage: "play.fill").font(.headline)
+                }
+            }
             Button("Verify files") { games.verify(appID: app.appID) }
         case let .failed(message, canResume):
             Text(message).foregroundStyle(.red)

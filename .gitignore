@@ -4,3 +4,4 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 .swiftpm/
+Vendor/

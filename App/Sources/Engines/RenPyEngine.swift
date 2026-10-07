@@ -76,3 +76,36 @@ enum RenPyEngine: VNEngine {
         return (1 ... groups).compactMap { Range(match.range(at: $0), in: text).map { String(text[$0]) } }
     }
 }
+
+// MARK: - Runtime
+
+extension RenPyEngine {
+    /// The embedded runtime (Scripts/fetch-renios.sh), pinned to Highway Blossoms' Ren'Py.
+    static let runtimeVersion = "8.1.3"
+    static let runtimePython = "3"
+
+    /// Why this game can't run on the embedded runtime, or nil if it can. Games are refused
+    /// when the Ren'Py major version or the Python generation differs (spec: Ren'Py engine).
+    static func incompatibility(_ match: EngineMatch) -> String? {
+        guard let version = match.version, let major = version.split(separator: ".").first else {
+            return "Couldn't read this game's Ren'Py version."
+        }
+        let runtimeMajor = runtimeVersion.split(separator: ".").first!
+        if major != runtimeMajor {
+            return "This game uses Ren'Py \(version); VN Hub runs Ren'Py \(runtimeVersion)."
+        }
+        if let python = match.details["python"], python != runtimePython {
+            return "This game needs Python \(python); VN Hub's Ren'Py uses Python \(runtimePython)."
+        }
+        return nil
+    }
+
+    /// Runs the game in this process until it quits, then exits the app: CPython can't be
+    /// restarted cleanly in-process, so returning to the hub means relaunching VN Hub.
+    @MainActor
+    static func launch(gameFolder: URL, match: EngineMatch, saves: URL) -> Never {
+        let launcher = (match.details["launcher"] ?? "main.py").replacingOccurrences(of: ".py", with: "")
+        let status = vnhub_renpy_run(gameFolder.path, launcher, saves.path)
+        exit(status == 0 ? 0 : 1)
+    }
+}

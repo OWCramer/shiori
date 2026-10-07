@@ -21,10 +21,17 @@ struct VNHubApp: App {
                 .task(id: steam.library.count) { DebugAutomation.run(steam: steam, games: games) }
             #endif
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { old, phase in
             switch phase {
-            case .background: games.didEnterBackground()
-            case .active: games.willEnterForeground()
+            case .background:
+                vnhub_renpy_did_enter_background()
+                games.didEnterBackground()
+            case .inactive where old == .active:
+                vnhub_renpy_will_resign_active()
+            case .active:
+                if old == .background { vnhub_renpy_will_enter_foreground() }
+                vnhub_renpy_did_become_active()
+                games.willEnterForeground()
             default: break
             }
         }
@@ -46,7 +53,7 @@ struct RootView: View {
 #if DEBUG
 /// Simulator test hooks, driven by launch arguments (`simctl launch … -VNHubAutoDownload 451760`).
 /// `-VNHubAutoDownload <appid>` starts or resumes that download once the library loads;
-/// `-VNHubAutoVerify <appid>` verifies an installed game.
+/// `-VNHubAutoVerify <appid>` verifies an installed game; `-VNHubAutoPlay <appid>` starts it.
 @MainActor
 enum DebugAutomation {
     private static var done: Set<String> = []
@@ -58,6 +65,10 @@ enum DebugAutomation {
         {
             done.insert("download")
             games.download(app)
+        }
+        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoPlay")), appID != 0, !done.contains("play") {
+            done.insert("play")
+            games.play(appID: appID)
         }
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoVerify")), appID != 0, !done.contains("verify") {
             done.insert("verify")
