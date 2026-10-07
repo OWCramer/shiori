@@ -84,6 +84,7 @@ struct GameDetailView: View {
         }
         .task(id: steam.isLoggedOn) {
             if record == nil, steam.isLoggedOn { engineScans.scan([appID]) }
+            if steam.isLoggedOn { await games.loadSteamCloudSupport(appID) }
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
         .onChange(of: status) { reloadPatches() }
@@ -325,6 +326,13 @@ struct GameDetailView: View {
         }
     }
 
+    /// The game has no Steam Cloud at all, or Shiori can't use it for this engine yet.
+    private var steamCloudChip: String? {
+        if games.steamCloudSupport[appID] == false { return "No Steam Cloud" }
+        if record?.engine?.engine == "artemis" { return "No Steam Cloud yet" }
+        return nil
+    }
+
     private var chips: some View {
         ScrollView(.horizontal) {
             GlassEffectContainer(spacing: 8) {
@@ -341,9 +349,11 @@ struct GameDetailView: View {
                         if engine.engine == "artemis" {
                             GlassChip("Touch only", systemImage: "hand.tap", tint: .gray)
                                 .glassEffectID("controls", in: glassNamespace)
-                            GlassChip("No Steam Cloud yet", systemImage: "cloud.slash", tint: .gray)
-                                .glassEffectID("steamcloud", in: glassNamespace)
                         }
+                    }
+                    if let label = steamCloudChip {
+                        GlassChip(label, systemImage: "cloud.slash", tint: .gray)
+                            .glassEffectID("steamcloud", in: glassNamespace)
                     }
                     if !patchFiles.isEmpty {
                         GlassChip("Patched", systemImage: "bandage", tint: .orange)
@@ -446,7 +456,12 @@ struct GameDetailView: View {
 
     private var savesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if record?.engine?.engine == "artemis" {
+            if games.steamCloudSupport[appID] == false {
+                Label("No Steam Cloud", systemImage: "cloud.slash")
+                    .font(.subheadline)
+                Text("This game doesn't use Steam Cloud on PC, so there are no cloud saves to share with it. iCloud keeps saves made here in step between your devices.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if record?.engine?.engine == "artemis" {
                 Label("Steam Cloud: not supported yet", systemImage: "cloud.slash")
                     .font(.subheadline)
                 Text("Shiori can't read or write this engine's PC saves yet, so saves made here don't go to or come from your PC through Steam Cloud. iCloud keeps them in step between your devices.")

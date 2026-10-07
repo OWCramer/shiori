@@ -255,6 +255,33 @@ final class GameLibrary {
 
     private(set) var steamCloud: [UInt32: SaveSyncState] = [:]
 
+    /// Bumped when the check changes, so cached answers are asked again.
+    private static let steamCloudCheckVersion = 2
+
+    /// Whether a game uses Steam Cloud at all on PC (a cloud quota or save rules in its
+    /// app info), cached across launches; nil until asked.
+    private(set) var steamCloudSupport: [UInt32: Bool] = {
+        guard UserDefaults.standard.integer(forKey: "steamCloudSupportVersion") == GameLibrary.steamCloudCheckVersion else { return [:] }
+        let saved = UserDefaults.standard.dictionary(forKey: "steamCloudSupport") as? [String: Bool] ?? [:]
+        return Dictionary(uniqueKeysWithValues: saved.compactMap { key, value in UInt32(key).map { ($0, value) } })
+    }()
+
+    /// Looks up whether the game has Steam Cloud (a read-only app info request).
+    func loadSteamCloudSupport(_ appID: UInt32) async {
+        guard steamCloudSupport[appID] == nil, case .loggedOn = await session.state,
+              let app = try? await session.appInfo([appID]).first else { return }
+        // Steam lists the feature as store category 23 ("Steam Cloud"); save rules count too.
+        // A quota alone doesn't: Steam gives some games one they never use (Ne no Kami).
+        let category = app.keyValues[path: "common", "category", "category_23"]?.value == "1"
+        let ufs = UFSConfig(app: app)
+        let supported = category || !ufs.saveRules.isEmpty
+        log.info("Steam Cloud for \(appID): category \(category), quota \(ufs.quota ?? 0), rules \(ufs.saveRules.count)")
+        steamCloudSupport[appID] = supported
+        UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: steamCloudSupport.map { (String($0.key), $0.value) }),
+                                  forKey: "steamCloudSupport")
+        UserDefaults.standard.set(Self.steamCloudCheckVersion, forKey: "steamCloudSupportVersion")
+    }
+
     func isSteamCloudEnabled(_ appID: UInt32) -> Bool {
         UserDefaults.standard.object(forKey: "steamCloudSaves.\(appID)") as? Bool ?? true
     }
@@ -266,6 +293,8 @@ final class GameLibrary {
 
     /// Brings newer Steam Cloud saves down. Read-only towards Steam.
     func pullSteamCloud(appID: UInt32) async {
+        // Nothing to bring down for games without Steam Cloud.
+        if steamCloudSupport[appID] == false { return }
         guard isSteamCloudEnabled(appID), case let .installed(record) = statuses[appID] else { return }
         guard case .loggedOn = await session.state else {
             steamCloud[appID] = .failed("Not connected to Steam")
