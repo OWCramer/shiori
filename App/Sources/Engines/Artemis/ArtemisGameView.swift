@@ -6,7 +6,7 @@ import UIKit
 /// Plays an Artemis game with ArtemisKit: the stage mirrored into Core Animation layers,
 /// letterboxed to the screen, taps in stage coordinates. Unlike Ren'Py this runs in our own
 /// code, so leaving returns to the library instead of closing the app.
-final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
+final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, UIGestureRecognizerDelegate {
     private let gameFolder: URL
     private let onExit: () -> Void
     private var player: ArtemisPlayer?
@@ -16,7 +16,10 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
     private var images: [String: ObjectIdentifier] = [:]
     private var messageRevisions: [String: Int] = [:]
     private var messageSublayers: [String: CALayer] = [:]
+    private var revealCounts: [String: Int] = [:]
     private var lastPresentation = -1
+    private var lastTweenRevision = -1
+    private var reportedFailure = false
     private var displayLink: CADisplayLink?
     private var startTime: CFTimeInterval = 0
     private var videoLayer: AVPlayerLayer?
@@ -47,8 +50,30 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
         view.layer.addSublayer(stageLayer)
         stageLayer.addSublayer(messageLayer)
 
+        // Gestures from the game's own mobile controls: tap reads on, two-finger tap opens
+        // the system menu (right-click), swipe left backs out or hides the text, swipe right
+        // skips, holding for a second toggles auto mode. A two-finger hold leaves the game.
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         view.addGestureRecognizer(tap)
+        let menu = UITapGestureRecognizer(target: self, action: #selector(rightClick(_:)))
+        menu.numberOfTouchesRequired = 2
+        view.addGestureRecognizer(menu)
+        tap.require(toFail: menu)
+        let back = UISwipeGestureRecognizer(target: self, action: #selector(swipedBack(_:)))
+        back.direction = .left
+        view.addGestureRecognizer(back)
+        let skip = UISwipeGestureRecognizer(target: self, action: #selector(swipedSkip(_:)))
+        skip.direction = .right
+        view.addGestureRecognizer(skip)
+        // Drags (sliders) only start on layers that take them, so swipes still work.
+        let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
+        drag.delegate = self
+        view.addGestureRecognizer(drag)
+        back.require(toFail: drag)
+        skip.require(toFail: drag)
+        let auto = UILongPressGestureRecognizer(target: self, action: #selector(heldForAuto(_:)))
+        auto.minimumPressDuration = 1
+        view.addGestureRecognizer(auto)
         let leave = UILongPressGestureRecognizer(target: self, action: #selector(askToLeave(_:)))
         leave.numberOfTouchesRequired = 2
         leave.minimumPressDuration = 0.8
@@ -59,6 +84,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
             let patch = gameFolder.appendingPathComponent("patch", isDirectory: true)
             let player = try ArtemisPlayer(gameRoot: base, patchRoot: patch)
             player.media = self
+            player.savePath = gameFolder.appendingPathComponent("saves", isDirectory: true)
             player.onLog = { message in
                 if !message.hasPrefix("debug:") && !message.hasPrefix("lua:") { NSLog("Artemis: %@", message) }
             }
@@ -68,6 +94,9 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
             try player.start()
         } catch {
             NSLog("Artemis: couldn't start: %@", String(describing: error))
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.player?.saveGlobals() }
         }
         startTime = CACurrentMediaTime()
         #if DEBUG
@@ -130,9 +159,15 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
         guard let player else { return }
         player.update(time: (CACurrentMediaTime() - startTime) * 1000)
         audio.tick()
-        if player.failure != nil || player.interpreter.state == .finished {
+        if player.interpreter.state == .finished {
             leave()
             return
+        }
+        if let failure = player.failure, presentedViewController == nil, !reportedFailure {
+            reportedFailure = true
+            let alert = UIAlertController(title: "The game hit a script error", message: failure, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
+            present(alert, animated: true)
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -145,11 +180,11 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
                 stageLayer.add(fade, forKey: "artemis.trans")
             }
             sync(player.stage.root, into: stageLayer, full: true)
-        } else if !player.stage.tweens.isEmpty {
-            for tween in player.stage.tweens {
-                if let layer = player.stage.layer(tween.layer), let caLayer = layers[layer.id] { apply(layer, to: caLayer) }
-            }
+        } else if player.stage.tweenRevision != lastTweenRevision {
+            // Tweens animate the visible screen, including layers no flip has shown yet.
+            sync(player.stage.root, into: stageLayer, full: false)
         }
+        lastTweenRevision = player.stage.tweenRevision
         syncMessages(player)
         CATransaction.commit()
     }
@@ -222,8 +257,26 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
                 messageSublayers[id] = sublayer
                 return sublayer
             }()
-            sublayer.contents = layer.text.isEmpty ? nil
+            sublayer.contents = layer.text.isEmpty || layer.pageHidden ? nil
                 : player.textRenderer.image(for: layer, stageWidth: player.stage.width, stageHeight: player.stage.height, scale: scale)
+            revealCounts[id] = -1
+        }
+        // Typewriter: reveal the drawn text through a mask that grows over its glyphs.
+        for (id, layer) in player.messages.layers {
+            guard let sublayer = messageSublayers[id] else { continue }
+            let count = Int(layer.revealed)
+            guard revealCounts[id] != count || (count >= layer.text.count && sublayer.mask != nil) else { continue }
+            revealCounts[id] = count
+            if count >= layer.text.count {
+                sublayer.mask = nil
+                continue
+            }
+            let mask = (sublayer.mask as? CAShapeLayer) ?? CAShapeLayer()
+            mask.frame = sublayer.bounds
+            let path = CGMutablePath()
+            for rect in player.textRenderer.revealRects(for: layer, count: count) { path.addRect(rect) }
+            mask.path = path
+            sublayer.mask = mask
         }
         // Text shows only while its window does (hidden with the message layers' parent, 80).
         messageLayer.isHidden = player.stage.layer("80").map { !$0.visible } ?? false
@@ -250,7 +303,62 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate {
         present(alert, animated: true)
     }
 
+    private func stagePoint(_ recognizer: UIGestureRecognizer) -> CGPoint {
+        stageLayer.convert(recognizer.location(in: view), from: view.layer)
+    }
+
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard recognizer is UIPanGestureRecognizer, let player else { return true }
+        let point = stagePoint(recognizer)
+        return player.wait == .stop
+            && (player.stage.eventTarget(at: point, type: "dragin") ?? player.stage.eventTarget(at: point, type: "drag")) != nil
+    }
+
+    @objc private func dragged(_ recognizer: UIPanGestureRecognizer) {
+        let point = stagePoint(recognizer)
+        switch recognizer.state {
+        case .began: player?.drag(.began, at: point)
+        case .changed: player?.drag(.moved, at: point)
+        case .ended, .cancelled, .failed: player?.drag(.ended, at: point)
+        default: break
+        }
+    }
+
+    @objc private func rightClick(_ recognizer: UITapGestureRecognizer) {
+        player?.rightClick()
+    }
+
+    @objc private func swipedBack(_ recognizer: UISwipeGestureRecognizer) {
+        guard let player else { return }
+        // In a menu (waiting on buttons) back out like a right-click; while reading, hide.
+        if player.wait == .stop { player.rightClick() } else { player.toggleHide() }
+    }
+
+    @objc private func swipedSkip(_ recognizer: UISwipeGestureRecognizer) {
+        guard let player else { return }
+        player.setSkipMode(!player.skipMode)
+    }
+
+    @objc private func heldForAuto(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began, let player else { return }
+        player.setAutoMode(!player.autoMode)
+    }
+
+    func presentDialog(title: String, message: String, cancellable: Bool, textField: Bool,
+                       answer: @escaping (Bool, String?) -> Void) {
+        let alert = UIAlertController(title: title.isEmpty ? nil : title, message: message, preferredStyle: .alert)
+        if textField { alert.addTextField() }
+        if cancellable {
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in answer(false, nil) })
+        }
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
+            answer(true, alert?.textFields?.first?.text)
+        })
+        present(alert, animated: true)
+    }
+
     private func leave() {
+        player?.saveGlobals()
         displayLink?.invalidate()
         displayLink = nil
         audio.stopAll()
