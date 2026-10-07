@@ -3,6 +3,12 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
+private extension UIFont {
+    func withWeight(_ weight: UIFont.Weight) -> UIFont {
+        UIFont.systemFont(ofSize: pointSize, weight: weight)
+    }
+}
+
 /// Plays an Artemis game with ArtemisKit: the stage mirrored into Core Animation layers,
 /// letterboxed to the screen, taps in stage coordinates. Unlike Ren'Py this runs in our own
 /// code, so leaving returns to the library instead of closing the app.
@@ -65,11 +71,15 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         let skip = UISwipeGestureRecognizer(target: self, action: #selector(swipedSkip(_:)))
         skip.direction = .right
         view.addGestureRecognizer(skip)
+        let history = UISwipeGestureRecognizer(target: self, action: #selector(showBacklog(_:)))
+        history.direction = .down
+        view.addGestureRecognizer(history)
         // Drags (sliders) only start on layers that take them, so swipes still work.
         let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
         drag.delegate = self
         view.addGestureRecognizer(drag)
         back.require(toFail: drag)
+        history.require(toFail: drag)
         skip.require(toFail: drag)
         let auto = UILongPressGestureRecognizer(target: self, action: #selector(heldForAuto(_:)))
         auto.minimumPressDuration = 1
@@ -103,6 +113,13 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         // `-VNHubArtemisTaps "25:1135,151;30:640,300"`: taps at stage points, seconds from start.
         for step in (UserDefaults.standard.string(forKey: "VNHubArtemisTaps") ?? "").split(separator: ";") {
             let parts = step.split(separator: ":")
+            if parts.count == 2, parts[1] == "B", let delay = Double(parts[0]) {
+                let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.presentBacklog() }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                continue
+            }
             let xy = parts.count == 2 ? parts[1].split(separator: ",").compactMap { Double($0) } : []
             guard parts.count == 2, let delay = Double(parts[0]), xy.count == 2 else { continue }
             let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
@@ -345,6 +362,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     // MARK: Input
 
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
+        if backlogView != nil { return }
         if let videoFinished {
             stopVideo()
             videoFinished()
@@ -384,22 +402,81 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
     }
 
+    // MARK: Backlog
+
+    private var backlogView: UIView?
+
+    /// Swipe down: the pages read so far, newest at the bottom. A tap closes it.
+    @objc private func showBacklog(_ recognizer: UISwipeGestureRecognizer) {
+        presentBacklog()
+    }
+
+    private func presentBacklog() {
+        guard backlogView == nil, let player, !player.backlog.isEmpty else { return }
+        let container = UIView(frame: view.bounds)
+        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.backgroundColor = UIColor.black.withAlphaComponent(0.82)
+        let text = UITextView(frame: container.bounds.insetBy(dx: max(24, view.safeAreaInsets.left), dy: 20))
+        text.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        text.backgroundColor = .clear
+        text.isEditable = false
+        text.isSelectable = false
+        let body = NSMutableAttributedString()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.paragraphSpacing = 18
+        for page in player.backlog {
+            if let speaker = page.speaker {
+                body.append(NSAttributedString(string: speaker + "\n", attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .subheadline).withWeight(.semibold),
+                    .foregroundColor: UIColor.systemTeal, .paragraphStyle: NSParagraphStyle.default,
+                ]))
+            }
+            // A page's line breaks are layout, not paragraphs.
+            let flowing = page.text.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
+            body.append(NSAttributedString(string: flowing + "\n", attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .body),
+                .foregroundColor: UIColor.white, .paragraphStyle: paragraph,
+            ]))
+        }
+        text.attributedText = body
+        container.addSubview(text)
+        let close = UITapGestureRecognizer(target: self, action: #selector(closeBacklog))
+        container.addGestureRecognizer(close)
+        container.alpha = 0
+        view.addSubview(container)
+        backlogView = container
+        text.layoutIfNeeded()
+        text.scrollRangeToVisible(NSRange(location: max(0, body.length - 1), length: 1))
+        UIView.animate(withDuration: 0.2) { container.alpha = 1 }
+    }
+
+    @objc private func closeBacklog() {
+        guard let backlog = backlogView else { return }
+        backlogView = nil
+        UIView.animate(withDuration: 0.2, animations: { backlog.alpha = 0 }) { _ in backlog.removeFromSuperview() }
+    }
+
     @objc private func rightClick(_ recognizer: UITapGestureRecognizer) {
+        if backlogView != nil { return }
         player?.rightClick()
     }
 
     @objc private func swipedBack(_ recognizer: UISwipeGestureRecognizer) {
+        if backlogView != nil { return }
         guard let player else { return }
         // In a menu (waiting on buttons) back out like a right-click; while reading, hide.
         if player.wait == .stop { player.rightClick() } else { player.toggleHide() }
     }
 
     @objc private func swipedSkip(_ recognizer: UISwipeGestureRecognizer) {
+        if backlogView != nil { return }
         guard let player else { return }
         player.setSkipMode(!player.skipMode)
     }
 
     @objc private func heldForAuto(_ recognizer: UILongPressGestureRecognizer) {
+        if backlogView != nil { return }
         guard recognizer.state == .began, let player else { return }
         player.setAutoMode(!player.autoMode)
     }
