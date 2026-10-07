@@ -1,3 +1,4 @@
+import Kingfisher
 import SwiftUI
 
 @main
@@ -10,8 +11,15 @@ struct VNHubApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        // Capsule and hero art from Steam's CDN; keep plenty on disk so the grid is instant.
-        URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
+        // Other downloads (covers for the game runtime, SteamGridDB lookups) use URLCache.
+        URLCache.shared = URLCache(memoryCapacity: 16 << 20, diskCapacity: 128 << 20)
+        // Artwork: Kingfisher keeps decoded, downsampled images in memory and the originals
+        // on disk, so scrolling the library doesn't decode art on the main thread again.
+        let images = ImageCache.default
+        images.memoryStorage.config.countLimit = 400
+        images.memoryStorage.config.totalCostLimit = 150 << 20
+        images.diskStorage.config.sizeLimit = 512 << 20
+        images.diskStorage.config.expiration = .days(30)
         let steam = SteamModel()
         _steam = State(initialValue: steam)
         let games = GameLibrary(session: steam.session)

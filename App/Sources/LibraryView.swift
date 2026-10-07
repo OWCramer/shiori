@@ -1,3 +1,4 @@
+import Kingfisher
 import SteamKit
 import SwiftUI
 
@@ -205,15 +206,16 @@ struct CapsuleArt: View {
         Color.clear
             .aspectRatio(2 / 3, contentMode: .fit)
             .overlay {
-                AsyncImage(url: game.capsule) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else if phase.error != nil {
-                        fallback
-                    } else {
-                        Rectangle().fill(.fill.tertiary)
-                    }
-                }
+                // Decoded at grid size, cached in memory and on disk (Kingfisher).
+                KFImage(game.capsule)
+                    .placeholder { Rectangle().fill(.fill.tertiary) }
+                    .onFailureView { fallback }
+                    .downsampling(size: CGSize(width: 400, height: 600))
+                    .cacheOriginalImage()
+                    .cancelOnDisappear(true)
+                    .fade(duration: 0.2)
+                    .resizable()
+                    .scaledToFill()
             }
             .clipped()
     }
@@ -222,7 +224,12 @@ struct CapsuleArt: View {
         ZStack {
             LinearGradient(colors: [.indigo, .purple.opacity(0.7)], startPoint: .top, endPoint: .bottom)
             VStack(spacing: 8) {
-                AsyncImage(url: game.header) { $0.resizable().scaledToFit() } placeholder: { EmptyView() }
+                KFImage(game.header)
+                    .placeholder { EmptyView() }
+                    .onFailureView { EmptyView() }
+                    .downsampling(size: CGSize(width: 460, height: 215))
+                    .resizable()
+                    .scaledToFit()
                 Text(game.name)
                     .font(.caption.bold())
                     .foregroundStyle(.white)

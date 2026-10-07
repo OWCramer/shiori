@@ -1,24 +1,29 @@
 // Hero, backdrop and glass building blocks for game pages, after the user's Tana app
 // (Tana/DesignSystem: GameHeroHeader, StretchyHeader, GlassComponents, RemoteImage).
 
+import Kingfisher
 import SwiftUI
 
-/// Loads remote artwork into whatever frame it's given, trying each URL in turn.
+/// Loads remote artwork into whatever frame it's given, trying each URL in turn, through
+/// Kingfisher's shared memory and disk cache (configured in `VNHubApp`).
 ///
 /// Size-neutral on purpose: a bare `.resizable().scaledToFill()` image reports an ideal
 /// size from the artwork's proportions, which can widen every ancestor. Rendering into
 /// a `Color.clear` container makes that impossible.
 struct RemoteImage<Placeholder: View>: View {
     var urls: [URL]
-    var contentMode: ContentMode = .fill
+    var contentMode: SwiftUI.ContentMode = .fill
     var alignment: Alignment = .center
+    /// Decode at this size (points) instead of full resolution, for small artwork.
+    var downsample: CGSize?
     @ViewBuilder var placeholder: Placeholder
 
-    init(url: URL?, fallback: URL? = nil, contentMode: ContentMode = .fill, alignment: Alignment = .center,
-         @ViewBuilder placeholder: () -> Placeholder) {
+    init(url: URL?, fallback: URL? = nil, contentMode: SwiftUI.ContentMode = .fill, alignment: Alignment = .center,
+         downsample: CGSize? = nil, @ViewBuilder placeholder: () -> Placeholder) {
         urls = [url, fallback].compactMap { $0 }
         self.contentMode = contentMode
         self.alignment = alignment
+        self.downsample = downsample
         self.placeholder = placeholder()
     }
 
@@ -30,16 +35,15 @@ struct RemoteImage<Placeholder: View>: View {
 
     private func image(at index: Int) -> AnyView {
         guard index < urls.count else { return AnyView(placeholder) }
-        return AnyView(AsyncImage(url: urls[index], transaction: Transaction(animation: .smooth(duration: 0.25))) { phase in
-            switch phase {
-            case let .success(image):
-                image.resizable().aspectRatio(contentMode: contentMode).transition(.opacity)
-            case .failure:
-                self.image(at: index + 1)
-            default:
-                placeholder
-            }
-        })
+        var image = KFImage(urls[index])
+            .placeholder { placeholder }
+            // Both halves: without a failure view Kingfisher keeps showing the placeholder.
+            .onFailureView { self.image(at: index + 1) }
+            .cacheOriginalImage()
+            .cancelOnDisappear(true)
+            .fade(duration: 0.25)
+        if let downsample { image = image.downsampling(size: downsample) }
+        return AnyView(image.resizable().aspectRatio(contentMode: contentMode))
     }
 }
 
