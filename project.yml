@@ -40,17 +40,13 @@ targets:
         BGTaskSchedulerPermittedIdentifiers: ["com.owencramer.vnhub.download.*"]
         UIBackgroundModes: ["processing"]
         LSSupportsOpeningDocumentsInPlace: true
-    # iCloud save sync needs the iCloud Documents container below. It's off until Xcode
-    # has an Apple ID account for team YOUR_TEAM_ID (Settings > Accounts): the wildcard
-    # team profile used without one can't carry iCloud entitlements, so enabling this
-    # early breaks device builds. To enable: uncomment, run xcodegen, build with
-    # -allowProvisioningUpdates. Without it, SaveSync reports iCloud as unavailable.
-    # entitlements:
-    #   path: App/VNHub.entitlements
-    #   properties:
-    #     com.apple.developer.icloud-container-identifiers: ["iCloud.com.owencramer.vnhub"]
-    #     com.apple.developer.ubiquity-container-identifiers: ["iCloud.com.owencramer.vnhub"]
-    #     com.apple.developer.icloud-services: ["CloudDocuments"]
+    # iCloud Documents container that mirrors each game's saves/ (SaveSync).
+    entitlements:
+      path: App/VNHub.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers: ["iCloud.com.owencramer.vnhub"]
+        com.apple.developer.ubiquity-container-identifiers: ["iCloud.com.owencramer.vnhub"]
+        com.apple.developer.icloud-services: ["CloudDocuments"]
     dependencies:
       - package: SteamKit
         product: SteamKit
