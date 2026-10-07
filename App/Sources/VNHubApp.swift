@@ -4,6 +4,7 @@ import SwiftUI
 struct VNHubApp: App {
     @State private var steam: SteamModel
     @State private var games: GameLibrary
+    @State private var controllers = ControllerInput()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -19,6 +20,7 @@ struct VNHubApp: App {
             RootView()
                 .environment(steam)
                 .environment(games)
+                .environment(controllers)
                 .task { await games.syncAllSaves() }
             #if DEBUG
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
@@ -44,10 +46,16 @@ struct VNHubApp: App {
 
 struct RootView: View {
     @Environment(SteamModel.self) private var steam
+    @Environment(ControllerInput.self) private var controllers
 
     var body: some View {
         if steam.isLoggedOn || steam.hasStoredSession {
-            LibraryView()
+            // With a controller in hand the library becomes a console-style launcher.
+            if controllers.isActive {
+                LauncherView()
+            } else {
+                LibraryView()
+            }
         } else {
             SignInView()
         }

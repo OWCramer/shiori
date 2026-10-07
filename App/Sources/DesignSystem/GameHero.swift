@@ -11,17 +11,20 @@ import SwiftUI
 struct RemoteImage<Placeholder: View>: View {
     var urls: [URL]
     var contentMode: ContentMode = .fill
+    var alignment: Alignment = .center
     @ViewBuilder var placeholder: Placeholder
 
-    init(url: URL?, fallback: URL? = nil, contentMode: ContentMode = .fill, @ViewBuilder placeholder: () -> Placeholder) {
+    init(url: URL?, fallback: URL? = nil, contentMode: ContentMode = .fill, alignment: Alignment = .center,
+         @ViewBuilder placeholder: () -> Placeholder) {
         urls = [url, fallback].compactMap { $0 }
         self.contentMode = contentMode
+        self.alignment = alignment
         self.placeholder = placeholder()
     }
 
     var body: some View {
         Color.clear
-            .overlay { image(at: 0) }
+            .overlay(alignment: alignment) { image(at: 0) }
             .clipped()
     }
 
