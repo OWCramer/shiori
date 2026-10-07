@@ -31,6 +31,12 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     private var videoLayer: AVPlayerLayer?
     private var videoFinished: (() -> Void)?
     private var videoObserver: NSObjectProtocol?
+    private var videoStatusObserver: NSKeyValueObservation?
+    /// A movie AVFoundation can't play (MPEG-1, Theora), decoded by ArtemisKit.
+    private var softwareVideo: ArtemisVideo?
+    private var softwareVideoLayer: CALayer?
+    private var softwareVideoStart: CFTimeInterval = 0
+    private var lastVideoRevision = -1
     let audio = ArtemisAudio()
 
     init(gameFolder: URL, onExit: @escaping () -> Void) {
@@ -159,6 +165,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         stageLayer.position = CGPoint(x: (size.width - player.stage.width * scale) / 2,
                                       y: (size.height - player.stage.height * scale) / 2)
         videoLayer?.frame = view.bounds
+        softwareVideoLayer?.frame = view.bounds
         CATransaction.commit()
         messageRevisions.removeAll() // redraw text at the new scale
     }
@@ -202,11 +209,14 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 }
             }
             sync(player.stage.root, into: stageLayer, full: true)
-        } else if player.stage.tweenRevision != lastTweenRevision {
-            // Tweens animate the visible screen, including layers no flip has shown yet.
+        } else if player.stage.tweenRevision != lastTweenRevision || player.stage.videoRevision != lastVideoRevision {
+            // Tweens and video layers animate the visible screen, including layers no flip
+            // has shown yet.
             sync(player.stage.root, into: stageLayer, full: false)
         }
         lastTweenRevision = player.stage.tweenRevision
+        lastVideoRevision = player.stage.videoRevision
+        stepSoftwareVideo()
         syncMessages(player)
         stepRuleTransition()
         CATransaction.commit()
@@ -513,9 +523,26 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         audio.isPlaying(id)
     }
 
-    func playVideo(_ data: Data, fileExtension: String, finished: @escaping () -> Void) -> Bool {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("artemis-video.\(fileExtension.isEmpty ? "mp4" : fileExtension)")
-        guard (try? data.write(to: url)) != nil else { return false }
+    func playVideo(_ source: ArtemisVideoSource, finished: @escaping () -> Void) -> Bool {
+        switch source.fileExtension {
+        case "mp4", "m4v", "mov":
+            return playSystemVideo(source, finished: finished)
+        default:
+            return playSoftwareVideo(source, finished: finished)
+        }
+    }
+
+    /// MPEG-4 and friends through AVPlayer. A movie that fails to load ends at once, so the
+    /// game never waits on a picture that won't come.
+    private func playSystemVideo(_ source: ArtemisVideoSource, finished: @escaping () -> Void) -> Bool {
+        let url: URL
+        switch source {
+        case let .file(file):
+            url = file
+        case let .data(data, ext):
+            url = FileManager.default.temporaryDirectory.appendingPathComponent("artemis-video.\(ext)")
+            guard (try? data.write(to: url)) != nil else { return false }
+        }
         let item = AVPlayerItem(url: url)
         let avPlayer = AVPlayer(playerItem: item)
         let layer = AVPlayerLayer(player: avPlayer)
@@ -526,14 +553,60 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         videoLayer = layer
         videoFinished = finished
         videoObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let finished = self.videoFinished else { return }
-                self.stopVideo()
-                finished()
+            MainActor.assumeIsolated { self?.endVideo() }
+        }
+        videoStatusObserver = item.observe(\.status) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    NSLog("[Artemis] movie failed: %@", item.error?.localizedDescription ?? "unknown")
+                    self?.endVideo()
+                }
             }
         }
         avPlayer.play()
         return true
+    }
+
+    /// MPEG-1 and Ogg Theora, decoded in software on the display clock, with the MP2
+    /// soundtrack streamed to the audio engine.
+    private func playSoftwareVideo(_ source: ArtemisVideoSource, finished: @escaping () -> Void) -> Bool {
+        let video: ArtemisVideo?
+        switch source {
+        case let .file(url): video = ArtemisVideo(url: url)
+        case let .data(data, ext): video = ArtemisVideo(data: data, fileExtension: ext)
+        }
+        guard let video else {
+            NSLog("[Artemis] movie format not supported; skipped")
+            return false
+        }
+        let layer = CALayer()
+        layer.frame = view.bounds
+        layer.contentsGravity = .resizeAspect
+        layer.backgroundColor = UIColor.black.cgColor
+        view.layer.addSublayer(layer)
+        softwareVideo = video
+        softwareVideoLayer = layer
+        softwareVideoStart = CACurrentMediaTime()
+        videoFinished = finished
+        if video.hasAudio { audio.startStream(sampleRate: video.audioSampleRate) }
+        stepSoftwareVideo()
+        return true
+    }
+
+    private func stepSoftwareVideo() {
+        guard let video = softwareVideo, let layer = softwareVideoLayer else { return }
+        let seconds = CACurrentMediaTime() - softwareVideoStart
+        if video.update(time: seconds * 1000) { layer.contents = video.image }
+        // Keep half a second of sound queued ahead of the picture.
+        if video.hasAudio { audio.enqueue(video.audio(upTo: seconds + 0.5)) }
+        if video.isFinished { endVideo() }
+    }
+
+    private func endVideo() {
+        guard let finished = videoFinished else { return }
+        stopVideo()
+        finished()
     }
 
     private func stopVideo() {
@@ -543,6 +616,11 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         videoFinished = nil
         if let videoObserver { NotificationCenter.default.removeObserver(videoObserver) }
         videoObserver = nil
+        videoStatusObserver = nil
+        softwareVideoLayer?.removeFromSuperlayer()
+        softwareVideoLayer = nil
+        if softwareVideo?.hasAudio == true { audio.stopStream() }
+        softwareVideo = nil
     }
 }
 

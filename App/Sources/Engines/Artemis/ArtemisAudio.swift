@@ -58,7 +58,45 @@ final class ArtemisAudio {
         }
     }
 
+    // MARK: Movie sound
+
+    private var stream: AVAudioPlayerNode?
+    private var streamFormat: AVAudioFormat?
+
+    /// Starts a stream for a movie's soundtrack (interleaved stereo floats fed by `enqueue`).
+    func startStream(sampleRate: Int) {
+        stopStream()
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 2, interleaved: false) else { return }
+        let node = AVAudioPlayerNode()
+        engine.attach(node)
+        engine.connect(node, to: engine.mainMixerNode, format: format)
+        if !engine.isRunning { try? engine.start() }
+        node.play()
+        stream = node
+        streamFormat = format
+    }
+
+    func enqueue(_ interleaved: [Float]) {
+        guard let node = stream, let format = streamFormat, !interleaved.isEmpty else { return }
+        let frames = interleaved.count / 2
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)) else { return }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        let left = buffer.floatChannelData![0], right = buffer.floatChannelData![1]
+        for i in 0 ..< frames {
+            left[i] = interleaved[2 * i]
+            right[i] = interleaved[2 * i + 1]
+        }
+        node.scheduleBuffer(buffer)
+    }
+
+    func stopStream() {
+        if let stream { remove(stream) }
+        stream = nil
+        streamFormat = nil
+    }
+
     func stopAll() {
+        stopStream()
         stop(music, fadeMs: 0)
         music = nil
         for node in effects.values { stop(node, fadeMs: 0) }
