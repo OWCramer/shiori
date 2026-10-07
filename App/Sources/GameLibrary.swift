@@ -48,6 +48,11 @@ final class GameLibrary {
         URL.documentsDirectory.appendingPathComponent("Games", isDirectory: true)
     }
 
+    /// Regenerable runtime files (compiled bytecode, Ren'Py caches), kept out of the game folder.
+    static func runtimeCache(appID: UInt32) -> URL {
+        URL.cachesDirectory.appendingPathComponent("RenPy/\(appID)", isDirectory: true)
+    }
+
     private static var installsDirectory: URL {
         URL.applicationSupportDirectory.appendingPathComponent("Installs", isDirectory: true)
     }
@@ -224,7 +229,7 @@ final class GameLibrary {
         log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
         // Let SwiftUI finish the tap before the game takes over the main thread.
         DispatchQueue.main.async {
-            RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves)
+            RenPyEngine.launch(gameFolder: folder, match: engine, saves: saves, cache: Self.runtimeCache(appID: appID))
         }
     }
 
@@ -264,6 +269,7 @@ final class GameLibrary {
         tasks[appID] = nil
         let folder = folder(appID: appID, name: name)
         try? install(appID: appID, folder: folder).removeState()
+        try? FileManager.default.removeItem(at: Self.runtimeCache(appID: appID))
         try? FileManager.default.removeItem(at: folder)
         statuses[appID] = nil
         verifyReports[appID] = nil

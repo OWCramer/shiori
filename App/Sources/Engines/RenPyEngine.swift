@@ -102,10 +102,39 @@ extension RenPyEngine {
 
     /// Runs the game in this process until it quits, then exits the app: CPython can't be
     /// restarted cleanly in-process, so returning to the hub means relaunching VN Hub.
+    ///
+    /// Ren'Py's launcher is pointed at a runner folder whose `base/main.py` is VN Hub's
+    /// bootstrap (`vnhub_main.py`) and whose `base/lib` links to the game's Python library.
+    /// The bootstrap keeps caches out of the game's `base/` and then runs the game's launcher.
     @MainActor
-    static func launch(gameFolder: URL, match: EngineMatch, saves: URL) -> Never {
-        let launcher = (match.details["launcher"] ?? "main.py").replacingOccurrences(of: ".py", with: "")
-        let status = vnhub_renpy_run(gameFolder.path, launcher, saves.path)
+    static func launch(gameFolder: URL, match: EngineMatch, saves: URL, cache: URL) -> Never {
+        let base = gameFolder.appendingPathComponent("base", isDirectory: true)
+        let status: Int32
+        do {
+            let runner = try prepareRunner(cache: cache, gameBase: base)
+            setenv("VNHUB_GAME_BASE", base.path, 1)
+            setenv("VNHUB_LAUNCHER", match.details["launcher"] ?? "main.py", 1)
+            setenv("VNHUB_CACHE", cache.path, 1)
+            status = vnhub_renpy_run(runner.path, "main", saves.path)
+        } catch {
+            NSLog("VN Hub: couldn't prepare the Ren'Py runner: %@", String(describing: error))
+            status = 1
+        }
+        NSLog("VN Hub: Ren'Py exited with status %d", status)
         exit(status == 0 ? 0 : 1)
+    }
+
+    private static func prepareRunner(cache: URL, gameBase: URL) throws -> URL {
+        let fm = FileManager.default
+        let runner = cache.appendingPathComponent("runner", isDirectory: true)
+        let runnerBase = runner.appendingPathComponent("base", isDirectory: true)
+        try? fm.removeItem(at: runner)
+        try fm.createDirectory(at: runnerBase, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: runnerBase.appendingPathComponent("lib"), withDestinationURL: gameBase.appendingPathComponent("lib"))
+        guard let bootstrap = Bundle.main.url(forResource: "vnhub_main", withExtension: "py") else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        try fm.copyItem(at: bootstrap, to: runnerBase.appendingPathComponent("main.py"))
+        return runner
     }
 }

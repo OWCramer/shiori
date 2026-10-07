@@ -21,7 +21,10 @@ targets:
     sources:
       - App/Sources
       - App/Resources
-      - App/RenPy
+      - path: App/RenPy
+        excludes: ["*.py"]
+      - path: App/RenPy/vnhub_main.py
+        buildPhase: resources
     # Merged with the generated Info.plist. Game folders in Documents show up in the Files
     # app and can be edited in place (no INFOPLIST_KEY_ build setting exists for these).
     info:
