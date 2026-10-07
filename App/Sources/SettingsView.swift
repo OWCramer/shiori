@@ -54,6 +54,8 @@ struct SettingsView: View {
                     Text("Saves always download from Steam Cloud. With uploads on, saves made here go up when a game closes, replacing the PC's copy if it's older; Shiori keeps a backup of every cloud file it replaces.")
                 }
 
+                SteamGridDBKeySection()
+
                 Section {
                     LabeledContent("Ren'Py runtime", value: RenPyEngine.runtimeVersion)
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")

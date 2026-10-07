@@ -156,7 +156,8 @@ extension RenPyEngine {
             if let python { return "This game uses Ren'Py \(version) on Python \(python), which Shiori can't run." }
             return "This game uses Ren'Py \(version), which Shiori can't run."
         }
-        // Ren'Py 7.8 keeps compatibility back to 6.99; older games are refused rather than
+        // Ren'Py 7.8 keeps compatibility back to 6.99 (a 6.18 game fails loading its compiled
+        // scripts: AttributeError: alternate); older games are refused rather than
         // left to fail halfway through.
         if major == 6, let minor = version.split(separator: ".").dropFirst().first.flatMap({ Int($0) }), minor < 99 {
             return "This game uses Ren'Py \(version); Shiori runs Ren'Py 6.99 and newer."

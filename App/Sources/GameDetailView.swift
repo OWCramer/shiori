@@ -18,6 +18,7 @@ struct GameDetailView: View {
     @State private var patchMessage: String?
     @State private var overscroll: CGFloat = 0
     @State private var phoneLayout = false
+    @State private var choosingArtwork = false
     @Namespace private var glassNamespace
 
     private var appID: UInt32 { game.appID }
@@ -59,6 +60,10 @@ struct GameDetailView: View {
         .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
+        .sheet(isPresented: $choosingArtwork) {
+            ArtworkPickerView(appID: appID)
+                .environment(steam.artwork)
+        }
         .onAppear {
             reloadPatches()
             phoneLayout = RenPyEngine.usesPhoneLayout(appID: appID)
@@ -159,6 +164,7 @@ struct GameDetailView: View {
                systemImage: curation.isVisualNovel(game) ? "eye.slash" : "plus.circle") {
             curation.toggle(game)
         }
+        Button("Change Artwork…", systemImage: "photo.on.rectangle") { choosingArtwork = true }
         if record == nil {
             Button("Check Engine Again", systemImage: "magnifyingglass") { engineScans.scan([appID], force: true) }
                 .disabled(!steam.isLoggedOn)

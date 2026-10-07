@@ -70,12 +70,6 @@ struct LibraryView: View {
             .refreshable { await steam.loadLibrary() }
             .navigationTitle("Library")
             .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
-            // Learn each visual novel's engine from its manifests, so the grid can say
-            // what's playable before anything is downloaded.
-            .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {
-                guard steam.isLoggedOn else { return }
-                engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && games.status(for: $0.appID) == .notInstalled }.map(\.appID))
-            }
             #if DEBUG
             // `-VNHubOpenGame <appid>` opens that game's screen once the library loads.
             .task(id: steam.library.count) {

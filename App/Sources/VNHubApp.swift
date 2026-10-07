@@ -26,7 +26,14 @@ struct VNHubApp: App {
                 .environment(controllers)
                 .environment(curation)
                 .environment(engineScans)
+                .environment(steam.artwork)
                 .task { await games.syncAllSaves() }
+                // Learn each visual novel's engine from its manifests, so the library and the
+                // launcher can say what's playable before anything is downloaded.
+                .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {
+                    guard steam.isLoggedOn else { return }
+                    engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && games.status(for: $0.appID) == .notInstalled }.map(\.appID))
+                }
             #if DEBUG
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
             #endif
