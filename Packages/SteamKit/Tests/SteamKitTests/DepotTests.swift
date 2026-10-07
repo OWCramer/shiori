@@ -226,3 +226,27 @@ struct DepotInstallTests {
         await #expect(throws: DepotInstall.VerifyError.notInstalled) { try await install.verify() }
     }
 }
+
+struct SteamCloudTests {
+    @Test func readsHighwayBlossomsSaveRule() throws {
+        let app = AppInfo(appID: 451_760, changeNumber: 0, keyValues: try KeyValue.parseText(fixture("app_451760.vdf")))
+        let ufs = UFSConfig(app: app)
+        #expect(ufs.quota == 50_000_000)
+        #expect(ufs.maxFiles == 90)
+        #expect(ufs.saveRules == [UFSConfig.SaveRule(root: "gameinstall", path: "game/saves", pattern: "*", recursive: false, platforms: [])])
+        #expect(ufs.saveRules.first?.cloudPrefix == "%gameinstall%game/saves/")
+    }
+
+    @Test func matchesCloudPrefixesCaseInsensitively() throws {
+        let app = AppInfo(appID: 451_760, changeNumber: 0, keyValues: try KeyValue.parseText(fixture("app_451760.vdf")))
+        let ufs = UFSConfig(app: app)
+        let save = CloudFile(prefix: "%GameInstall%game/saves/", name: "1-1-LT1.save", sha: Data(), timestamp: .now, size: 10)
+        #expect(ufs.rule(for: save)?.path == "game/saves")
+        #expect(save.path == "%GameInstall%game/saves/1-1-LT1.save")
+        // Not recursive: a subfolder of the rule's path doesn't belong to it.
+        let nested = CloudFile(prefix: "%GameInstall%game/saves/sync/", name: "x", sha: Data(), timestamp: .now, size: 1)
+        #expect(ufs.rule(for: nested) == nil)
+        let elsewhere = CloudFile(prefix: "%WinAppDataRoaming%RenPy/", name: "persistent", sha: Data(), timestamp: .now, size: 1)
+        #expect(ufs.rule(for: elsewhere) == nil)
+    }
+}

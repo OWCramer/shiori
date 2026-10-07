@@ -251,6 +251,45 @@ final class GameLibrary {
         return record
     }
 
+    // MARK: - Saves (Steam Cloud)
+
+    private(set) var steamCloud: [UInt32: SaveSyncState] = [:]
+
+    func isSteamCloudEnabled(_ appID: UInt32) -> Bool {
+        UserDefaults.standard.object(forKey: "steamCloudSaves.\(appID)") as? Bool ?? true
+    }
+
+    func setSteamCloud(_ appID: UInt32, enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "steamCloudSaves.\(appID)")
+        if enabled { Task { await pullSteamCloud(appID: appID) } }
+    }
+
+    /// Brings newer Steam Cloud saves down. Read-only towards Steam.
+    func pullSteamCloud(appID: UInt32) async {
+        guard isSteamCloudEnabled(appID), case let .installed(record) = statuses[appID] else { return }
+        guard case .loggedOn = await session.state else {
+            steamCloud[appID] = .failed("Not connected to Steam")
+            log.notice("Steam Cloud \(appID): skipped, not logged on")
+            return
+        }
+        let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+        steamCloud[appID] = .syncing
+        do {
+            let result = try await SteamCloudSync.pull(session: session, appID: appID, saves: saves)
+            steamCloud[appID] = .synced(.now, result.summary)
+            log.notice("Steam Cloud \(appID): \(result.summary, privacy: .public); unmapped \(result.unmapped, privacy: .public)")
+        } catch {
+            steamCloud[appID] = .failed(Self.message(for: error))
+            log.error("Steam Cloud \(appID) failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Spec order: Steam Cloud first, then iCloud.
+    func syncAllSaveLocations(appID: UInt32) async {
+        await pullSteamCloud(appID: appID)
+        await syncSaves(appID: appID, direction: .both)
+    }
+
     // MARK: - Saves (iCloud)
 
     enum SaveSyncState: Equatable {
@@ -344,7 +383,8 @@ final class GameLibrary {
         try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         playingAppID = appID
         Task {
-            // Bring down saves made on other devices first.
+            // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
+            await pullSteamCloud(appID: appID)
             await syncSaves(appID: appID, direction: .pull)
             log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
             // Start from a run-loop block, not the main dispatch queue: the game runs inside

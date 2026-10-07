@@ -31,8 +31,23 @@ public nonisolated enum ESessionPersistence: Int, SwiftProtobuf.Enum, Swift.Case
 
 }
 
+public nonisolated enum ECloudStoragePersistState: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
+  case kEcloudStoragePersistStatePersisted = 0
+  case kEcloudStoragePersistStateForgotten = 1
+  case kEcloudStoragePersistStateDeleted = 2
+
+  public init() {
+    self = .kEcloudStoragePersistStatePersisted
+  }
+
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 nonisolated extension ESessionPersistence: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{7f}\u{7f}\u{7f}\u{7f}\u{7f}\u{3}k_ESessionPersistence_Invalid\0\u{1}k_ESessionPersistence_Ephemeral\0\u{1}k_ESessionPersistence_Persistent\0")
+}
+
+nonisolated extension ECloudStoragePersistState: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0k_ECloudStoragePersistStatePersisted\0\u{1}k_ECloudStoragePersistStateForgotten\0\u{1}k_ECloudStoragePersistStateDeleted\0")
 }

@@ -1,10 +1,17 @@
 // Trimmed from SteamDatabase/Protobufs steam/enums.proto: the full file crashes
 // protoc-gen-swift 1.38.1 (signal 5), and only ESessionPersistence is referenced
-// by the protos SteamKit uses. Add enums here as later phases need them.
+// by the protos SteamKit uses (plus ECloudStoragePersistState for the cloud protos).
+// Add enums here as later phases need them.
 option optimize_for = SPEED;
 
 enum ESessionPersistence {
 	k_ESessionPersistence_Invalid = -1;
 	k_ESessionPersistence_Ephemeral = 0;
 	k_ESessionPersistence_Persistent = 1;
+}
+
+enum ECloudStoragePersistState {
+	k_ECloudStoragePersistStatePersisted = 0;
+	k_ECloudStoragePersistStateForgotten = 1;
+	k_ECloudStoragePersistStateDeleted = 2;
 }

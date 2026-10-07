@@ -90,6 +90,13 @@ enum DebugAutomation {
                 NSLog("VN Hub: patch import failed: %@", String(describing: error))
             }
         }
+        // `-VNHubSteamCloudPull <appid>` pulls that game's Steam Cloud saves once signed in.
+        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubSteamCloudPull")), appID != 0,
+           steam.isLoggedOn, !done.contains("cloud")
+        {
+            done.insert("cloud")
+            Task { await games.pullSteamCloud(appID: appID) }
+        }
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoVerify")), appID != 0, !done.contains("verify") {
             done.insert("verify")
             games.verify(appID: appID)

@@ -324,6 +324,21 @@ struct GameDetailView: View {
     private var savesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: Binding(
+                get: { games.isSteamCloudEnabled(appID) },
+                set: { games.setSteamCloud(appID, enabled: $0) }
+            )) {
+                Label("Steam Cloud", systemImage: "cloud")
+            }
+            .font(.subheadline)
+            if games.isSteamCloudEnabled(appID) {
+                statusLine(games.steamCloud[appID])
+                Text("Downloads saves from your PC through Steam Cloud. Uploading from VN Hub isn't switched on yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Divider().opacity(0.4)
+
+            Toggle(isOn: Binding(
                 get: { games.isCloudSaveEnabled(appID) },
                 set: { games.setCloudSave(appID, enabled: $0) }
             )) {
@@ -332,25 +347,22 @@ struct GameDetailView: View {
             .font(.subheadline)
 
             if games.isCloudSaveEnabled(appID) {
-                HStack(spacing: 8) {
-                    syncStatus
-                    Spacer(minLength: 8)
-                    Button("Sync Now", systemImage: "arrow.triangle.2.circlepath") {
-                        Task { await games.syncSaves(appID: appID, direction: .both) }
-                    }
-                    .buttonStyle(.glass)
-                    .font(.subheadline)
-                    .disabled(games.saveSync[appID] == .syncing)
-                }
+                statusLine(games.saveSync[appID])
             }
+            Button("Sync Now", systemImage: "arrow.triangle.2.circlepath") {
+                Task { await games.syncAllSaveLocations(appID: appID) }
+            }
+            .buttonStyle(.glass)
+            .font(.subheadline)
+            .disabled(games.saveSync[appID] == .syncing || games.steamCloud[appID] == .syncing)
             Text("Saves download from iCloud before you play and upload when you stop. If two devices changed the same save, the older copy is kept in saves/conflicts.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .glassCard()
     }
 
-    @ViewBuilder private var syncStatus: some View {
-        switch games.saveSync[appID] ?? .idle {
+    @ViewBuilder private func statusLine(_ state: GameLibrary.SaveSyncState?) -> some View {
+        switch state ?? .idle {
         case .idle:
             Text("Not synced yet").font(.caption).foregroundStyle(.secondary)
         case .syncing:
