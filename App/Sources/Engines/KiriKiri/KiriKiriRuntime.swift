@@ -52,6 +52,14 @@ enum KiriKiriRuntime {
             setenv("AETHERKIRI_CX_SCHEME", scheme.path, 1)
         } else {
             unsetenv("AETHERKIRI_CX_SCHEME")
+            switch KiriKiriArchiveCheck.unhandledEncryption(base: base) {
+            case .cx:
+                throw Failure(errorDescription: "This game's archives use CxDec encryption, and Shiori doesn't have this title's keys yet.")
+            case .hx:
+                throw Failure(errorDescription: "This game's archives use KiriKiri Z's Hx encryption, which Shiori can't open yet.")
+            case nil:
+                break
+            }
         }
         #if DEBUG
         // Transition and page-swap events in krkr2.log, for comparing a device run with the
