@@ -62,9 +62,6 @@ enum KiriKiriRuntime {
             }
         }
         #if DEBUG
-        // Transition and page-swap events in krkr2.log, for comparing a device run with the
-        // Mac harness (patch 0012 makes this trace safe on binder layers).
-        setenv("AETHERKIRI_TRANS_TRACE", "1", 0)
         // Which timelines E-mote characters are asked to play, and the log written out every
         // second so it can be pulled from a device mid-game.
         setenv("SHIORI_EMOTE_PLAY_TRACE", "1", 0)
