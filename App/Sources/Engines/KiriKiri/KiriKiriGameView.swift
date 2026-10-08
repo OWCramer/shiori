@@ -16,13 +16,15 @@ final class KiriKiriGameViewController: UIViewController {
     private var engine: engine_handle_t?
     private var displayLink: CADisplayLink?
     private var lastTick: CFTimeInterval = 0
+    /// Present the current frame on the next tick even if it isn't new (the layer was resized).
+    private var needsPresent = true
     private var surface: (width: UInt32, height: UInt32) = (0, 0)
     /// The game's canvas size, from its frames; the surface follows it.
     private var gameSize: CGSize = .zero
     private var lastFrameSerial: UInt64 = 0
     private var leaving = false
     #if DEBUG
-    private var tickTimes: [Double] = []
+    private var perf = KiriKiriPerfLog()
     private lazy var automation = KiriKiriDebugAutomation()
     #endif
     /// The touch currently driving the pointer (KiriKiri has one mouse).
@@ -91,6 +93,7 @@ final class KiriKiriGameViewController: UIViewController {
         metalLayer.contentsScale = scale
         let size = CGSize(width: view.bounds.width * scale, height: view.bounds.height * scale)
         metalLayer.drawableSize = size
+        needsPresent = true
         // Until the first frame says how big the game is, start with the screen's size.
         guard gameSize == .zero, surface == (0, 0) else { return }
         surface = (UInt32(size.width.rounded()), UInt32(size.height.rounded()))
@@ -126,10 +129,13 @@ final class KiriKiriGameViewController: UIViewController {
     @objc private func tick() {
         guard let engine, !leaving else { return }
         let now = CACurrentMediaTime()
-        let elapsed = UInt32(max(1, min(100, (now - lastTick) * 1000)))
+        let interval = (now - lastTick) * 1000
+        let elapsed = UInt32(max(1, min(100, interval)))
         lastTick = now
-        let tickStart = CACurrentMediaTime()
-        defer { recordTickTime(since: tickStart) }
+        #if DEBUG
+        var presentMs = 0.0
+        defer { perf.record(interval: interval, tick: (CACurrentMediaTime() - now) * 1000 - presentMs, present: presentMs, folder: gameFolder) }
+        #endif
         #if DEBUG
         automation.beforeTick(engine: engine, elapsed: elapsed)
         #endif
@@ -160,20 +166,17 @@ final class KiriKiriGameViewController: UIViewController {
             #if DEBUG
             if newFrame { automation.frameReady(texture: texture, width: width, height: height) }
             #endif
-            _ = shiori_krkr_metal_present(Unmanaged.passUnretained(metalLayer).toOpaque(), texture, newFrame)
+            // Only new frames (and the first after a resize) are presented: each present waits
+            // for a free drawable, which on a busy GPU held up the next tick for nothing.
+            if newFrame || needsPresent {
+                needsPresent = false
+                #if DEBUG
+                let presentStart = CACurrentMediaTime()
+                defer { presentMs = (CACurrentMediaTime() - presentStart) * 1000 }
+                #endif
+                _ = shiori_krkr_metal_present(Unmanaged.passUnretained(metalLayer).toOpaque(), texture, newFrame)
+            }
         }
-    }
-
-    /// Debug builds: how long each frame's tick and present take, logged every 300 frames.
-    private func recordTickTime(since start: CFTimeInterval) {
-        #if DEBUG
-        tickTimes.append((CACurrentMediaTime() - start) * 1000)
-        guard tickTimes.count == 300 else { return }
-        let sorted = tickTimes.sorted()
-        let average = sorted.reduce(0, +) / 300
-        KiriKiriRuntime.log.notice("Frame ms avg \(average, format: .fixed(precision: 1)) p50 \(sorted[150], format: .fixed(precision: 1)) p95 \(sorted[285], format: .fixed(precision: 1)) max \(sorted[299], format: .fixed(precision: 1))")
-        tickTimes.removeAll(keepingCapacity: true)
-        #endif
     }
 
     // MARK: Input
@@ -477,6 +480,43 @@ private final class KiriKiriDebugAutomation {
         }
         data.append(contentsOf: rgb)
         try? data.write(to: folder.appendingPathComponent(String(format: "f%07llu.ppm", clock)))
+    }
+}
+#endif
+
+#if DEBUG
+/// Debug builds: frame timing every 300 ticks (interval between display-link ticks, engine tick,
+/// present) and what the Metal bridge did, logged and appended to
+/// Caches/KiriKiri/<game>/perf.txt so a device run can be read afterwards.
+@MainActor
+private struct KiriKiriPerfLog {
+    private var intervals: [Double] = [], ticks: [Double] = [], presents: [Double] = []
+
+    mutating func record(interval: Double, tick: Double, present: Double, folder: URL) {
+        intervals.append(interval); ticks.append(tick); presents.append(present)
+        guard ticks.count == 300 else { return }
+        func line(_ name: String, _ values: [Double]) -> String {
+            let sorted = values.sorted()
+            let average = sorted.reduce(0, +) / Double(sorted.count)
+            let slow = values.filter { $0 > 17.5 }.count
+            return String(format: "%@ avg %.1f p50 %.1f p95 %.1f max %.1f >17.5ms %d", name, average,
+                          sorted[sorted.count / 2], sorted[sorted.count * 95 / 100], sorted.last ?? 0, slow)
+        }
+        var bridge = [CChar](repeating: 0, count: 512)
+        shiori_krkr_metal_stats(&bridge, bridge.count)
+        let text = [line("interval", intervals), line("tick", ticks), line("present", presents), String(cString: bridge)]
+            .joined(separator: " | ")
+        KiriKiriRuntime.log.notice("\(text, privacy: .public)")
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("KiriKiri/\(folder.lastPathComponent)/perf.txt")
+        let entry = "\(Date.now.formatted(date: .omitted, time: .standard)) \(text)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile(); handle.write(Data(entry.utf8)); try? handle.close()
+        } else {
+            try? Data(entry.utf8).write(to: url)
+        }
+        intervals.removeAll(keepingCapacity: true); ticks.removeAll(keepingCapacity: true)
+        presents.removeAll(keepingCapacity: true)
     }
 }
 #endif
