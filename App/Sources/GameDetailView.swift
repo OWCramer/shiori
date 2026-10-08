@@ -326,10 +326,20 @@ struct GameDetailView: View {
         }
     }
 
+    /// Artemis saves aren't the PC's format. KiriKiri's are, and sync when the game's cloud
+    /// rules name its savedata folder (not when it writes the cloud through Steam's API).
+    private var engineUsesSteamCloud: Bool {
+        switch record?.engine?.engine {
+        case "artemis": false
+        case "kirikiri": games.steamCloudMapped[appID] == true
+        default: true
+        }
+    }
+
     /// The game has no Steam Cloud at all, or Shiori can't use it for this engine yet.
     private var steamCloudChip: String? {
         if games.steamCloudSupport[appID] == false { return "No Steam Cloud" }
-        if ["artemis", "kirikiri"].contains(record?.engine?.engine) { return "No Steam Cloud yet" }
+        if !engineUsesSteamCloud { return "No Steam Cloud yet" }
         return nil
     }
 
@@ -462,7 +472,7 @@ struct GameDetailView: View {
                     .font(.subheadline)
                 Text("This game doesn't use Steam Cloud on PC, so there are no cloud saves to share with it. iCloud keeps saves made here in step between your devices.")
                     .font(.caption).foregroundStyle(.secondary)
-            } else if ["artemis", "kirikiri"].contains(record?.engine?.engine) {
+            } else if !engineUsesSteamCloud {
                 Label("Steam Cloud: not supported yet", systemImage: "cloud.slash")
                     .font(.subheadline)
                 Text("Shiori can't read or write this engine's PC saves yet, so saves made here don't go to or come from your PC through Steam Cloud. iCloud keeps them in step between your devices.")

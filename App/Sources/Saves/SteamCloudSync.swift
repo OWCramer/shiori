@@ -7,7 +7,9 @@ import SteamKit
 ///
 /// Which cloud files are saves comes from the app's PICS `ufs` rules. For Ren'Py the PC
 /// build keeps saves in `game/saves` (and mirrors them to `%APPDATA%/RenPy/<game>`), and
-/// VN Hub runs the game with `--savedir <game>/saves`, so both map onto `saves/`.
+/// VN Hub runs the game with `--savedir <game>/saves`, so both map onto `saves/`. KiriKiri PC
+/// builds keep saves in `savedata/` beside the exe, which Shiori points at `saves/`
+/// (AETHERKIRI_DATA_PATH).
 enum SteamCloudSync {
     struct Result: Equatable, Sendable {
         var downloaded: [String] = []
@@ -29,11 +31,11 @@ enum SteamCloudSync {
         }
     }
 
-    /// Whether a save rule's files are Ren'Py saves that belong in `saves/`.
+    /// Whether a save rule's files are Ren'Py or KiriKiri saves that belong in `saves/`.
     static func mapsToSaves(_ rule: UFSConfig.SaveRule) -> Bool {
         let root = rule.root.lowercased()
         let path = rule.path.lowercased()
-        if root == "gameinstall" { return path == "game/saves" }
+        if root == "gameinstall" { return path == "game/saves" || path == "savedata" }
         if root.hasPrefix("winappdata") { return path.hasPrefix("renpy/") }
         return false
     }

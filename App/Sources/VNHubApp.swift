@@ -209,6 +209,21 @@ enum DebugAutomation {
                 }
             }
         }
+        // `-VNHubSteamCloudList <appid>,<appid>…` logs those games' Steam Cloud file names (read only).
+        if let list = defaults.string(forKey: "VNHubSteamCloudList"), steam.isLoggedOn, !done.contains("cloudlist") {
+            done.insert("cloudlist")
+            Task {
+                for appID in list.split(separator: ",").compactMap({ UInt32($0) }) {
+                    do {
+                        let (_, files) = try await steam.session.cloudFiles(appID: appID)
+                        let names = files.filter { !$0.isDeleted }.map { "\($0.path) (\($0.size))" }
+                        NSLog("VN Hub cloud list %u: %d files: %@", appID, names.count, names.joined(separator: " | "))
+                    } catch {
+                        NSLog("VN Hub cloud list %u failed: %@", appID, String(describing: error))
+                    }
+                }
+            }
+        }
         // `-VNHubSteamCloudDryRun <appid>` logs what an upload would send, without writing.
         if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubSteamCloudDryRun")), appID != 0,
            steam.isLoggedOn, !done.contains("dryrun"), let game = steam.library.first(where: { $0.appID == appID })

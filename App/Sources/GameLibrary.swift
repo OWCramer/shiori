@@ -256,13 +256,21 @@ final class GameLibrary {
     private(set) var steamCloud: [UInt32: SaveSyncState] = [:]
 
     /// Bumped when the check changes, so cached answers are asked again.
-    private static let steamCloudCheckVersion = 2
+    private static let steamCloudCheckVersion = 3
 
     /// Whether a game uses Steam Cloud at all on PC (a cloud quota or save rules in its
     /// app info), cached across launches; nil until asked.
     private(set) var steamCloudSupport: [UInt32: Bool] = {
         guard UserDefaults.standard.integer(forKey: "steamCloudSupportVersion") == GameLibrary.steamCloudCheckVersion else { return [:] }
         let saved = UserDefaults.standard.dictionary(forKey: "steamCloudSupport") as? [String: Bool] ?? [:]
+        return Dictionary(uniqueKeysWithValues: saved.compactMap { key, value in UInt32(key).map { ($0, value) } })
+    }()
+
+    /// Whether the game's cloud save rules name a folder Shiori maps onto `saves/` (KiriKiri
+    /// games that write the cloud through Steam's API instead have none); nil until asked.
+    private(set) var steamCloudMapped: [UInt32: Bool] = {
+        guard UserDefaults.standard.integer(forKey: "steamCloudSupportVersion") == GameLibrary.steamCloudCheckVersion else { return [:] }
+        let saved = UserDefaults.standard.dictionary(forKey: "steamCloudMapped") as? [String: Bool] ?? [:]
         return Dictionary(uniqueKeysWithValues: saved.compactMap { key, value in UInt32(key).map { ($0, value) } })
     }()
 
@@ -277,8 +285,11 @@ final class GameLibrary {
         let supported = category || !ufs.saveRules.isEmpty
         log.info("Steam Cloud for \(appID): category \(category), quota \(ufs.quota ?? 0), rules \(ufs.saveRules.count)")
         steamCloudSupport[appID] = supported
+        steamCloudMapped[appID] = ufs.saveRules.contains(where: SteamCloudSync.mapsToSaves)
         UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: steamCloudSupport.map { (String($0.key), $0.value) }),
                                   forKey: "steamCloudSupport")
+        UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: steamCloudMapped.map { (String($0.key), $0.value) }),
+                                  forKey: "steamCloudMapped")
         UserDefaults.standard.set(Self.steamCloudCheckVersion, forKey: "steamCloudSupportVersion")
     }
 
@@ -519,7 +530,10 @@ final class GameLibrary {
         didSet {
             // Leaving: send its saves up.
             if let ended = oldValue, kirikiriSession == nil, ended.appID != 0 {
-                Task { await syncSaves(appID: ended.appID, direction: .push) }
+                Task {
+                    await syncSaves(appID: ended.appID, direction: .push)
+                    if steamCloudMapped[ended.appID] == true { await finishSteamCloudSession(appID: ended.appID) }
+                }
             }
         }
     }
@@ -532,10 +546,12 @@ final class GameLibrary {
         let folder = folder(appID: appID, name: record.name)
         if engine.engine == "artemis" || engine.engine == "kirikiri" {
             // ArtemisKit's saves aren't the PC's format, so no Steam Cloud; iCloud mirrors them.
-            // KiriKiri's are the PC's own, but Steam Cloud isn't wired up for them yet.
+            // KiriKiri's are the PC's own: Steam Cloud too, for games whose cloud rules name
+            // savedata/ (games that write the cloud through Steam's API aren't mapped yet).
             launching = (appID, .iCloud)
             Task {
                 await syncSaves(appID: appID, direction: .pull)
+                if engine.engine == "kirikiri", steamCloudMapped[appID] == true { await pullSteamCloud(appID: appID) }
                 launching = nil
                 if engine.engine == "kirikiri" {
                     kirikiriSession = ArtemisSession(appID: appID, folder: folder)
