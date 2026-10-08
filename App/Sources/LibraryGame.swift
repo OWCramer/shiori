@@ -14,6 +14,8 @@ struct LibraryGame: Codable, Hashable, Identifiable, Sendable {
     var header: URL?
     /// Base-game Windows depots' size from PICS, before DLC. An estimate for display.
     var estimatedSize: UInt64?
+    /// Steam branches anyone who owns the game can pick (Properties › Betas), "public" first.
+    var branches: [DepotSelection.Branch]?
 
     var id: UInt32 { appID }
 
@@ -32,6 +34,7 @@ struct LibraryGame: Codable, Hashable, Identifiable, Sendable {
             .filter { app.keyValues[path: "depots", String($0.depotID), "dlcappid"] == nil }
             .reduce(0) { $0 + $1.size }
         estimatedSize = size > 0 ? size : nil
+        branches = DepotSelection.branches(of: app)
     }
 }
 

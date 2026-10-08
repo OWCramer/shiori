@@ -35,10 +35,10 @@ public struct DepotPreview: Sendable {
 
 extension SteamSession {
     /// Reads the game's Windows depot manifests (a few MB at most) without downloading it.
-    public func preview(appID: UInt32) async throws -> DepotPreview {
+    public func preview(appID: UInt32, branch: String = "public") async throws -> DepotPreview {
         guard let app = try await appInfo([appID]).first else { throw SteamError.noDownloadableDepots(appID: appID) }
         let owned = try await ownedPackageContents()
-        let depots = DepotSelection.windowsDepots(of: app, owned: owned)
+        let depots = DepotSelection.windowsDepots(of: app, owned: owned, branch: branch)
         guard !depots.isEmpty else { throw SteamError.noDownloadableDepots(appID: appID) }
 
         let servers = try await contentServers().filter { $0.canServe(appID: appID) }
@@ -49,7 +49,7 @@ extension SteamSession {
         for depot in depots {
             try Task.checkCancellation()
             let key = try await depotKey(depotID: depot.depotID, appID: appID)
-            let code = try await manifestRequestCode(appID: appID, depotID: depot.depotID, manifestID: depot.manifestID)
+            let code = try await manifestRequestCode(appID: appID, depotID: depot.depotID, manifestID: depot.manifestID, branch: branch)
             var manifest = try DepotManifest(zipped: try await cdn.manifest(depotID: depot.depotID, manifestID: depot.manifestID, requestCode: code))
             try manifest.decryptFilenames(key: key)
             jobs.append(DepotJob(depot: InstalledDepot(depotID: depot.depotID, manifestID: depot.manifestID), key: key, manifest: manifest))

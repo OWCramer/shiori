@@ -159,6 +159,29 @@ struct DepotSelectionTests {
         #expect(depots.map(\.depotID) == [12, 14])
         #expect(depots.last?.manifestID == 4)
     }
+
+    @Test func betaBranchOfWorldEndEconomica() throws {
+        // Episode 1's public build is only the Unity HD remaster; its renpy_old beta is the
+        // original Ren'Py release, in a different depot.
+        let app = AppInfo(appID: 269_250, changeNumber: 0, keyValues: try KeyValue.parseText(fixture("app_269250.vdf")))
+        let owned: Set<UInt32> = [269_251, 269_252, 269_253]
+        #expect(DepotSelection.branches(of: app).map(\.name) == ["public", "revert", "renpy_old"])
+        #expect(DepotSelection.branches(of: app).first { $0.name == "revert" }?.description == "revert before french version")
+        #expect(DepotSelection.windowsDepots(of: app, owned: owned).map(\.depotID) == [269_251, 269_253])
+        let old = DepotSelection.windowsDepots(of: app, owned: owned, branch: "renpy_old")
+        #expect(old.map(\.depotID) == [269_251])
+        #expect(old.first?.manifestID == 8_389_994_572_795_815_720)
+    }
+
+    @Test func passwordBranchesAreHidden() throws {
+        let app = AppInfo(appID: 1, changeNumber: 0, keyValues: try KeyValue.parseText("""
+        "1" { "depots" { "branches" {
+          "public" { "buildid" "3" }
+          "private" { "buildid" "2" "pwdrequired" "1" }
+        } } }
+        """))
+        #expect(DepotSelection.branches(of: app).map(\.name) == ["public"])
+    }
 }
 
 struct DepotInstallTests {

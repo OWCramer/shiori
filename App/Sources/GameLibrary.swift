@@ -16,6 +16,8 @@ struct GameRecord: Codable, Equatable {
     var depots: [InstalledDepot]
     var installedAt: Date
     var sizeBytes: UInt64
+    /// The Steam branch `base/` came from; nil is the default ("public").
+    var branch: String?
 }
 
 /// Installed and in-progress games on this device.
@@ -144,6 +146,34 @@ final class GameLibrary {
         startDownload(appID: game.appID, name: game.name)
     }
 
+    /// The Steam branch the game downloads from: "public" unless a beta was picked.
+    func branch(for appID: UInt32) -> String {
+        UserDefaults.standard.string(forKey: "steamBranch.\(appID)") ?? "public"
+    }
+
+    /// Picks the Steam branch (a public beta, or "public"). An installed or partly downloaded
+    /// game is downloaded again from that branch; `saves/` and `patch/` stay.
+    func setBranch(_ branch: String, for appID: UInt32, name: String) {
+        guard branch != self.branch(for: appID) else { return }
+        UserDefaults.standard.set(branch == "public" ? nil : branch, forKey: "steamBranch.\(appID)")
+        guard statuses[appID] != nil, statuses[appID] != .notInstalled else { return }
+        log.notice("Switching \(appID) to branch \(branch, privacy: .public)")
+        tasks[appID]?.cancel()
+        queue.removeAll { $0 == appID }
+        Task {
+            if let running = tasks[appID] { await running.value }
+            let folder = folder(appID: appID, name: name)
+            try? install(appID: appID, folder: folder).removeState()
+            let fm = FileManager.default
+            try? fm.removeItem(at: folder.appendingPathComponent("base", isDirectory: true))
+            try? fm.removeItem(at: folder.appendingPathComponent("game.json"))
+            try? fm.removeItem(at: Self.runtimeCache(appID: appID))
+            verifyReports[appID] = nil
+            statuses[appID] = .notInstalled
+            startDownload(appID: appID, name: name)
+        }
+    }
+
     private func startDownload(appID: UInt32, name: String) {
         guard tasks[appID] == nil else { return }
         names[appID] = name
@@ -163,10 +193,12 @@ final class GameLibrary {
         tasks[appID] = Task {
             do {
                 try Self.prepareFolder(folder)
-                let depots = try await session.download(appID: appID, into: install) { progress in
+                let branch = branch(for: appID)
+                let depots = try await session.download(appID: appID, branch: branch, into: install) { progress in
                     Task { @MainActor in self.report(progress, for: appID) }
                 }
-                let record = try await Self.finish(appID: appID, name: name, folder: folder, install: install, depots: depots)
+                let record = try await Self.finish(appID: appID, name: name, folder: folder, install: install, depots: depots,
+                                                   branch: branch == "public" ? nil : branch)
                 statuses[appID] = .installed(record)
                 log.notice("Installed \(appID): engine \(record.engine?.engine ?? "none", privacy: .public) \(record.engine?.version ?? "?", privacy: .public), \(record.sizeBytes) bytes")
             } catch is CancellationError {
@@ -242,11 +274,12 @@ final class GameLibrary {
 
     /// Detects the engine and writes `game.json`. Detection reads a few small files, off the main actor.
     private nonisolated static func finish(
-        appID: UInt32, name: String, folder: URL, install: DepotInstall, depots: [InstalledDepot]
+        appID: UInt32, name: String, folder: URL, install: DepotInstall, depots: [InstalledDepot], branch: String?
     ) async throws -> GameRecord {
         let engine = EngineDetection.detect(gameRoot: install.root)
         let size = install.sizeOnDisk()
-        let record = GameRecord(appID: appID, name: name, engine: engine, depots: depots, installedAt: .now, sizeBytes: size)
+        let record = GameRecord(appID: appID, name: name, engine: engine, depots: depots, installedAt: .now, sizeBytes: size,
+                                branch: branch)
         try encoder.encode(record).write(to: folder.appendingPathComponent("game.json"), options: .atomic)
         return record
     }

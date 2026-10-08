@@ -12,6 +12,15 @@ struct EngineScanResult: Codable, Equatable, Sendable {
     var scannedAt: Date
     /// Set when the scan itself failed (no Windows depot, Steam refused, ...).
     var error: String?
+    /// When the default branch isn't playable: a beta branch that is (WORLD END ECONOMiCA
+    /// episode.01's public build is a Unity remaster; its renpy_old beta is the Ren'Py one).
+    var playableBranch: BranchScan?
+}
+
+struct BranchScan: Codable, Equatable, Sendable {
+    var branch: String
+    var engine: EngineMatch?
+    var installSize: UInt64
 }
 
 /// Whether VN Hub can play a game, as far as its engine goes.
@@ -24,7 +33,7 @@ enum Playability: Equatable {
 
     init(_ engine: EngineMatch?) {
         guard let engine else { self = .unknownEngine; return }
-        if engine.engine == "artemis" { self = .playable; return }
+        if engine.engine == "artemis" || engine.engine == "kirikiri" { self = .playable; return }
         guard engine.engine == RenPyEngine.id else {
             self = .unsupportedEngine(EngineDetection.displayName(for: engine.engine))
             return
@@ -57,7 +66,7 @@ final class EngineScanStore {
     private let session: SteamSession
 
     /// Bumped when detection changes, so older results are scanned again.
-    private static var url: URL { URL.applicationSupportDirectory.appendingPathComponent("engine-scan-2.json") }
+    private static var url: URL { URL.applicationSupportDirectory.appendingPathComponent("engine-scan-3.json") }
 
     init(session: SteamSession) {
         self.session = session
@@ -106,8 +115,24 @@ final class EngineScanStore {
     /// Mirrors the game's top-level layout (and the few files engines are recognised by)
     /// into a temporary folder, then runs the same detection used after a real download.
     nonisolated static func scanOne(appID: UInt32, session: SteamSession) async -> EngineScanResult {
+        var result = await scanBranch(appID: appID, branch: "public", session: session)
+        guard result.error == nil, Playability(result.engine) != .playable,
+              let app = try? await session.appInfo([appID]).first
+        else { return result }
+        // Not playable as it is: look at the game's public betas, newest first.
+        for branch in DepotSelection.branches(of: app) where branch.name != "public" {
+            let scan = await scanBranch(appID: appID, branch: branch.name, session: session)
+            if scan.error == nil, Playability(scan.engine) == .playable {
+                result.playableBranch = BranchScan(branch: branch.name, engine: scan.engine, installSize: scan.installSize)
+                break
+            }
+        }
+        return result
+    }
+
+    nonisolated static func scanBranch(appID: UInt32, branch: String, session: SteamSession) async -> EngineScanResult {
         do {
-            let preview = try await session.preview(appID: appID)
+            let preview = try await session.preview(appID: appID, branch: branch)
             let fm = FileManager.default
             let root = fm.temporaryDirectory.appendingPathComponent("scan-\(appID)-\(UUID().uuidString)", isDirectory: true)
             defer { try? fm.removeItem(at: root) }

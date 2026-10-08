@@ -192,7 +192,8 @@ enum DebugAutomation {
             done.insert("preview")
             Task {
                 do {
-                    let preview = try await steam.session.preview(appID: appID)
+                    // `-VNHubPreviewBranch <name>` reads a beta branch instead of the default.
+                    let preview = try await steam.session.preview(appID: appID, branch: defaults.string(forKey: "VNHubPreviewBranch") ?? "public")
                     let url = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(appID).txt")
                     try preview.paths.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
                     NSLog("VN Hub preview: %d paths for %u at %@", preview.paths.count, appID, url.path)

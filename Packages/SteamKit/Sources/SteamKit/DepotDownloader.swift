@@ -93,17 +93,19 @@ public struct DepotInstall: Sendable {
 }
 
 extension SteamSession {
-    /// Downloads the app's Windows depots into `install.root`. Cancelling the task pauses;
-    /// calling again resumes from the finished chunks. Returns the installed depot builds.
+    /// Downloads the app's Windows depots into `install.root`, from `branch` (a public beta
+    /// such as `renpy_old`, or "public"). Cancelling the task pauses; calling again resumes
+    /// from the finished chunks. Returns the installed depot builds.
     public func download(
         appID: UInt32,
+        branch: String = "public",
         into install: DepotInstall,
         progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> [InstalledDepot] {
         progress(DownloadProgress(phase: .preparing, totalBytes: 0, completedBytes: 0, downloadedBytes: 0))
         guard let app = try await appInfo([appID]).first else { throw SteamError.noDownloadableDepots(appID: appID) }
         let owned = try await ownedPackageContents()
-        let depots = DepotSelection.windowsDepots(of: app, owned: owned)
+        let depots = DepotSelection.windowsDepots(of: app, owned: owned, branch: branch)
         guard !depots.isEmpty else { throw SteamError.noDownloadableDepots(appID: appID) }
 
         let servers = try await contentServers().filter { $0.canServe(appID: appID) }
@@ -119,7 +121,7 @@ extension SteamSession {
             if let saved = install.loadManifest(installed) {
                 manifest = saved
             } else {
-                let code = try await manifestRequestCode(appID: appID, depotID: depot.depotID, manifestID: depot.manifestID)
+                let code = try await manifestRequestCode(appID: appID, depotID: depot.depotID, manifestID: depot.manifestID, branch: branch)
                 var fetched = try DepotManifest(zipped: try await cdn.manifest(depotID: depot.depotID, manifestID: depot.manifestID, requestCode: code))
                 try fetched.decryptFilenames(key: key)
                 try FileManager.default.createDirectory(at: install.stateDirectory, withIntermediateDirectories: true)
@@ -159,14 +161,40 @@ public enum DepotSelection {
         public var size: UInt64
     }
 
-    /// Public-branch Windows (or OS-neutral) depots the account owns, English or language-neutral,
-    /// preferring 64-bit when a depot is split by architecture.
-    public static func windowsDepots(of app: AppInfo, owned: Set<UInt32>) -> [Depot] {
+    /// A beta branch anyone who owns the game can pick (no password), as Steam lists it in
+    /// the game's Properties › Betas.
+    public struct Branch: Codable, Hashable, Sendable {
+        public var name: String
+        public var description: String?
+        public var buildID: UInt64
+        public var updated: Date?
+    }
+
+    /// The app's branches without a password, "public" first, then newest first.
+    public static func branches(of app: AppInfo) -> [Branch] {
+        guard let section = app.keyValues[path: "depots", "branches"] else { return [] }
+        var branches: [Branch] = []
+        for branch in section.children where branch["pwdrequired"]?.value != "1" {
+            let updated = (branch["timeupdated"]?.uint64).map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            let description = branch["description"]?.value
+            branches.append(Branch(name: branch.name, description: description?.isEmpty == false ? description : nil,
+                                   buildID: branch["buildid"]?.uint64 ?? 0, updated: updated))
+        }
+        return branches.sorted {
+            if ($0.name == "public") != ($1.name == "public") { return $0.name == "public" }
+            return ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast)
+        }
+    }
+
+    /// Windows (or OS-neutral) depots the account owns on `branch`, English or
+    /// language-neutral, preferring 64-bit when a depot is split by architecture. A depot with
+    /// no build on a beta branch isn't part of that branch, as in the Steam client.
+    public static func windowsDepots(of app: AppInfo, owned: Set<UInt32>, branch: String = "public") -> [Depot] {
         guard let depots = app.keyValues["depots"] else { return [] }
         var candidates: [(depot: Depot, arch: String)] = []
         for section in depots.children {
             guard let depotID = UInt32(section.name), owned.contains(depotID),
-                  let manifest = section[path: "manifests", "public"],
+                  let manifest = section[path: "manifests", branch],
                   let gid = manifest["gid"]?.uint64 ?? manifest.uint64
             else { continue }
             let config = section["config"]

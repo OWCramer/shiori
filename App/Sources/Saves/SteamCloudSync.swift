@@ -173,7 +173,10 @@ enum SteamCloudSync {
             result.backupFolder = folder
         }
 
-        let buildID = app.keyValues[path: "depots", "branches", "public", "buildid"]?.uint64 ?? 0
+        // The build the game was installed from (a beta, if one was picked on the game page).
+        let branch = UserDefaults.standard.string(forKey: "steamBranch.\(appID)") ?? "public"
+        let buildID = app.keyValues[path: "depots", "branches", branch, "buildid"]?.uint64
+            ?? app.keyValues[path: "depots", "branches", "public", "buildid"]?.uint64 ?? 0
         let committed = try await session.cloudUpload(appID: appID, clientID: clientID, buildID: buildID, files: uploads)
         result.uploaded = uploads.map(\.path).filter(committed.contains).map { String($0.dropFirst(prefix.count)) }
         result.failed = uploads.map(\.path).filter { !committed.contains($0) }.map { String($0.dropFirst(prefix.count)) }

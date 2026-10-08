@@ -13,6 +13,8 @@ struct GameDetailView: View {
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmingDelete = false
+    /// A Steam branch picked for a game that's already (partly) downloaded, awaiting confirmation.
+    @State private var pendingBranch: String?
     @State private var importingPatch = false
     @State private var confirmingRemovePatches = false
     @State private var patchFiles: [PatchStore.PatchFile] = []
@@ -41,6 +43,7 @@ struct GameDetailView: View {
                 progressCard
                 playBlockerNote
                 engineScanNote
+                branchSuggestion
                 chips
                 if let record { statTiles(record) }
                 if record != nil {
@@ -83,7 +86,9 @@ struct GameDetailView: View {
             #endif
         }
         .task(id: steam.isLoggedOn) {
-            if record == nil, steam.isLoggedOn { engineScans.scan([appID]) }
+            // Installed games that can't play are scanned too, for a beta branch that can.
+            let unplayable = record.map { Playability($0.engine) != .playable } ?? true
+            if unplayable, steam.isLoggedOn { engineScans.scan([appID]) }
             if steam.isLoggedOn { await games.loadSteamCloudSupport(appID) }
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
@@ -96,6 +101,16 @@ struct GameDetailView: View {
             }
         } message: {
             Text("The game goes back to exactly what Steam delivered. Saves are kept.")
+        }
+        .confirmationDialog("Download the \(branchTitle(pendingBranch ?? "public")) version?",
+                            isPresented: Binding(get: { pendingBranch != nil }, set: { if !$0 { pendingBranch = nil } }),
+                            titleVisibility: .visible) {
+            Button("Download Again") {
+                if let branch = pendingBranch { games.setBranch(branch, for: appID, name: game.name) }
+                pendingBranch = nil
+            }
+        } message: {
+            Text("The game files are replaced with that Steam version. Saves and patches stay.")
         }
         .confirmationDialog("Delete \(game.name)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete game files and saves", role: .destructive) { games.delete(appID: appID, name: game.name) }
@@ -191,6 +206,20 @@ struct GameDetailView: View {
             curation.toggle(game)
         }
         Button("Change Artwork…", systemImage: "photo.on.rectangle") { choosingArtwork = true }
+        if let branches = game.branches, branches.count > 1 {
+            Menu {
+                Picker("Steam Version", selection: Binding(
+                    get: { games.branch(for: appID) },
+                    set: { chooseBranch($0) }
+                )) {
+                    ForEach(branches, id: \.name) { branch in
+                        Text(branchTitle(branch.name)).tag(branch.name)
+                    }
+                }
+            } label: {
+                Label("Steam Version: \(branchTitle(games.branch(for: appID)))", systemImage: "arrow.triangle.branch")
+            }
+        }
         if record == nil {
             Button("Check Engine Again", systemImage: "magnifyingglass") { engineScans.scan([appID], force: true) }
                 .disabled(!steam.isLoggedOn)
@@ -218,6 +247,48 @@ struct GameDetailView: View {
             Button("Delete Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
         } else if status != .notInstalled {
             Button("Delete Partial Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+        }
+    }
+
+    // MARK: - Steam branches
+
+    /// "Default" for public; a beta's name, with Steam's description when it has one.
+    private func branchTitle(_ name: String) -> String {
+        if name == "public" { return "Default" }
+        if let description = game.branches?.first(where: { $0.name == name })?.description {
+            return "\(name) (\(description))"
+        }
+        return name
+    }
+
+    private func chooseBranch(_ branch: String) {
+        guard branch != games.branch(for: appID) else { return }
+        if status == .notInstalled {
+            games.setBranch(branch, for: appID, name: game.name)
+        } else {
+            pendingBranch = branch
+        }
+    }
+
+    /// The default build can't be played here but a beta can: offer it.
+    @ViewBuilder private var branchSuggestion: some View {
+        if let scan = engineScans.result(for: appID), let better = scan.playableBranch,
+           games.branch(for: appID) != better.branch,
+           record.map({ Playability($0.engine) != .playable }) ?? true
+        {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("The \(branchTitle(better.branch)) version is \(engineDescription(better.engine)) and plays in Shiori",
+                      systemImage: "arrow.triangle.branch")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+                Text("It's a Steam beta of this game\(better.installSize > 0 ? ", \(better.installSize.formatted(.byteCount(style: .file)))" : ""). Saves and patches stay if you switch.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Use This Version") { chooseBranch(better.branch) }
+                    .buttonStyle(.glass)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .glassCard()
+            .padding(.horizontal, 20)
         }
     }
 
