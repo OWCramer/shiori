@@ -112,7 +112,7 @@ struct RenPyRuntime: Equatable, Sendable {
     /// Ren'Py 8.1.3 on CPython 3.9, Highway Blossoms' version. Runs Ren'Py 8 games with the
     /// game's own engine code.
     static let renpy8 = RenPyRuntime(framework: "RenPy8", version: "8.1.3", python: "3")
-    /// Ren'Py 7.8.7 on CPython 2.7. Runs Ren'Py 6.99 and 7.x games with its own engine code
+    /// Ren'Py 7.8.7 on CPython 2.7. Runs Ren'Py 6.10–7.x games with its own engine code
     /// (bundled as RenPy7Base), since the games' older engine can't load its compiled modules.
     static let renpy7 = RenPyRuntime(framework: "RenPy7", version: "7.8.7", python: "2")
 
@@ -156,11 +156,12 @@ extension RenPyEngine {
             if let python { return "This game uses Ren'Py \(version) on Python \(python), which Shiori can't run." }
             return "This game uses Ren'Py \(version), which Shiori can't run."
         }
-        // Ren'Py 7.8 keeps compatibility back to 6.99 (a 6.18 game fails loading its compiled
-        // scripts: AttributeError: alternate); older games are refused rather than
-        // left to fail halfway through.
-        if major == 6, let minor = version.split(separator: ".").dropFirst().first.flatMap({ Int($0) }), minor < 99 {
-            return "This game uses Ren'Py \(version); Shiori runs Ren'Py 6.99 and newer."
+        // Ren'Py 7.8 loads compiled scripts back to the 6.1x generation, given the default
+        // vnhub_main2.py adds for the Translate statement's `alternate` slot (6.17 and 6.18
+        // games play: WORLD END ECONOMiCA episode.01's renpy_old beta, Sakura Swim Club).
+        // Older formats aren't known to work.
+        if major == 6, let minor = version.split(separator: ".").dropFirst().first.flatMap({ Int($0) }), minor < 10 {
+            return "This game uses Ren'Py \(version); Shiori runs Ren'Py 6.10 and newer."
         }
         return nil
     }

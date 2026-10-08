@@ -224,6 +224,17 @@ def _patch_renpy():
     controller.start = start
     controller.post_event = post_event
 
+    # Compiled scripts from Ren'Py before 6.99 (Sakura Swim Club's 6.18) predate the
+    # Translate statement's `alternate` slot, so loading them failed with
+    # "AttributeError: alternate". Give it the default newer compilers write.
+    translate = renpy.ast.Translate
+    if "__new__" not in translate.__dict__:
+        def translate_new(cls, *args, **kwargs):
+            self = super(translate, cls).__new__(cls)
+            self.alternate = None
+            return self
+        translate.__new__ = staticmethod(translate_new)
+
     # Recompiled .rpyc/.rpymc files are written next to their source; send those writes
     # to the cache so base/ stays as Steam delivered it (Ren'Py recompiles each launch).
     script = renpy.script
