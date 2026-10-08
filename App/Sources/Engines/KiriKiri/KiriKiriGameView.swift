@@ -14,7 +14,7 @@ final class KiriKiriGameViewController: UIViewController {
     private let appID: UInt32
     private let onExit: () -> Void
     private var engine: engine_handle_t?
-    private var displayLink: CADisplayLink?
+    private var displayLink: CAMetalDisplayLink?
     private var lastTick: CFTimeInterval = 0
     /// Present the current frame on the next tick even if it isn't new (the layer was resized).
     private var needsPresent = true
@@ -120,13 +120,18 @@ final class KiriKiriGameViewController: UIViewController {
             return
         }
         lastTick = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(tick))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        // A Metal display link hands each update a drawable when one is due, instead of the
+        // present waiting for one; and the game asks for a steady 60 (with 30–60 allowed, iOS
+        // ran Nekopara at 48 on a 120 Hz iPhone).
+        let link = CAMetalDisplayLink(metalLayer: metalLayer)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
+        link.preferredFrameLatency = 2
+        link.delegate = self
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
 
-    @objc private func tick() {
+    private func tick(drawable: CAMetalDrawable) {
         guard let engine, !leaving else { return }
         let now = CACurrentMediaTime()
         let interval = (now - lastTick) * 1000
@@ -174,7 +179,9 @@ final class KiriKiriGameViewController: UIViewController {
                 let presentStart = CACurrentMediaTime()
                 defer { presentMs = (CACurrentMediaTime() - presentStart) * 1000 }
                 #endif
-                _ = shiori_krkr_metal_present(Unmanaged.passUnretained(metalLayer).toOpaque(), texture, newFrame)
+                _ = shiori_krkr_metal_present_drawable(Unmanaged.passUnretained(metalLayer).toOpaque(),
+                                                       Unmanaged.passUnretained(drawable as AnyObject).toOpaque(),
+                                                       texture, newFrame)
             }
         }
     }
@@ -520,3 +527,11 @@ private struct KiriKiriPerfLog {
     }
 }
 #endif
+
+extension KiriKiriGameViewController: CAMetalDisplayLinkDelegate {
+    nonisolated func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+        // The link runs on the main run loop, so this is the main thread.
+        nonisolated(unsafe) let drawable = update.drawable
+        MainActor.assumeIsolated { tick(drawable: drawable) }
+    }
+}
