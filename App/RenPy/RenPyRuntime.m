@@ -455,6 +455,57 @@ static BOOL FrameHasContent(UIView *view) {
     return lit > width / 20;
 }
 
+#if DEBUG
+/// Debug builds: frame timing every 5 seconds to <cache>/perf.txt, like KiriKiri's, so a
+/// device run can be pulled and read. "interval" is swap to swap; "swap" is the time spent
+/// presenting (GPU and display wait), the rest of each interval is Ren'Py's own work.
+static void RecordFramePerf(double interval, double swap) {
+    static double intervals[1024], swaps[1024];
+    static int count;
+    static CFTimeInterval windowStart;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (windowStart == 0) windowStart = now;
+    if (interval > 0 && count < 1024) {
+        intervals[count] = interval;
+        swaps[count] = swap;
+        count++;
+    }
+    if (now - windowStart < 5 || count == 0) return;
+    double sortedIntervals[1024], sortedSwaps[1024];
+    memcpy(sortedIntervals, intervals, sizeof(double) * count);
+    memcpy(sortedSwaps, swaps, sizeof(double) * count);
+    qsort_b(sortedIntervals, count, sizeof(double), ^int(const void *a, const void *b) {
+        double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; });
+    qsort_b(sortedSwaps, count, sizeof(double), ^int(const void *a, const void *b) {
+        double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; });
+    double intervalSum = 0, swapSum = 0;
+    int slow = 0;
+    for (int i = 0; i < count; i++) {
+        intervalSum += intervals[i];
+        swapSum += swaps[i];
+        if (intervals[i] > 17.5) slow++;
+    }
+    const char *cache = getenv("VNHUB_CACHE");
+    if (cache) {
+        char path[1024];
+        snprintf(path, sizeof path, "%s/perf.txt", cache);
+        FILE *file = fopen(path, "a");
+        if (file) {
+            NSString *time = [NSDateFormatter localizedStringFromDate:NSDate.date dateStyle:NSDateFormatterNoStyle
+                                                            timeStyle:NSDateFormatterMediumStyle];
+            fprintf(file, "%s interval avg %.1f p50 %.1f p95 %.1f max %.1f >17.5ms %d | swap avg %.1f p50 %.1f p95 %.1f max %.1f | frames %d\n",
+                    time.UTF8String, intervalSum / count, sortedIntervals[count / 2],
+                    sortedIntervals[(int)(count * 0.95)], sortedIntervals[count - 1], slow,
+                    swapSum / count, sortedSwaps[count / 2], sortedSwaps[(int)(count * 0.95)],
+                    sortedSwaps[count - 1], count);
+            fclose(file);
+        }
+    }
+    count = 0;
+    windowStart = now;
+}
+#endif
+
 /// Lifts the cover on the first frame with real content in it.
 static void WatchForFirstFrame(void) {
     static dispatch_once_t once;
@@ -478,7 +529,16 @@ static void WatchForFirstFrame(void) {
                 }
             }
             if (coverWindow && !coverLeaving && FrameHasContent(view)) DismissCover();
+#if DEBUG
+            static CFTimeInterval lastSwap;
+            CFTimeInterval swapStart = CACurrentMediaTime();
+#endif
             ((void (*)(id, SEL))original)(view, @selector(swapBuffers));
+#if DEBUG
+            CFTimeInterval swapEnd = CACurrentMediaTime();
+            RecordFramePerf(lastSwap > 0 ? (swapEnd - lastSwap) * 1000 : 0, (swapEnd - swapStart) * 1000);
+            lastSwap = swapEnd;
+#endif
         }));
     });
 }
