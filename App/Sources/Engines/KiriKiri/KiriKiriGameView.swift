@@ -75,8 +75,8 @@ final class KiriKiriGameViewController: UIViewController {
         history.cancelsTouchesInView = false
         view.addGestureRecognizer(history)
 
-        // KiriKiri games here take touch and mouse only; keep the pad off the launcher.
-        ControllerInput.unsupportedGame = { [weak self] in self?.showControllerNotice() }
+        // The pad drives the game through its keyboard and mouse (see `pad(_:)`).
+        ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -242,14 +242,135 @@ final class KiriKiriGameViewController: UIViewController {
              modifiers: Int32(ENGINE_INPUT_MODIFIER_POINTER_CANCEL.rawValue))
     }
 
+    // MARK: Controller
+
+    /// What KiriKiri (KAG) games answer to on a PC keyboard and mouse: Enter reads on and
+    /// presses the focused button, the arrow keys move between buttons, a right-click opens
+    /// the menu or goes back, the wheel opens the backlog, Ctrl held skips, Escape cancels.
+    private enum PadKey: Hashable {
+        case key(Int32)
+        case rightClick
+        case wheelUp
+    }
+
+    private var padHeld: Set<PadKey> = []
+    private var padRepeatAt: [PadKey: CFTimeInterval] = [:]
+    private var padDownAt: [Int32: CFTimeInterval] = [:]
+
+    private var leaveAlert: UIAlertController?
+    private var padOptionsDown = false
+
+    private func pad(_ pad: GCExtendedGamepad) {
+        // Options asks to leave; on that question A leaves and B keeps playing.
+        let options = pad.buttonOptions?.isPressed ?? false
+        defer { padOptionsDown = options }
+        if let alert = leaveAlert, presentedViewController === alert {
+            if pad.buttonA.isPressed, !padHeld.contains(.key(0x0D)) {
+                alert.dismiss(animated: true) { [weak self] in self?.leave() }
+            } else if pad.buttonB.isPressed, !padHeld.contains(.rightClick) {
+                alert.dismiss(animated: true)
+            }
+            padHeld = pad.buttonA.isPressed ? [.key(0x0D)] : pad.buttonB.isPressed ? [.rightClick] : []
+            return
+        }
+        guard engine != nil, presentedViewController == nil else { return }
+        if options, !padOptionsDown {
+            releasePadKeys()
+            presentLeaveQuestion()
+            return
+        }
+        let stick = pad.leftThumbstick
+        let threshold: Float = 0.55
+        let pressed: [PadKey: Bool] = [
+            .key(0x26): pad.dpad.up.isPressed || stick.yAxis.value > threshold, // VK_UP
+            .key(0x28): pad.dpad.down.isPressed || stick.yAxis.value < -threshold, // VK_DOWN
+            .key(0x25): pad.dpad.left.isPressed || stick.xAxis.value < -threshold, // VK_LEFT
+            .key(0x27): pad.dpad.right.isPressed || stick.xAxis.value > threshold, // VK_RIGHT
+            .key(0x0D): pad.buttonA.isPressed, // VK_RETURN
+            .key(0x11): pad.rightShoulder.isPressed || pad.rightTrigger.isPressed, // VK_CONTROL: skip while held
+            .key(0x1B): pad.buttonMenu.isPressed, // VK_ESCAPE
+            .rightClick: pad.buttonB.isPressed,
+            .wheelUp: pad.buttonY.isPressed || pad.leftShoulder.isPressed,
+        ]
+        let now = CACurrentMediaTime()
+        for (key, isDown) in pressed {
+            let wasDown = padHeld.contains(key)
+            if isDown, !wasDown {
+                padHeld.insert(key)
+                padRepeatAt[key] = now + 0.35
+                padPress(key, down: true)
+            } else if isDown, case .key(let code) = key, (0x25...0x28).contains(code), let at = padRepeatAt[key], now >= at {
+                // Held arrows repeat, as a keyboard's do.
+                padRepeatAt[key] = now + 0.11
+                padPress(key, down: true)
+            } else if !isDown, wasDown {
+                padHeld.remove(key)
+                padRepeatAt[key] = nil
+                padPress(key, down: false)
+            }
+        }
+    }
+
+    private func sendKey(_ code: Int32, down: Bool) {
+        guard let engine else { return }
+        var event = engine_input_event_t()
+        event.struct_size = UInt32(MemoryLayout<engine_input_event_t>.size)
+        event.type = (down ? ENGINE_INPUT_EVENT_KEY_DOWN : ENGINE_INPUT_EVENT_KEY_UP).rawValue
+        event.timestamp_micros = UInt64(CACurrentMediaTime() * 1_000_000)
+        event.key_code = code
+        _ = engine_send_input(engine, &event)
+    }
+
+    private func releasePadKeys() {
+        for key in padHeld { padPress(key, down: false) }
+        padHeld.removeAll()
+        padRepeatAt.removeAll()
+    }
+
+    private func padPress(_ key: PadKey, down: Bool) {
+        cancelPointer()
+        switch key {
+        case .key(let code):
+            // KAG also reads the key's state when the press arrives, so a press is held for at
+            // least 0.1 s however quickly the button comes back up.
+            let now = CACurrentMediaTime()
+            if down {
+                padDownAt[code] = now
+            } else if let at = padDownAt[code], now - at < 0.1 {
+                padDownAt[code] = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + (0.1 - (now - at))) { [weak self] in
+                    self?.sendKey(code, down: false)
+                }
+                return
+            }
+            sendKey(code, down: down)
+        case .rightClick:
+            guard down else { return }
+            let point = CGPoint(x: gameRect.midX, y: gameRect.midY)
+            send(ENGINE_INPUT_EVENT_POINTER_DOWN, at: point, button: 1)
+            send(ENGINE_INPUT_EVENT_POINTER_UP, at: point, button: 1)
+        case .wheelUp:
+            guard down else { return }
+            send(ENGINE_INPUT_EVENT_POINTER_SCROLL, at: CGPoint(x: gameRect.midX, y: gameRect.midY), deltaY: 1)
+        }
+    }
+
     // MARK: Leaving
 
     @objc private func askToLeave(_ recognizer: UILongPressGestureRecognizer) {
         guard recognizer.state == .began, presentedViewController == nil else { return }
         cancelPointer()
-        let alert = UIAlertController(title: "Leave the game?", message: "Progress since your last save is lost.", preferredStyle: .alert)
+        presentLeaveQuestion()
+    }
+
+    private func presentLeaveQuestion() {
+        let message = GCController.current?.extendedGamepad != nil
+            ? "Progress since your last save is lost. Ⓐ Leave, Ⓑ Keep Playing."
+            : "Progress since your last save is lost."
+        let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
+        leaveAlert = alert
         present(alert, animated: true)
     }
 
@@ -269,7 +390,7 @@ final class KiriKiriGameViewController: UIViewController {
         displayLink = nil
         if let engine { KiriKiriRuntime.close(engine) }
         engine = nil
-        ControllerInput.unsupportedGame = nil
+        ControllerInput.gameReceiver = nil
         requestOrientations(.all)
         onExit()
     }
@@ -277,13 +398,6 @@ final class KiriKiriGameViewController: UIViewController {
     private func requestOrientations(_ mask: UIInterfaceOrientationMask) {
         guard let scene = view.window?.windowScene else { return }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
-    }
-
-    private func showControllerNotice() {
-        guard presentedViewController == nil else { return }
-        let alert = UIAlertController(title: "Touch only", message: "This game doesn't support controllers. Tap to read on; two-finger tap opens the menu; hold two fingers to leave.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
     }
 }
 

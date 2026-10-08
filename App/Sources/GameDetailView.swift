@@ -355,9 +355,9 @@ struct GameDetailView: View {
                         GlassChip(EngineDetection.displayName(for: engine.engine), systemImage: "gearshape.2",
                                   tint: [RenPyEngine.id, "artemis", "kirikiri"].contains(engine.engine) ? .green : .orange)
                             .glassEffectID("engine", in: glassNamespace)
-                        // Artemis reads keyboard, mouse and touch only; Shiori drives KiriKiri
-                        // games by touch.
-                        if engine.engine == "artemis" || engine.engine == "kirikiri" {
+                        // Artemis reads keyboard, mouse and touch only. (KiriKiri games take a
+                        // controller as their keyboard: see KiriKiriGameViewController.pad.)
+                        if engine.engine == "artemis" {
                             GlassChip("Touch only", systemImage: "hand.tap", tint: .gray)
                                 .glassEffectID("controls", in: glassNamespace)
                         }

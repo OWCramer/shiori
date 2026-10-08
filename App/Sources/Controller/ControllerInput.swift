@@ -37,6 +37,10 @@ final class ControllerInput {
     /// launcher behind it gets nothing, and a press calls this instead so the game can say so.
     static var unsupportedGame: (@MainActor () -> Void)?
 
+    /// Set while an in-process game that reads the pad itself is on screen (KiriKiri): each
+    /// frame's pad state goes to it, and the launcher behind it gets nothing.
+    static var gameReceiver: (@MainActor (GCExtendedGamepad) -> Void)?
+
     private var controller: GCController?
     private var displayLink: CADisplayLink?
     private var held: Set<PadAction> = []
@@ -112,6 +116,11 @@ final class ControllerInput {
         guard let pad = controller?.extendedGamepad else { return }
         if vnhub_renpy_is_running() != 0 {
             forwardToGame(pad)
+            return
+        }
+        if let receiver = Self.gameReceiver {
+            receiver(pad)
+            held = []
             return
         }
         if let notify = Self.unsupportedGame {
