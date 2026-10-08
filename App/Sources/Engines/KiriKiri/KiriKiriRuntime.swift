@@ -17,7 +17,7 @@ enum KiriKiriRuntime {
 
     /// Opens the game in `gameFolder/base`. Saves go to `saves/`, the engine's logs and cache
     /// to Caches, so `base/` stays as Steam delivered it.
-    static func open(gameFolder: URL, width: UInt32, height: UInt32) throws -> engine_handle_t {
+    static func open(gameFolder: URL, appID: UInt32, width: UInt32, height: UInt32) throws -> engine_handle_t {
         if !started {
             guard shiori_krkr_install_services() == ENGINE_RESULT_OK.rawValue else {
                 throw Failure(errorDescription: "The KiriKiri runtime didn't start.")
@@ -45,6 +45,14 @@ enum KiriKiriRuntime {
         }
         setenv("AETHERKIRI_DATA_PATH", saves.path, 1)
         setenv("AETHERKIRI_LOG_DIR", caches.path, 1)
+        // A title whose archives use CxDec ships its scheme in the app (KiriKiriSchemes/<appid>.shcx,
+        // made with Scripts/kirikiri/garbro-cx.py); the engine decrypts its reads in memory only.
+        if let scheme = Bundle.main.url(forResource: String(appID), withExtension: "shcx",
+                                        subdirectory: "KiriKiriSchemes") {
+            setenv("AETHERKIRI_CX_SCHEME", scheme.path, 1)
+        } else {
+            unsetenv("AETHERKIRI_CX_SCHEME")
+        }
         #if DEBUG
         // Transition and page-swap events in krkr2.log, for comparing a device run with the
         // Mac harness (patch 0012 makes this trace safe on binder layers).

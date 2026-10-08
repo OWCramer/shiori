@@ -11,6 +11,7 @@ import UIKit
 /// frame, and turns touches into the mouse input KiriKiri games expect.
 final class KiriKiriGameViewController: UIViewController {
     private let gameFolder: URL
+    private let appID: UInt32
     private let onExit: () -> Void
     private var engine: engine_handle_t?
     private var displayLink: CADisplayLink?
@@ -29,8 +30,9 @@ final class KiriKiriGameViewController: UIViewController {
 
     private var metalLayer: CAMetalLayer { view.layer as! CAMetalLayer }
 
-    init(gameFolder: URL, onExit: @escaping () -> Void) {
+    init(gameFolder: URL, appID: UInt32, onExit: @escaping () -> Void) {
         self.gameFolder = gameFolder
+        self.appID = appID
         self.onExit = onExit
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -109,7 +111,7 @@ final class KiriKiriGameViewController: UIViewController {
     private func startIfNeeded() {
         guard engine == nil, !leaving, surface.width > 0 else { return }
         do {
-            engine = try KiriKiriRuntime.open(gameFolder: gameFolder, width: surface.width, height: surface.height)
+            engine = try KiriKiriRuntime.open(gameFolder: gameFolder, appID: appID, width: surface.width, height: surface.height)
         } catch {
             fail(error.localizedDescription)
             return
@@ -292,10 +294,11 @@ private final class KiriKiriMetalView: UIView {
 /// SwiftUI wrapper for presenting a KiriKiri game full screen.
 struct KiriKiriGameView: UIViewControllerRepresentable {
     let gameFolder: URL
+    let appID: UInt32
     let onExit: () -> Void
 
     func makeUIViewController(context: Context) -> KiriKiriGameViewController {
-        KiriKiriGameViewController(gameFolder: gameFolder, onExit: onExit)
+        KiriKiriGameViewController(gameFolder: gameFolder, appID: appID, onExit: onExit)
     }
 
     func updateUIViewController(_ controller: KiriKiriGameViewController, context: Context) {}

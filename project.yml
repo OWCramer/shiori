@@ -27,7 +27,12 @@ targets:
     platform: iOS
     sources:
       - App/Sources
-      - App/Resources
+      - path: App/Resources
+        excludes: ["KiriKiriSchemes/**"]
+      # CxDec schemes for KiriKiri titles, by Steam app id (Scripts/kirikiri/garbro-cx.py).
+      - path: App/Resources/KiriKiriSchemes
+        type: folder
+        buildPhase: resources
       - path: App/RenPy
         # runtime_shim.c is linked into the runtime frameworks, not the app.
         excludes: ["*.py", "IAPHelper.m", "runtime_shim.c"]

@@ -79,7 +79,7 @@ struct RootView: View {
                     .ignoresSafeArea()
             }
             .fullScreenCover(item: $games.kirikiriSession) { session in
-                KiriKiriGameView(gameFolder: session.folder) { games.kirikiriSession = nil }
+                KiriKiriGameView(gameFolder: session.folder, appID: session.appID) { games.kirikiriSession = nil }
                     .ignoresSafeArea()
             }
             .overlay {
