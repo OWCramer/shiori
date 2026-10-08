@@ -485,13 +485,20 @@ final class GameLibrary {
         guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
         guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
         if engine.engine == "artemis" { return nil }
+        if engine.engine == "kirikiri" {
+            #if targetEnvironment(simulator)
+            return "KiriKiri games play on an iPhone or iPad, not in the simulator."
+            #else
+            return nil
+            #endif
+        }
         guard engine.engine == RenPyEngine.id else {
             return "Downloaded, not playable yet: \(EngineDetection.displayName(for: engine.engine)) isn't supported."
         }
         return RenPyEngine.incompatibility(engine)
     }
 
-    /// An Artemis game being played (ArtemisKit runs in-process; leaving returns here).
+    /// A game played in-process (Artemis, KiriKiri); leaving returns here.
     struct ArtemisSession: Identifiable {
         let appID: UInt32
         let folder: URL
@@ -507,19 +514,34 @@ final class GameLibrary {
         }
     }
 
+    /// A KiriKiri game being played (AetherKrkr runs in-process; leaving returns here).
+    var kirikiriSession: ArtemisSession? {
+        didSet {
+            // Leaving: send its saves up.
+            if let ended = oldValue, kirikiriSession == nil, ended.appID != 0 {
+                Task { await syncSaves(appID: ended.appID, direction: .push) }
+            }
+        }
+    }
+
     /// Hands the app over to the game. Never returns: the app exits when the game quits.
     func play(appID: UInt32) {
         guard playBlocker(appID: appID) == nil, tasks[appID] == nil, launching == nil,
               case let .installed(record) = statuses[appID], let engine = record.engine
         else { return }
         let folder = folder(appID: appID, name: record.name)
-        if engine.engine == "artemis" {
+        if engine.engine == "artemis" || engine.engine == "kirikiri" {
             // ArtemisKit's saves aren't the PC's format, so no Steam Cloud; iCloud mirrors them.
+            // KiriKiri's are the PC's own, but Steam Cloud isn't wired up for them yet.
             launching = (appID, .iCloud)
             Task {
                 await syncSaves(appID: appID, direction: .pull)
                 launching = nil
-                artemisSession = ArtemisSession(appID: appID, folder: folder)
+                if engine.engine == "kirikiri" {
+                    kirikiriSession = ArtemisSession(appID: appID, folder: folder)
+                } else {
+                    artemisSession = ArtemisSession(appID: appID, folder: folder)
+                }
             }
             return
         }

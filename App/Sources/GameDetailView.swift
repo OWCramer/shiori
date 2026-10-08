@@ -329,7 +329,7 @@ struct GameDetailView: View {
     /// The game has no Steam Cloud at all, or Shiori can't use it for this engine yet.
     private var steamCloudChip: String? {
         if games.steamCloudSupport[appID] == false { return "No Steam Cloud" }
-        if record?.engine?.engine == "artemis" { return "No Steam Cloud yet" }
+        if ["artemis", "kirikiri"].contains(record?.engine?.engine) { return "No Steam Cloud yet" }
         return nil
     }
 
@@ -343,10 +343,11 @@ struct GameDetailView: View {
                     }
                     if let engine = record?.engine {
                         GlassChip(EngineDetection.displayName(for: engine.engine), systemImage: "gearshape.2",
-                                  tint: engine.engine == RenPyEngine.id ? .green : .orange)
+                                  tint: [RenPyEngine.id, "artemis", "kirikiri"].contains(engine.engine) ? .green : .orange)
                             .glassEffectID("engine", in: glassNamespace)
-                        // The Artemis engine reads keyboard, mouse and touch only.
-                        if engine.engine == "artemis" {
+                        // Artemis reads keyboard, mouse and touch only; Shiori drives KiriKiri
+                        // games by touch.
+                        if engine.engine == "artemis" || engine.engine == "kirikiri" {
                             GlassChip("Touch only", systemImage: "hand.tap", tint: .gray)
                                 .glassEffectID("controls", in: glassNamespace)
                         }
@@ -461,7 +462,7 @@ struct GameDetailView: View {
                     .font(.subheadline)
                 Text("This game doesn't use Steam Cloud on PC, so there are no cloud saves to share with it. iCloud keeps saves made here in step between your devices.")
                     .font(.caption).foregroundStyle(.secondary)
-            } else if record?.engine?.engine == "artemis" {
+            } else if ["artemis", "kirikiri"].contains(record?.engine?.engine) {
                 Label("Steam Cloud: not supported yet", systemImage: "cloud.slash")
                     .font(.subheadline)
                 Text("Shiori can't read or write this engine's PC saves yet, so saves made here don't go to or come from your PC through Steam Cloud. iCloud keeps them in step between your devices.")

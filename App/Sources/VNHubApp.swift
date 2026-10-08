@@ -78,6 +78,10 @@ struct RootView: View {
                 ArtemisGameView(gameFolder: session.folder) { games.artemisSession = nil }
                     .ignoresSafeArea()
             }
+            .fullScreenCover(item: $games.kirikiriSession) { session in
+                KiriKiriGameView(gameFolder: session.folder) { games.kirikiriSession = nil }
+                    .ignoresSafeArea()
+            }
             .overlay {
                 if let appID = games.endingSession {
                     SessionEndingView(game: steam.library.first { $0.appID == appID })
@@ -151,6 +155,13 @@ enum DebugAutomation {
             // `-VNHubInput "<s>:<x>,<y>;<s>:esc;…"` replays taps and keys into the game.
             if let input = defaults.string(forKey: "VNHubInput") { setenv("VNHUB_INPUT", input, 1) }
             games.play(appID: appID)
+        }
+        // `-VNHubKiriKiriGame <folder in Documents>` opens a KiriKiri game folder (one holding
+        // base/) without Steam: for running the engine on a Mac (Designed for iPad).
+        if let name = defaults.string(forKey: "VNHubKiriKiriGame"), !done.contains("kirikiri") {
+            done.insert("kirikiri")
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            games.kirikiriSession = .init(appID: 0, folder: documents.appendingPathComponent(name, isDirectory: true))
         }
         // `-VNHubImportPatch <file in tmp/> -VNHubPatchGame <appid>` imports a patch.
         if let name = defaults.string(forKey: "VNHubImportPatch"), !done.contains("import"),
