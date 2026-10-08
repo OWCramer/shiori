@@ -40,6 +40,31 @@ static struct {
     int (*controllerAxis)(int axis, int value);
 } sdl;
 
+/// SDL's Objective-C class `name` as compiled into the loaded runtime. The KiriKiri engine
+/// framework (linked at launch) carries its own SDL2 with the same class names, so a plain
+/// NSClassFromString can return its copy, and hooking that one leaves Ren'Py's window
+/// unattached and its frames unseen: the game runs, with sound, behind the cover.
+static Class RuntimeClass(const char *name) {
+    Dl_info info;
+    if (!sdl.launcherMain || !dladdr((const void *)sdl.launcherMain, &info) || !info.dli_fname) {
+        return objc_getClass(name);
+    }
+    char runtimePath[PATH_MAX];
+    if (!realpath(info.dli_fname, runtimePath)) strlcpy(runtimePath, info.dli_fname, sizeof runtimePath);
+    unsigned int count = 0;
+    Class *classes = objc_copyClassList(&count);
+    Class found = Nil;
+    for (unsigned int i = 0; i < count && !found; i++) {
+        if (strcmp(class_getName(classes[i]), name) != 0) continue;
+        const char *image = class_getImageName(classes[i]);
+        char imagePath[PATH_MAX];
+        if (image && realpath(image, imagePath) && strcmp(imagePath, runtimePath) == 0) found = classes[i];
+    }
+    free(classes);
+    if (!found) NSLog(@"Shiori: %s not found in %s; using the first one registered", name, runtimePath);
+    return found ?: objc_getClass(name);
+}
+
 static BOOL LoadRuntime(const char *name) {
     if (sdl.handle) return YES;
     NSString *path = [NSString stringWithFormat:@"%@/%s.framework/%s", NSBundle.mainBundle.privateFrameworksPath, name, name];
@@ -255,7 +280,7 @@ static BOOL multiFingerSequence;
 static void FilterMultiFingerTouches(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        Class view = NSClassFromString(@"SDL_uikitview");
+        Class view = RuntimeClass("SDL_uikitview");
         if (!view) return;
         forwardedTouches = [NSMutableSet set];
         SEL cancelled = @selector(touchesCancelled:withEvent:);
@@ -409,8 +434,10 @@ static void ShowCover(void) {
     window.hidden = NO;
     coverWindow = window;
     coverLeaving = NO;
-    // Whatever happens, don't hide the game for long.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ DismissCover(); });
+    // Whatever happens, don't hide the game for long. A run-loop timer: SDL's event loop runs
+    // the main run loop, which fires timers even when it doesn't get to the main queue.
+    NSTimer *fallback = [NSTimer timerWithTimeInterval:12 repeats:NO block:^(NSTimer *timer) { DismissCover(); }];
+    [NSRunLoop.mainRunLoop addTimer:fallback forMode:NSRunLoopCommonModes];
 }
 
 /// Lets the turn to landscape finish before Python starts: Python blocks the main thread
@@ -510,7 +537,7 @@ static void RecordFramePerf(double interval, double swap) {
 static void WatchForFirstFrame(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        Class glView = NSClassFromString(@"SDL_uikitopenglview");
+        Class glView = RuntimeClass("SDL_uikitopenglview");
         Method method = glView ? class_getInstanceMethod(glView, @selector(swapBuffers)) : NULL;
         if (!method) return;
         IMP original = method_getImplementation(method);
@@ -563,7 +590,7 @@ static UIWindowScene *ActiveWindowScene(void) {
 static void AttachSDLWindowsToScene(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        Class sdlWindow = NSClassFromString(@"SDL_uikitwindow");
+        Class sdlWindow = RuntimeClass("SDL_uikitwindow");
         if (!sdlWindow) return;
         IMP sceneInit = class_getMethodImplementation(UIWindow.class, @selector(initWithWindowScene:));
         IMP frameInit = class_getMethodImplementation(UIWindow.class, @selector(initWithFrame:));
