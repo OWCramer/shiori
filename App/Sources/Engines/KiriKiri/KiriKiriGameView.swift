@@ -18,7 +18,11 @@ final class KiriKiriGameViewController: UIViewController {
     private var surface: (width: UInt32, height: UInt32) = (0, 0)
     /// The game's canvas size, from its frames; the surface follows it.
     private var gameSize: CGSize = .zero
+    private var lastFrameSerial: UInt64 = 0
     private var leaving = false
+    #if DEBUG
+    private var tickTimes: [Double] = []
+    #endif
     /// The touch currently driving the pointer (KiriKiri has one mouse).
     private weak var pointerTouch: UITouch?
 
@@ -121,6 +125,8 @@ final class KiriKiriGameViewController: UIViewController {
         let now = CACurrentMediaTime()
         let elapsed = UInt32(max(1, min(100, (now - lastTick) * 1000)))
         lastTick = now
+        let tickStart = CACurrentMediaTime()
+        defer { recordTickTime(since: tickStart) }
         let result = engine_tick(engine, elapsed)
         if result != ENGINE_RESULT_OK {
             let message = engine_get_last_error(engine).map { String(cString: $0) } ?? ""
@@ -136,14 +142,29 @@ final class KiriKiriGameViewController: UIViewController {
         var texture: UInt64 = 0, width: UInt32 = 0, height: UInt32 = 0, serial: UInt64 = 0
         if engine_get_godot_native_frame_texture(engine, &texture, &width, &height, &serial) == ENGINE_RESULT_OK,
            texture != 0 {
-            let size = CGSize(width: Int(width), height: Int(height))
-            if size != gameSize {
-                gameSize = size
+            if gameSize == .zero {
+                // First frame: the game's own canvas. From now on the surface is the game's
+                // size and frames are composed (KiriKiriRuntime.useGameSize).
+                gameSize = CGSize(width: Int(width), height: Int(height))
                 surface = (width, height)
-                engine_set_surface_size(engine, width, height)
+                KiriKiriRuntime.useGameSize(engine, width: width, height: height)
             }
-            _ = shiori_krkr_metal_present(Unmanaged.passUnretained(metalLayer).toOpaque(), texture)
+            let newFrame = serial != lastFrameSerial
+            lastFrameSerial = serial
+            _ = shiori_krkr_metal_present(Unmanaged.passUnretained(metalLayer).toOpaque(), texture, newFrame)
         }
+    }
+
+    /// Debug builds: how long each frame's tick and present take, logged every 300 frames.
+    private func recordTickTime(since start: CFTimeInterval) {
+        #if DEBUG
+        tickTimes.append((CACurrentMediaTime() - start) * 1000)
+        guard tickTimes.count == 300 else { return }
+        let sorted = tickTimes.sorted()
+        let average = sorted.reduce(0, +) / 300
+        KiriKiriRuntime.log.notice("Frame ms avg \(average, format: .fixed(precision: 1)) p50 \(sorted[150], format: .fixed(precision: 1)) p95 \(sorted[285], format: .fixed(precision: 1)) max \(sorted[299], format: .fixed(precision: 1))")
+        tickTimes.removeAll(keepingCapacity: true)
+        #endif
     }
 
     // MARK: Input

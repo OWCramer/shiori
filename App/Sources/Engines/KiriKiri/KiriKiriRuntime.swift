@@ -12,7 +12,7 @@ enum KiriKiriRuntime {
         var errorDescription: String?
     }
 
-    private static let log = Logger(subsystem: "com.owencramer.vnhub", category: "KiriKiri")
+    static let log = Logger(subsystem: "com.owencramer.vnhub", category: "KiriKiri")
     private static var started = false
 
     /// Opens the game in `gameFolder/base`. Saves go to `saves/`, the engine's logs and cache
@@ -62,8 +62,8 @@ enum KiriKiriRuntime {
         }
         // Render through the GPU bridge (Shiori's Metal host) rather than the CPU fallback.
         setOption(handle, ENGINE_OPTION_RENDERER, ENGINE_RENDERER_GODOT_NATIVE)
-        // Frames are the game's own canvas; the view fits it to the screen and sizes the
-        // engine's surface to the game, so input arrives in game pixels.
+        // The first frame comes as the game's own canvas, to learn its size; the view then
+        // sizes the surface to the game and goes back to composed frames (useGameSize).
         setOption(handle, ENGINE_OPTION_FRAME_OUTPUT, ENGINE_FRAME_OUTPUT_RAW_SOURCE)
         engine_set_surface_size(handle, width, height)
         let opened = base.path.withCString { engine_open_game(handle, $0, nil) }
@@ -80,6 +80,14 @@ enum KiriKiriRuntime {
     static func close(_ handle: engine_handle_t) {
         drainLogs(handle)
         engine_destroy(handle)
+    }
+
+    /// Sizes the surface to the game and returns to composed frames. The raw source isn't
+    /// always the finished frame (it can lag behind the composition), so it's only used to
+    /// learn the game's size.
+    static func useGameSize(_ handle: engine_handle_t, width: UInt32, height: UInt32) {
+        engine_set_surface_size(handle, width, height)
+        setOption(handle, ENGINE_OPTION_FRAME_OUTPUT, ENGINE_FRAME_OUTPUT_SURFACE)
     }
 
     private static func setOption(_ handle: engine_handle_t, _ key: String, _ value: String) {
