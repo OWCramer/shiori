@@ -13,6 +13,8 @@ final class KiriKiriGameViewController: UIViewController {
     private let gameFolder: URL
     private let appID: UInt32
     private let onExit: () -> Void
+    /// Lifts the launch cover; called once, on the first frame presented.
+    private var onFirstFrame: (() -> Void)?
     private var engine: engine_handle_t?
     private var displayLink: CAMetalDisplayLink?
     private var lastTick: CFTimeInterval = 0
@@ -32,9 +34,10 @@ final class KiriKiriGameViewController: UIViewController {
 
     private var metalLayer: CAMetalLayer { view.layer as! CAMetalLayer }
 
-    init(gameFolder: URL, appID: UInt32, onExit: @escaping () -> Void) {
+    init(gameFolder: URL, appID: UInt32, onFirstFrame: @escaping () -> Void = {}, onExit: @escaping () -> Void) {
         self.gameFolder = gameFolder
         self.appID = appID
+        self.onFirstFrame = onFirstFrame
         self.onExit = onExit
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -182,6 +185,10 @@ final class KiriKiriGameViewController: UIViewController {
                 _ = shiori_krkr_metal_present_drawable(Unmanaged.passUnretained(metalLayer).toOpaque(),
                                                        Unmanaged.passUnretained(drawable as AnyObject).toOpaque(),
                                                        texture, newFrame)
+                if newFrame, let lift = onFirstFrame {
+                    onFirstFrame = nil
+                    lift()
+                }
             }
         }
     }
@@ -419,10 +426,11 @@ private final class KiriKiriMetalView: UIView {
 struct KiriKiriGameView: UIViewControllerRepresentable {
     let gameFolder: URL
     let appID: UInt32
+    var onFirstFrame: () -> Void = {}
     let onExit: () -> Void
 
     func makeUIViewController(context: Context) -> KiriKiriGameViewController {
-        KiriKiriGameViewController(gameFolder: gameFolder, appID: appID, onExit: onExit)
+        KiriKiriGameViewController(gameFolder: gameFolder, appID: appID, onFirstFrame: onFirstFrame, onExit: onExit)
     }
 
     func updateUIViewController(_ controller: KiriKiriGameViewController, context: Context) {}

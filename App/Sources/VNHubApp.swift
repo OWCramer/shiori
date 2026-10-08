@@ -75,12 +75,18 @@ struct RootView: View {
         @Bindable var games = games
         content
             .fullScreenCover(item: $games.artemisSession) { session in
-                ArtemisGameView(gameFolder: session.folder) { games.artemisSession = nil }
-                    .ignoresSafeArea()
+                CoveredGame(art: session.cover) { firstFrame in
+                    ArtemisGameView(gameFolder: session.folder, onFirstFrame: firstFrame) { games.artemisSession = nil }
+                        .ignoresSafeArea()
+                }
             }
             .fullScreenCover(item: $games.kirikiriSession) { session in
-                KiriKiriGameView(gameFolder: session.folder, appID: session.appID) { games.kirikiriSession = nil }
+                CoveredGame(art: session.cover) { firstFrame in
+                    KiriKiriGameView(gameFolder: session.folder, appID: session.appID, onFirstFrame: firstFrame) {
+                        games.kirikiriSession = nil
+                    }
                     .ignoresSafeArea()
+                }
             }
             .overlay {
                 if let appID = games.endingSession {

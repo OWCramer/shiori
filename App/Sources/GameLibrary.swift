@@ -546,6 +546,8 @@ final class GameLibrary {
     struct ArtemisSession: Identifiable {
         let appID: UInt32
         let folder: URL
+        /// Shown until the game draws its first frame, like Ren'Py's launch cover.
+        var cover = LaunchCover.Art()
         var id: UInt32 { appID }
     }
 
@@ -582,14 +584,22 @@ final class GameLibrary {
             // KiriKiri's are the PC's own: Steam Cloud too, for games whose cloud rules name
             // savedata/ (games that write the cloud through Steam's API aren't mapped yet).
             launching = (appID, .iCloud)
+            let entry = libraryEntry(appID)
+            let coverFolder = Self.runtimeCache(appID: appID).appendingPathComponent("cover", isDirectory: true)
             Task {
+                // The cover's art downloads while saves sync (usually from URLCache).
+                async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
                 await syncSaves(appID: appID, direction: .pull)
                 if engine.engine == "kirikiri", steamCloudMapped[appID] == true { await pullSteamCloud(appID: appID) }
+                let (heroFile, logoFile) = await cover
+                let art = LaunchCover.Art(hero: heroFile.flatMap { UIImage(contentsOfFile: $0.path) },
+                                          logo: logoFile.flatMap { UIImage(contentsOfFile: $0.path) },
+                                          title: record.name)
                 launching = nil
                 if engine.engine == "kirikiri" {
-                    kirikiriSession = ArtemisSession(appID: appID, folder: folder)
+                    kirikiriSession = ArtemisSession(appID: appID, folder: folder, cover: art)
                 } else {
-                    artemisSession = ArtemisSession(appID: appID, folder: folder)
+                    artemisSession = ArtemisSession(appID: appID, folder: folder, cover: art)
                 }
             }
             return
@@ -633,6 +643,36 @@ final class GameLibrary {
 
     /// Saves the cover's banner and logo to files the runtime can load. Gives up quickly:
     /// the cover falls back to the game's name.
+    /// The image cropped to its non-transparent pixels, or nil if there's nothing to crop.
+    nonisolated private static func trimmingTransparentMargins(_ image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage else { return nil }
+        let width = cg.width, height = cg.height
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0 ..< height {
+            for x in 0 ..< width where alpha[y * width + x] > 8 {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        let margin = 4
+        let crop = CGRect(x: max(0, minX - margin), y: max(0, minY - margin),
+                          width: min(width, maxX + margin + 1) - max(0, minX - margin),
+                          height: min(height, maxY + margin + 1) - max(0, minY - margin))
+        guard crop.width < CGFloat(width) || crop.height < CGFloat(height),
+              let cropped = cg.cropping(to: crop) else { return nil }
+        return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
+    }
+
     nonisolated private static func fetchCover(hero: URL?, logo: URL?, into folder: URL) async -> (URL?, URL?) {
         try? FileManager.default.removeItem(at: folder)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -641,10 +681,12 @@ final class GameLibrary {
             let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 4)
             guard let (data, response) = try? await URLSession.shared.data(for: request),
                   (response as? HTTPURLResponse).map({ (200 ..< 300).contains($0.statusCode) }) ?? true,
-                  UIImage(data: data) != nil
+                  let image = UIImage(data: data)
             else { return nil }
+            // Steam logos sit on a wide transparent canvas; keep only the mark.
+            let saved = name == "logo" ? (trimmingTransparentMargins(image)?.pngData() ?? data) : data
             let file = folder.appendingPathComponent(name)
-            return (try? data.write(to: file)) != nil ? file : nil
+            return (try? saved.write(to: file)) != nil ? file : nil
         }
         async let heroFile = fetch(hero, as: "hero")
         async let logoFile = fetch(logo, as: "logo")

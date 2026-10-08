@@ -16,6 +16,8 @@ private extension UIFont {
 final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, UIGestureRecognizerDelegate {
     private let gameFolder: URL
     private let onExit: () -> Void
+    /// Lifts the launch cover; called once, after the first frame the display link draws.
+    private var onFirstFrame: (() -> Void)?
     private var player: ArtemisPlayer?
     private let stageLayer = CALayer()
     private let messageLayer = CALayer()
@@ -40,8 +42,9 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     private var lastVideoRevision = -1
     let audio = ArtemisAudio()
 
-    init(gameFolder: URL, onExit: @escaping () -> Void) {
+    init(gameFolder: URL, onFirstFrame: @escaping () -> Void = {}, onExit: @escaping () -> Void) {
         self.gameFolder = gameFolder
+        self.onFirstFrame = onFirstFrame
         self.onExit = onExit
         super.init(nibName: nil, bundle: nil)
     }
@@ -198,6 +201,12 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 
     @objc private func frame() {
         guard let player else { return }
+        defer {
+            if let lift = onFirstFrame {
+                onFirstFrame = nil
+                lift()
+            }
+        }
         player.update(time: (CACurrentMediaTime() - startTime) * 1000)
         audio.tick()
         if player.interpreter.state == .finished {
@@ -732,10 +741,11 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 /// SwiftUI wrapper for presenting a game full screen.
 struct ArtemisGameView: UIViewControllerRepresentable {
     let gameFolder: URL
+    var onFirstFrame: () -> Void = {}
     let onExit: () -> Void
 
     func makeUIViewController(context: Context) -> ArtemisGameViewController {
-        ArtemisGameViewController(gameFolder: gameFolder, onExit: onExit)
+        ArtemisGameViewController(gameFolder: gameFolder, onFirstFrame: onFirstFrame, onExit: onExit)
     }
 
     func updateUIViewController(_ controller: ArtemisGameViewController, context: Context) {}
