@@ -45,6 +45,12 @@ enum KiriKiriRuntime {
         }
         setenv("AETHERKIRI_DATA_PATH", saves.path, 1)
         setenv("AETHERKIRI_LOG_DIR", caches.path, 1)
+        #if DEBUG
+        // Transition and page-swap traces in krkr2.log, for comparing a device run with the
+        // Mac harness (the phone-only transition flash).
+        setenv("AETHERKIRI_TRANS_TRACE", "1", 0)
+        setenv("AETHERKIRI_ASSIGN_TRACE", "1", 0)
+        #endif
 
         var handle: engine_handle_t?
         let created = writable.path.withCString { writablePath in
