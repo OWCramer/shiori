@@ -46,10 +46,13 @@ enum KiriKiriRuntime {
         setenv("AETHERKIRI_DATA_PATH", saves.path, 1)
         setenv("AETHERKIRI_LOG_DIR", caches.path, 1)
         #if DEBUG
-        // Transition and page-swap traces in krkr2.log, for comparing a device run with the
-        // Mac harness (the phone-only transition flash).
+        // Transition and page-swap events in krkr2.log, for comparing a device run with the
+        // Mac harness (patch 0012 makes this trace safe on binder layers).
         setenv("AETHERKIRI_TRANS_TRACE", "1", 0)
-        setenv("AETHERKIRI_ASSIGN_TRACE", "1", 0)
+        // Which timelines E-mote characters are asked to play, and the log written out every
+        // second so it can be pulled from a device mid-game.
+        setenv("SHIORI_EMOTE_PLAY_TRACE", "1", 0)
+        setenv("AETHERKIRI_LOG_FLUSH_SECONDS", "1", 0)
         #endif
 
         var handle: engine_handle_t?
