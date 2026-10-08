@@ -22,6 +22,7 @@ final class KiriKiriGameViewController: UIViewController {
     private var leaving = false
     #if DEBUG
     private var tickTimes: [Double] = []
+    private lazy var automation = KiriKiriDebugAutomation()
     #endif
     /// The touch currently driving the pointer (KiriKiri has one mouse).
     private weak var pointerTouch: UITouch?
@@ -127,6 +128,9 @@ final class KiriKiriGameViewController: UIViewController {
         lastTick = now
         let tickStart = CACurrentMediaTime()
         defer { recordTickTime(since: tickStart) }
+        #if DEBUG
+        automation.beforeTick(engine: engine, elapsed: elapsed)
+        #endif
         let result = engine_tick(engine, elapsed)
         if result != ENGINE_RESULT_OK {
             let message = engine_get_last_error(engine).map { String(cString: $0) } ?? ""
@@ -151,6 +155,9 @@ final class KiriKiriGameViewController: UIViewController {
             }
             let newFrame = serial != lastFrameSerial
             lastFrameSerial = serial
+            #if DEBUG
+            if newFrame { automation.frameReady(texture: texture, width: width, height: height) }
+            #endif
             _ = shiori_krkr_metal_present(Unmanaged.passUnretained(metalLayer).toOpaque(), texture, newFrame)
         }
     }
@@ -293,3 +300,66 @@ struct KiriKiriGameView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: KiriKiriGameViewController, context: Context) {}
 }
+
+#if DEBUG
+/// Debug launch options for reproducing a scene on the Mac ("Designed for iPad"):
+/// - `VNHubKiriKiriTaps`: "seconds:x,y ..." clicks in game pixels at engine times;
+/// - `VNHubKiriKiriDumpFrames`: "fromSecond-toSecond" saves every new frame in that window
+///   to Caches/KiriKiri/frames as PPM, named by engine milliseconds.
+@MainActor
+private final class KiriKiriDebugAutomation {
+    private var clock: UInt64 = 0 // engine milliseconds
+    private var taps: [(at: UInt64, x: Double, y: Double)]
+    private let dumpWindow: ClosedRange<UInt64>?
+    private let folder: URL
+
+    init() {
+        let defaults = UserDefaults.standard
+        taps = (defaults.string(forKey: "VNHubKiriKiriTaps") ?? "").split(separator: " ").compactMap { item in
+            let parts = item.split(whereSeparator: { $0 == ":" || $0 == "," }).compactMap { Double($0) }
+            return parts.count == 3 ? (UInt64(parts[0] * 1000), parts[1], parts[2]) : nil
+        }
+        let window = (defaults.string(forKey: "VNHubKiriKiriDumpFrames") ?? "").split(separator: "-").compactMap { Double($0) }
+        dumpWindow = window.count == 2 ? UInt64(window[0] * 1000)...UInt64(window[1] * 1000) : nil
+        folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("KiriKiri/frames", isDirectory: true)
+        if dumpWindow != nil {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+    }
+
+    func beforeTick(engine: engine_handle_t, elapsed: UInt32) {
+        clock += UInt64(elapsed)
+        while let tap = taps.first, tap.at <= clock {
+            taps.removeFirst()
+            var event = engine_input_event_t()
+            event.struct_size = UInt32(MemoryLayout<engine_input_event_t>.size)
+            event.x = tap.x
+            event.y = tap.y
+            for type in [ENGINE_INPUT_EVENT_POINTER_MOVE, ENGINE_INPUT_EVENT_POINTER_DOWN, ENGINE_INPUT_EVENT_POINTER_UP] {
+                event.type = type.rawValue
+                _ = engine_send_input(engine, &event)
+            }
+            KiriKiriRuntime.log.notice("Debug tap at \(tap.x),\(tap.y) (\(self.clock) ms)")
+        }
+    }
+
+    func frameReady(texture: UInt64, width: UInt32, height: UInt32) {
+        guard let dumpWindow, dumpWindow.contains(clock) else { return }
+        let header = "P6\n\(width) \(height)\n255\n"
+        var rgba = [UInt8](repeating: 0, count: Int(width * height * 4))
+        guard shiori_krkr_metal_read(texture, &rgba, rgba.count, width * 4) else { return }
+        var data = Data(header.utf8)
+        data.reserveCapacity(data.count + Int(width * height * 3))
+        var rgb = [UInt8](repeating: 0, count: Int(width * height * 3))
+        for pixel in 0..<Int(width * height) {
+            rgb[pixel * 3] = rgba[pixel * 4]
+            rgb[pixel * 3 + 1] = rgba[pixel * 4 + 1]
+            rgb[pixel * 3 + 2] = rgba[pixel * 4 + 2]
+        }
+        data.append(contentsOf: rgb)
+        try? data.write(to: folder.appendingPathComponent(String(format: "f%07llu.ppm", clock)))
+    }
+}
+#endif
