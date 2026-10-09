@@ -1,6 +1,7 @@
 import LucaKit
 import SwiftUI
 import UIKit
+import WebKit
 
 /// Plays a Luca System game (Summer Pockets REFLECTION BLUE) with LucaKit. The scripts tell
 /// the stage what to show; the screens the PC game draws in its executable (title, menu,
@@ -203,6 +204,7 @@ final class LucaGameViewController: UIViewController {
         player.sounds.removeAll()
         for notice in player.notices { show(notice) }
         player.notices.removeAll()
+        if let movie = player.movie, movieView == nil { play(movie: movie, player: player) }
         if player.finished {
             if let failure = player.failure { NSLog("Luca: stopped: %@", failure) }
             autosave()
@@ -454,6 +456,74 @@ final class LucaGameViewController: UIViewController {
                 lineDoneAt = now
             }
         }
+    }
+
+    // MARK: Movies
+
+    private var movieView: WKWebView?
+    private var movieHandler: LucaMovieHandler?
+
+    /// Plays `files/movie/<name>.webm` (the English cut, `<name>_en`, when there is one).
+    /// The movies are VP9 WebM, which AVFoundation doesn't play and WebKit does. A tap skips.
+    private func play(movie name: String, player: LucaPlayer) {
+        let folder = gameFolder.appendingPathComponent("base/files/movie", isDirectory: true)
+        let candidates = ["\(name)_en.webm", "\(name).webm"]
+        // Ends at most once (the page can report ended, error, a tap and the watchdog).
+        movieEnded = false
+        guard let file = candidates.first(where: { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) }) else {
+            NSLog("Luca: no movie %@", name)
+            player.movieFinished()
+            return
+        }
+        audio.handle(.stopMusic(fadeFrames: 0), game: player.game)
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        let handler = LucaMovieHandler { [weak self] in self?.endMovie() }
+        config.userContentController.add(handler, name: "movie")
+        let web = WKWebView(frame: view.bounds, configuration: config)
+        web.isOpaque = false
+        web.backgroundColor = .black
+        web.scrollView.isScrollEnabled = false
+        web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        let html = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <style>html,body{margin:0;height:100%;background:#000;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style>
+        </head><body><video id="v" src="\(file)" autoplay playsinline></video><script>
+        const v=document.getElementById('v'), done=()=>webkit.messageHandlers.movie.postMessage('end');
+        v.addEventListener('ended',done); v.addEventListener('error',done);
+        document.body.addEventListener('click',done);
+        // A device that can't decode VP9 (the simulator) never starts: carry on without it.
+        setTimeout(()=>{ if (v.currentTime < 0.1) done(); }, 5000);
+        </script></body></html>
+        """
+        try? FileManager.default.createDirectory(at: moviePage.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? html.write(to: moviePage, atomically: true, encoding: .utf8)
+        // The page sits beside the movies' folder link so the video loads as a sibling file.
+        let link = moviePage.deletingLastPathComponent().appendingPathComponent(file)
+        try? FileManager.default.removeItem(at: link)
+        try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: folder.appendingPathComponent(file))
+        web.loadFileURL(moviePage, allowingReadAccessTo: URL(fileURLWithPath: "/"))
+        view.addSubview(web)
+        movieView = web
+        movieHandler = handler
+    }
+
+    private var moviePage: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("LucaMovie/movie.html")
+    }
+
+    private var movieEnded = false
+
+    private func endMovie() {
+        guard !movieEnded else { return }
+        movieEnded = true
+        movieView?.configuration.userContentController.removeScriptMessageHandler(forName: "movie")
+        movieView?.removeFromSuperview()
+        movieView = nil
+        movieHandler = nil
+        player?.movieFinished()
     }
 
     // MARK: Notices
@@ -748,6 +818,16 @@ final class LucaGameViewController: UIViewController {
     static let mapImageID = 25_133
     /// BGM01 in MUSIC.PAK.
     static let titleMusicID = 100_001
+}
+
+/// Receives the movie page's "ended" message.
+private final class LucaMovieHandler: NSObject, WKScriptMessageHandler {
+    let onEnd: () -> Void
+    init(onEnd: @escaping () -> Void) { self.onEnd = onEnd }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        onEnd()
+    }
 }
 
 private final class PaddedLabel: UILabel {
