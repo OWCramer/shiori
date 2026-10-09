@@ -1,4 +1,5 @@
 import LucaKit
+import Metal
 import SwiftUI
 import UIKit
 import WebKit
@@ -18,23 +19,20 @@ final class LucaGameViewController: UIViewController {
 
     // Stage: 1920×1080 game space, letterboxed.
     private let stageSize = CGSize(width: 1920, height: 1080)
-    private let stageLayer = CALayer()
-    private let pictureLayer = CALayer()
-    private var pictures: [Int: CALayer] = [:]
-    private var pictureImages: [Int: Int] = [:]
-    private var images: [Int: CGImage] = [:]
-    private var imageOrder: [Int] = []
-    /// Pictures being decoded off the main thread, and the ones done, waiting to be taken.
+    private var renderer: LucaRenderer?
+    private var windowMask: MTLTexture?
+    /// Pictures on screen now (texture ids), kept when the texture cache trims.
+    private var onScreen = Set<Int>()
+    /// Pictures being decoded and uploaded off the main thread.
     private let prefetchQueue = DispatchQueue(label: "luca.prefetch", qos: .userInitiated)
     private var prefetching = Set<Int>()
     private let prefetched = LucaPrefetched()
     private var framesSincePrefetch = 0
     private var lastDraw = -1
+    private var transitionRunning = false
 
     // Text window
     private let windowRect = CGRect(x: 0, y: 735, width: 1920, height: 345)
-    private let windowLayer = CALayer()
-    private let faceLayer = CALayer()
     private let overlay = UIView()
     private let nameLabel = UILabel()
     private let textLabel = UILabel()
@@ -79,26 +77,9 @@ final class LucaGameViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        stageLayer.anchorPoint = .zero
-        stageLayer.bounds = CGRect(origin: .zero, size: stageSize)
-        stageLayer.masksToBounds = true
-        stageLayer.backgroundColor = UIColor.black.cgColor
-        pictureLayer.frame = stageLayer.bounds
-        stageLayer.addSublayer(pictureLayer)
-        windowLayer.frame = windowRect
-        stageLayer.addSublayer(windowLayer)
-        faceLayer.frame = windowRect
-        faceLayer.masksToBounds = true
-        // The face sits in the window's left end and fades out towards the text.
-        let faceFade = CAGradientLayer()
-        faceFade.frame = faceLayer.bounds
-        faceFade.startPoint = CGPoint(x: 0, y: 0.5)
-        faceFade.endPoint = CGPoint(x: 1, y: 0.5)
-        faceFade.colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
-        faceFade.locations = [0, 0.17, 0.23]
-        faceLayer.mask = faceFade
-        stageLayer.addSublayer(faceLayer)
-        view.layer.addSublayer(stageLayer)
+        // The stage draws with Metal (LucaRenderer); text, choices and menus sit over it.
+        renderer = LucaRenderer()
+        if let renderer { view.layer.addSublayer(renderer.layer) }
 
         overlay.isUserInteractionEnabled = true
         view.addSubview(overlay)
@@ -133,14 +114,8 @@ final class LucaGameViewController: UIViewController {
             let game = try LucaGame(root: gameFolder.appendingPathComponent("base", isDirectory: true),
                                     patch: gameFolder.appendingPathComponent("patch", isDirectory: true))
             self.game = game
-            if let window = game.image(Self.windowImageID).flatMap(Self.cgImage) {
-                // MWIN0 is the window's shape in white; the engine tints it.
-                let mask = CALayer()
-                mask.frame = windowLayer.bounds
-                mask.contents = window
-                windowLayer.mask = mask
-            }
-            windowLayer.backgroundColor = UIColor(red: 0.04, green: 0.1, blue: 0.22, alpha: 0.78).cgColor
+            // MWIN0 is the window's shape in white; the engine tints it.
+            windowMask = renderer?.textures.texture(Self.windowImageID, game: game)
             try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
             showTitle()
         } catch {
@@ -171,8 +146,12 @@ final class LucaGameViewController: UIViewController {
                            width: stageSize.width * scale, height: stageSize.height * scale)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        stageLayer.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
-        stageLayer.position = frame.origin
+        if let renderer {
+            renderer.layer.frame = frame
+            let screen = view.window?.screen.scale ?? UIScreen.main.scale
+            renderer.layer.contentsScale = screen
+            renderer.layer.drawableSize = CGSize(width: frame.width * screen, height: frame.height * screen)
+        }
         CATransaction.commit()
         overlay.frame = frame
         titleView?.frame = overlay.bounds
@@ -211,25 +190,18 @@ final class LucaGameViewController: UIViewController {
             showTitle()
             return
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         if player.drawGeneration != lastDraw {
             lastDraw = player.drawGeneration
             if let transition = player.transition, transition.frames > 0 {
-                let fade = CATransition()
-                fade.type = .fade
-                fade.duration = Double(transition.frames) / 60
-                pictureLayer.add(fade, forKey: "luca.draw")
-                faceLayer.add(fade, forKey: "luca.draw")
+                renderer?.beginFade(frames: transition.frames)
+                transitionRunning = true
             }
-        } else if player.transition == nil {
-            // A tap finished the transition early.
-            if pictureLayer.animation(forKey: "luca.draw") != nil, !player.isWaitingForClick { }
+        } else if transitionRunning, player.transition == nil {
+            // Finished, or a tap cut it short.
+            renderer?.endFade()
+            transitionRunning = false
         }
-        syncPictures(player)
-        let shake = player.shake
-        pictureLayer.setAffineTransform(CGAffineTransform(translationX: shake.x, y: shake.y))
-        CATransaction.commit()
+        drawStage(player)
         syncText(player)
         syncChoices(player)
         advanceByMode(player)
@@ -248,102 +220,58 @@ final class LucaGameViewController: UIViewController {
         #endif
     }
 
-    private func syncPictures(_ player: LucaPlayer) {
-        var seen = Set<Int>()
-        var wanted = player.sortedLayers
-        if let face = player.windowFace { wanted.append(face) }
-        for layer in wanted {
-            seen.insert(layer.number)
-            let isFace = layer.kind == 7
-            let parent = isFace ? faceLayer : pictureLayer
-            let ca: CALayer
-            if let existing = pictures[layer.number], existing.superlayer === parent {
-                ca = existing
-            } else {
-                pictures[layer.number]?.removeFromSuperlayer()
-                ca = CALayer()
-                ca.anchorPoint = .zero
-                parent.addSublayer(ca)
-                pictures[layer.number] = ca
-                pictureImages[layer.number] = nil
-            }
-            guard let image = player.game.image(layer.imageID) else { ca.isHidden = true; continue }
-            if pictureImages[layer.number] != layer.imageID {
-                ca.contents = cgImage(layer.imageID, image)
-                pictureImages[layer.number] = layer.imageID
-            }
-            ca.isHidden = false
+    private func drawStage(_ player: LucaPlayer) {
+        guard let renderer else { return }
+        var items: [(layer: LucaLayer, texture: MTLTexture, rect: CGRect)] = []
+        var shown = Set<Int>()
+        for layer in player.sortedLayers {
+            guard let image = player.game.image(layer.imageID), let texture = texture(layer.imageID) else { continue }
+            shown.insert(layer.imageID)
             let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
-            var (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
-            if isFace {
-                // Window coordinates: the face (its expression patch's rectangle) centred in
-                // the window's left end.
-                if faceRects[layer.imageID] == nil {
-                    faceRects[layer.imageID] = player.game.faceRect(layer.imageID).map {
-                        CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
-                    } ?? CGRect(x: w / 2 - 90, y: h * 0.12, width: 180, height: 150)
-                }
-                let face = faceRects[layer.imageID]!
-                x = 215 - face.midX
-                y = 215 - face.midY
+            let (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
+            items.append((layer, texture, CGRect(x: x, y: y, width: w, height: h)))
+        }
+        var face: (texture: MTLTexture, rect: CGRect)?
+        if let layer = player.windowFace, let image = player.game.image(layer.imageID), let texture = texture(layer.imageID) {
+            shown.insert(layer.imageID)
+            // The face (its expression patch's rectangle) centred in the window's left end.
+            let w = Double(image.width), h = Double(image.height)
+            if faceRects[layer.imageID] == nil {
+                faceRects[layer.imageID] = player.game.faceRect(layer.imageID).map {
+                    CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+                } ?? CGRect(x: w / 2 - 90, y: h * 0.12, width: 180, height: 150)
             }
-            ca.bounds = CGRect(x: 0, y: 0, width: w, height: h)
-            ca.position = CGPoint(x: x, y: y)
-            ca.opacity = Float(layer.alpha)
-            ca.zPosition = CGFloat(layer.order)
-            ca.compositingFilter = layer.blend == 1 ? "addBlendMode" : (layer.blend == 2 ? "screenBlendMode" : nil)
+            let r = faceRects[layer.imageID]!
+            face = (texture, CGRect(x: 215 - r.midX, y: windowRect.minY + 215 - r.midY, width: w, height: h))
         }
-        for (number, ca) in pictures where !seen.contains(number) {
-            ca.removeFromSuperlayer()
-            pictures.removeValue(forKey: number)
-            pictureImages.removeValue(forKey: number)
-        }
-        faceLayer.isHidden = !player.windowVisible || textHidden || player.message == nil
+        onScreen = shown
+        let windowShown = player.windowVisible && !textHidden && titleView == nil
+        let window = LucaRenderer.Window(visible: windowShown, mask: windowMask,
+                                         tint: SIMD4(0.04, 0.1, 0.22, 0.78), rect: windowRect,
+                                         face: windowShown && player.message != nil ? face : nil)
+        renderer.draw(layers: items, shake: player.shake, window: window, effects: LucaEffects(sepia: player.effects.sepia))
     }
 
-    /// Every quarter second, decodes what the script will show next on a background queue.
+    /// Every quarter second, decodes and uploads what the script will show next.
     private func prefetch(_ player: LucaPlayer) {
         framesSincePrefetch += 1
-        guard framesSincePrefetch >= 15, let game else { return }
+        guard framesSincePrefetch >= 15, let game, let cache = renderer?.textures else { return }
         framesSincePrefetch = 0
         prefetching.subtract(prefetched.drainDone())
-        for id in player.upcomingImages() where images[id] == nil && !prefetching.contains(id) && prefetching.count < 4 {
+        for id in player.upcomingImages() where cache.cached(id) == nil && !prefetching.contains(id) && prefetching.count < 4 {
             prefetching.insert(id)
             let store = prefetched
+            let keep = onScreen
             prefetchQueue.async {
-                let cg = game.image(id).flatMap(LucaGameViewController.cgImage)
-                store.put(id, cg)
+                if let image = game.image(id), let texture = cache.make(image) { cache.store(id, texture, keep: keep) }
+                store.finished(id)
             }
         }
     }
 
-    private func cgImage(_ id: Int, _ image: CZImage) -> CGImage? {
-        if let cached = images[id] { return cached }
-        if let ready = prefetched.take(id) {
-            prefetching.remove(id)
-            remember(id, ready)
-            return ready
-        }
-        guard let cg = Self.cgImage(image) else { return nil }
-        remember(id, cg)
-        return cg
-    }
-
-    /// Keeps a picture for the layers, the most recent up to about 300 MB.
-    private func remember(_ id: Int, _ image: CGImage) {
-        images[id] = image
-        imageOrder.removeAll { $0 == id }
-        imageOrder.append(id)
-        func size(_ id: Int) -> Int { images[id].map { $0.bytesPerRow * $0.height } ?? 0 }
-        var bytes = imageOrder.reduce(0) { $0 + size($1) }
-        guard bytes > 300 << 20 else { return }
-        let onScreen = Set(pictureImages.values)
-        // Oldest first; pictures on screen and the newest stay.
-        for old in imageOrder.dropLast() where bytes > 300 << 20 && !onScreen.contains(old) {
-            bytes -= size(old)
-            images.removeValue(forKey: old)
-            imageOrder.removeAll { $0 == old }
-        }
+    private func texture(_ id: Int) -> MTLTexture? {
+        guard let game, let cache = renderer?.textures else { return nil }
+        return cache.texture(id, game: game, keep: onScreen)
     }
 
     nonisolated static func cgImage(_ image: CZImage) -> CGImage? {
@@ -374,7 +302,6 @@ final class LucaGameViewController: UIViewController {
 
     private func syncText(_ player: LucaPlayer) {
         let visible = player.windowVisible && !textHidden && player.message != nil
-        windowLayer.isHidden = !(player.windowVisible && !textHidden)
         nameLabel.isHidden = !visible
         textLabel.isHidden = !visible
         if (player.windowFace != nil) != lastHadFace {
@@ -735,11 +662,6 @@ final class LucaGameViewController: UIViewController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.start(state: nil) }
         }
         #endif
-        // Hide the stage under the title.
-        for ca in pictures.values { ca.removeFromSuperlayer() }
-        pictures.removeAll()
-        pictureImages.removeAll()
-        windowLayer.isHidden = true
         nameLabel.isHidden = true
         textLabel.isHidden = true
         choiceStack?.removeFromSuperview()
@@ -775,13 +697,8 @@ final class LucaGameViewController: UIViewController {
     }
 
     private func thumbnail() -> Data? {
-        let size = CGSize(width: 384, height: 216)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { context in
-            context.cgContext.scaleBy(x: size.width / stageSize.width, y: size.height / stageSize.height)
-            pictureLayer.render(in: context.cgContext)
-        }
-        return image.jpegData(compressionQuality: 0.7)
+        guard let image = renderer?.snapshot(width: 384, height: 216) else { return nil }
+        return UIImage(cgImage: image).jpegData(compressionQuality: 0.7)
     }
 
     private func presentSlots(saving: Bool) {
@@ -847,18 +764,14 @@ private extension UIFont {
     }
 }
 
-/// Decoded pictures handed from the prefetch queue to the main thread.
+/// Which prefetched pictures have finished (uploaded or failed).
 final class LucaPrefetched: @unchecked Sendable {
     private let lock = NSLock()
-    private var ready: [Int: CGImage] = [:]
     private var done = Set<Int>()
 
-    func put(_ id: Int, _ image: CGImage?) {
+    func finished(_ id: Int) {
         lock.lock()
         done.insert(id)
-        guard let image else { lock.unlock(); return }
-        ready[id] = image
-        if ready.count > 6, let old = ready.keys.first(where: { $0 != id }) { ready.removeValue(forKey: old) }
         lock.unlock()
     }
 
@@ -867,12 +780,6 @@ final class LucaPrefetched: @unchecked Sendable {
         lock.lock()
         defer { done.removeAll(); lock.unlock() }
         return done
-    }
-
-    func take(_ id: Int) -> CGImage? {
-        lock.lock()
-        defer { lock.unlock() }
-        return ready.removeValue(forKey: id)
     }
 }
 
