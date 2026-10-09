@@ -1,6 +1,7 @@
 #import "RenPyRuntime.h"
 
 @import UIKit;
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #include <dlfcn.h>
@@ -277,6 +278,56 @@ static BOOL multiFingerSequence;
 /// SDL, which turns them into a click wherever the first finger was. In the game menu
 /// that can be Quit, then Yes. Any sequence that has two fingers down at once is
 /// swallowed instead; touches SDL already had are cancelled, as UIKit itself would.
+/// SDL slides its view up so the text field sits above the on-screen keyboard. Ren'Py's text
+/// rectangle isn't in the view's points, so on a landscape phone the slide pushed the whole
+/// game off screen (DDLC's name entry showed only black). Keep SDL's slide, but never more
+/// than the keyboard's height: the game's lower half stays visible just above it.
+static void LimitKeyboardSlide(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class controller = RuntimeClass("SDL_uikitviewcontroller");
+        Method method = controller ? class_getInstanceMethod(controller, @selector(updateKeyboard)) : NULL;
+        if (!method) return;
+        IMP original = method_getImplementation(method);
+        method_setImplementation(method, imp_implementationWithBlock(^(UIViewController *self) {
+            ((void (*)(id, SEL))original)(self, @selector(updateKeyboard));
+            CGFloat keyboard = 0;
+            @try {
+                keyboard = [[self valueForKey:@"keyboardHeight"] doubleValue];
+            } @catch (NSException *exception) {
+                return;
+            }
+            CGAffineTransform transform = self.view.transform;
+            const CGFloat limited = MIN(0, MAX(transform.ty, -keyboard));
+#if DEBUG
+            NSLog(@"Shiori keyboard: height %.0f, SDL slide %.0f, kept %.0f", keyboard, transform.ty, limited);
+#endif
+            if (limited != transform.ty) {
+                transform.ty = limited;
+                self.view.transform = transform;
+            }
+        }));
+    });
+}
+
+/// Asks iOS for a steady 60 Hz while a game runs. Ren'Py paces itself and presents through
+/// ANGLE without a display link, so a 120 Hz iPhone ran its screen at 48 Hz, and Ren'Py's
+/// 60 fps frames alternated between 16.7 and 20.8 ms (KiriKiri's view had the same problem).
+@interface VNHubFramePacer : NSObject
+@end
+
+@implementation VNHubFramePacer
+- (void)tick:(CADisplayLink *)link {}
+@end
+
+static void RequestSteadyFrameRate(void) {
+    static CADisplayLink *link;
+    if (link) return;
+    link = [CADisplayLink displayLinkWithTarget:[VNHubFramePacer new] selector:@selector(tick:)];
+    link.preferredFrameRateRange = CAFrameRateRangeMake(60, 60, 60);
+    [link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+
 static void FilterMultiFingerTouches(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -683,6 +734,8 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
     NSLog(@"Shiori memory: %.0f MB used, %.0f MB more available before the limit",
           FootprintMB(), os_proc_available_memory() / 1048576.0);
     WatchForFirstFrame();
+    LimitKeyboardSlide();
+    RequestSteadyFrameRate();
     FilterMultiFingerTouches();
     TraceExitsWhilePlaying();
     ShowCover();
