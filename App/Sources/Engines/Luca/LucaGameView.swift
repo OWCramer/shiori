@@ -292,16 +292,29 @@ final class LucaGameViewController: UIViewController {
         if let cached = images[id] { return cached }
         if let ready = prefetched.take(id) {
             prefetching.remove(id)
-            images[id] = ready
-            imageOrder.append(id)
-            if imageOrder.count > 40 { images.removeValue(forKey: imageOrder.removeFirst()) }
+            remember(id, ready)
             return ready
         }
         guard let cg = Self.cgImage(image) else { return nil }
-        images[id] = cg
-        imageOrder.append(id)
-        if imageOrder.count > 40 { images.removeValue(forKey: imageOrder.removeFirst()) }
+        remember(id, cg)
         return cg
+    }
+
+    /// Keeps a picture for the layers, the most recent up to about 300 MB.
+    private func remember(_ id: Int, _ image: CGImage) {
+        images[id] = image
+        imageOrder.removeAll { $0 == id }
+        imageOrder.append(id)
+        func size(_ id: Int) -> Int { images[id].map { $0.bytesPerRow * $0.height } ?? 0 }
+        var bytes = imageOrder.reduce(0) { $0 + size($1) }
+        guard bytes > 300 << 20 else { return }
+        let onScreen = Set(pictureImages.values)
+        // Oldest first; pictures on screen and the newest stay.
+        for old in imageOrder.dropLast() where bytes > 300 << 20 && !onScreen.contains(old) {
+            bytes -= size(old)
+            images.removeValue(forKey: old)
+            imageOrder.removeAll { $0 == old }
+        }
     }
 
     nonisolated static func cgImage(_ image: CZImage) -> CGImage? {
@@ -648,7 +661,7 @@ final class LucaPrefetched: @unchecked Sendable {
         done.insert(id)
         guard let image else { lock.unlock(); return }
         ready[id] = image
-        if ready.count > 12, let old = ready.keys.first(where: { $0 != id }) { ready.removeValue(forKey: old) }
+        if ready.count > 6, let old = ready.keys.first(where: { $0 != id }) { ready.removeValue(forKey: old) }
         lock.unlock()
     }
 
