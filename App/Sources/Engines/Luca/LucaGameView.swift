@@ -201,6 +201,8 @@ final class LucaGameViewController: UIViewController {
         player.tick()
         for sound in player.sounds { audio.handle(sound, game: game) }
         player.sounds.removeAll()
+        for notice in player.notices { show(notice) }
+        player.notices.removeAll()
         if player.finished {
             if let failure = player.failure { NSLog("Luca: stopped: %@", failure) }
             autosave()
@@ -451,6 +453,42 @@ final class LucaGameViewController: UIViewController {
             } else {
                 lineDoneAt = now
             }
+        }
+    }
+
+    // MARK: Notices
+
+    /// The day's date large in the middle, or an "Acquired" card at the top, fading out.
+    private func show(_ notice: LucaNotice) {
+        let label = PaddedLabel()
+        label.textColor = .white
+        label.textAlignment = .center
+        label.layer.shadowColor = UIColor.black.cgColor
+        label.layer.shadowOpacity = 0.9
+        label.layer.shadowRadius = 4
+        label.layer.shadowOffset = .zero
+        switch notice {
+        case .date(let day):
+            label.text = day
+            label.font = UIFont.systemFont(ofSize: 44, weight: .light).withDesign(.serif)
+            label.sizeToFit()
+            label.center = CGPoint(x: overlay.bounds.midX, y: overlay.bounds.height * 0.4)
+        case .acquired(let text):
+            label.text = text
+            label.font = .systemFont(ofSize: 17, weight: .semibold)
+            label.backgroundColor = UIColor(red: 0.05, green: 0.16, blue: 0.34, alpha: 0.85)
+            label.layer.cornerRadius = 14
+            label.clipsToBounds = true
+            label.numberOfLines = 2
+            let size = label.sizeThatFits(CGSize(width: overlay.bounds.width * 0.7, height: 100))
+            label.bounds = CGRect(origin: .zero, size: size)
+            label.center = CGPoint(x: overlay.bounds.midX, y: 20 + size.height / 2)
+        }
+        label.alpha = 0
+        overlay.addSubview(label)
+        UIView.animate(withDuration: 0.4) { label.alpha = 1 }
+        UIView.animate(withDuration: 0.6, delay: 2.4, options: []) { label.alpha = 0 } completion: { _ in
+            label.removeFromSuperview()
         }
     }
 
@@ -706,6 +744,23 @@ final class LucaGameViewController: UIViewController {
     static let mapImageID = 25_133
     /// BGM01 in MUSIC.PAK.
     static let titleMusicID = 100_001
+}
+
+private final class PaddedLabel: UILabel {
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: backgroundColor == nil ? rect : rect.insetBy(dx: 16, dy: 8))
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let fit = super.sizeThatFits(size)
+        return backgroundColor == nil ? fit : CGSize(width: fit.width + 32, height: fit.height + 16)
+    }
+}
+
+private extension UIFont {
+    func withDesign(_ design: UIFontDescriptor.SystemDesign) -> UIFont {
+        fontDescriptor.withDesign(design).map { UIFont(descriptor: $0, size: pointSize) } ?? self
+    }
 }
 
 /// Decoded pictures handed from the prefetch queue to the main thread.
