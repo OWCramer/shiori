@@ -532,6 +532,10 @@ final class LucaGameViewController: UIViewController {
         for (index, choice) in choices.enumerated() {
             var config = UIButton.Configuration.filled()
             config.title = choice
+            if player.choiceDetails.indices.contains(index), let detail = player.choiceDetails[index] {
+                config.subtitle = detail
+                config.titleAlignment = .center
+            }
             config.baseBackgroundColor = UIColor(red: 0.05, green: 0.16, blue: 0.34, alpha: 0.88)
             config.baseForegroundColor = .white
             config.cornerStyle = .capsule
