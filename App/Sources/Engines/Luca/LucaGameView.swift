@@ -48,9 +48,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private let textMask = CAShapeLayer()
     private var typeset: LucaTypeset?
     private var composedKey: String?
-    private var messageFonts: (face: String, fonts: [LucaFont])?
-    /// Size 40 has every character; size 37 (the window's) lacks a few rare ones.
-    private var fallbackFont: (face: String, font: LucaFont)?
+    /// Loaded font sizes by "FACE size" (nil: the game has no such size).
+    private var loadedFonts: [String: (main: LucaFont, patch: LucaFont?)?] = [:]
     private var shownMessage: LucaMessage?
     private var lastHadFace = false
     private var faceRects: [Int: CGRect] = [:]
@@ -84,7 +83,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var lineDoneAt: CFTimeInterval?
     #if DEBUG
     /// `-VNHubLucaAuto N`: reads on through N lines by itself (first choice picked), and
-    /// `-VNHubLucaNewGame YES` starts a new game from the title, for unattended runs.
+    /// `-VNHubLucaNewGame YES` starts a new game from the title, for unattended runs;
+    /// `-VNHubLucaAutoStopAtChoice YES` stops at the first choice instead.
     private var autoLines = UserDefaults.standard.integer(forKey: "VNHubLucaAuto")
     #endif
 
@@ -276,7 +276,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         advanceByMode(player)
         #if DEBUG
         if autoLines > 0, player.transition == nil {
-            if player.choices != nil {
+            if player.choices != nil, UserDefaults.standard.bool(forKey: "VNHubLucaAutoStopAtChoice") {
+                autoLines = 0
+            } else if player.choices != nil {
                 player.choose(0)
             } else if player.isWaitingForClick {
                 autoLines -= 1
@@ -488,24 +490,33 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private static let outline: (UInt8, UInt8, UInt8) = (20, 50, 60)
     private var textLeft: CGFloat { player?.windowFace != nil ? 474 : 396 }
 
-    /// The fonts for `text` in the chosen face: size 37 and its patch, and size 40 when the
-    /// text has a character size 37 lacks.
-    private func fonts(for text: String) -> [LucaFont] {
-        guard let game else { return [] }
+    private func loadFont(_ face: String, _ size: Int) -> (main: LucaFont, patch: LucaFont?)? {
+        let key = "\(face) \(size)"
+        if let loaded = loadedFonts[key] { return loaded }
+        let loaded = game?.font(face: face, size: size)
+        loadedFonts[key] = loaded
+        return loaded
+    }
+
+    /// The fonts for `text` in the chosen face at `size`: that size and its patch, and size 40
+    /// (which has every character) when the text has one that size lacks.
+    private func fonts(for text: String, size: Int = textSize) -> [LucaFont] {
         let face = settings.font
-        if messageFonts?.face != face {
-            let loaded = game.font(face: face, size: Self.textSize) ?? game.font(face: "GOTHIC1", size: Self.textSize)
-            messageFonts = (face, loaded.map { [$0.main] + ($0.patch.map { [$0] } ?? []) } ?? [])
-        }
-        var fonts = messageFonts?.fonts ?? []
+        guard let loaded = loadFont(face, size) ?? loadFont("GOTHIC1", size) else { return [] }
+        var fonts = [loaded.main] + (loaded.patch.map { [$0] } ?? [])
         let missing = text.unicodeScalars.contains { scalar in
             scalar.value > 32 && scalar.value != 0x3000 && !fonts.contains { $0.glyph(scalar) != nil }
         }
-        if missing {
-            if fallbackFont?.face != face, let font = game.font(face: face, size: 40)?.main { fallbackFont = (face, font) }
-            if let fallback = fallbackFont?.font { fonts.append(fallback) }
-        }
+        if missing, size != 40, let fallback = loadFont(face, 40)?.main { fonts.append(fallback) }
         return fonts
+    }
+
+    /// `text` in the game's font, wrapped at `width` stage pixels: the picture (in stage pixels)
+    /// and its typeset.
+    func gameText(_ text: String, size: Int = textSize, width: Int, fill: UIColor = .white) -> (image: UIImage, set: LucaTypeset)? {
+        let set = LucaTypeset(text, fonts: fonts(for: text, size: size), width: width, lineHeight: size * 3 / 2)
+        guard !set.placed.isEmpty, let image = textImage(set, fill: fill) else { return nil }
+        return (image, set)
     }
 
     private func textImage(_ set: LucaTypeset, fill: UIColor) -> UIImage? {
@@ -513,8 +524,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         fill.getRed(&r, green: &g, blue: &b, alpha: &a)
         let pixels = set.render(fill: (UInt8(r * 255), UInt8(g * 255), UInt8(b * 255)), outline: Self.outline, outlineWidth: 2)
         guard let provider = CGDataProvider(data: Data(pixels) as CFData),
-              let image = CGImage(width: set.width, height: set.height, bitsPerComponent: 8, bitsPerPixel: 32,
-                                  bytesPerRow: set.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+              let image = CGImage(width: set.usedWidth, height: set.height, bitsPerComponent: 8, bitsPerPixel: 32,
+                                  bytesPerRow: set.usedWidth * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
                                   provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
         else { return nil }
@@ -543,12 +554,12 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             typeset = set
             textView.image = textImage(set, fill: colour)
             let top = CGFloat(855 - (Self.lineHeight - Self.textSize - 1) / 2)
-            textView.frame = CGRect(x: left * s, y: top * s, width: CGFloat(set.width) * s, height: CGFloat(set.height) * s)
+            textView.frame = CGRect(x: left * s, y: top * s, width: CGFloat(set.usedWidth) * s, height: CGFloat(set.height) * s)
             textMask.frame = textView.bounds
             if let speaker = message.speaker, !speaker.isEmpty {
                 let name = LucaTypeset(speaker, fonts: fonts(for: speaker), width: 900, lineHeight: Self.lineHeight)
                 nameView.image = textImage(name, fill: .white)
-                nameView.frame = CGRect(x: left * s, y: (top - 64) * s, width: CGFloat(name.width) * s, height: CGFloat(name.height) * s)
+                nameView.frame = CGRect(x: left * s, y: (top - 64) * s, width: CGFloat(name.usedWidth) * s, height: CGFloat(name.height) * s)
             } else {
                 nameView.image = nil
             }
@@ -751,8 +762,11 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         }
         for (index, choice) in choices.enumerated() {
             let detail = player.choiceDetails.indices.contains(index) ? player.choiceDetails[index] : nil
-            let banner = LucaChoiceBanner(images: choiceImages, title: choice, detail: detail, scale: stageScale,
-                                          compact: compact) { [weak self] in self?.player?.choose(index) }
+            // The choice in the game's font; a map place's first line smaller below it.
+            let lines = [gameText(choice, width: 1100)?.image,
+                         detail.flatMap { $0.isEmpty ? nil : gameText($0, size: 28, width: 1100, fill: UIColor(white: 1, alpha: 0.92))?.image }]
+            let banner = LucaChoiceBanner(images: choiceImages, title: choice, detail: detail, rendered: lines.compactMap { $0 },
+                                          scale: stageScale, compact: compact) { [weak self] in self?.player?.choose(index) }
             stack.addArrangedSubview(banner)
         }
         overlay.addSubview(stack)
@@ -844,7 +858,12 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
               systemMenu == nil, let player, let game else { return }
         readMode = .normal
         audio.playSystem("TOGGLE", game: game)
-        let log = LucaMessageLog(game: game, lines: player.backlog, onVoice: { [weak self] line in
+        let log = LucaMessageLog(game: game, lines: player.backlog, typeset: { [weak self] text, width, fill in
+            guard let self else { return nil }
+            let set = LucaTypeset(text, fonts: self.fonts(for: text), width: width, lineHeight: Self.lineHeight)
+            guard !set.placed.isEmpty else { return nil }
+            return (CGSize(width: set.usedWidth, height: set.height), { [weak self] in self?.textImage(set, fill: fill) })
+        }, onVoice: { [weak self] line in
             guard let self, let game = self.game else { return }
             self.audio.replayVoice(line.voice, level: Float(self.settings.voiceLevel(for: line.speaker)), game: game)
         }, onClose: { [weak self] in
@@ -1131,7 +1150,10 @@ private final class LucaChoiceBanner: UIControl {
     private let images: [CGImage]
     private let action: () -> Void
 
-    init(images: [CGImage], title: String, detail: String?, scale: CGFloat, compact: Bool, action: @escaping () -> Void) {
+    /// `rendered`: the title (and detail) already drawn in the game's font, in stage pixels;
+    /// without them the system font draws `title` and `detail`.
+    init(images: [CGImage], title: String, detail: String?, rendered: [UIImage] = [], scale: CGFloat, compact: Bool,
+         action: @escaping () -> Void) {
         self.images = images
         self.action = action
         super.init(frame: .zero)
@@ -1142,6 +1164,39 @@ private final class LucaChoiceBanner: UIControl {
             background.layer.cornerRadius = 8
         }
         addSubview(background)
+        background.translatesAutoresizingMaskIntoConstraints = false
+        let height = (compact ? 112 : 148) * scale
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: height),
+            background.leadingAnchor.constraint(equalTo: leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            background.centerYAnchor.constraint(equalTo: centerYAnchor),
+            background.heightAnchor.constraint(equalToConstant: 225 * scale),
+        ])
+        addAction(UIAction { [weak self] _ in self?.action() }, for: .touchUpInside)
+        if !rendered.isEmpty {
+            let column = UIStackView(arrangedSubviews: rendered.map { image in
+                let view = UIImageView(image: image)
+                view.layer.minificationFilter = .trilinear
+                view.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    view.widthAnchor.constraint(equalToConstant: image.size.width * scale),
+                    view.heightAnchor.constraint(equalToConstant: image.size.height * scale),
+                ])
+                return view
+            })
+            column.axis = .vertical
+            column.alignment = .center
+            column.spacing = -8 * scale
+            column.isUserInteractionEnabled = false
+            column.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(column)
+            NSLayoutConstraint.activate([
+                column.centerXAnchor.constraint(equalTo: centerXAnchor),
+                column.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+            return
+        }
         let label = UILabel()
         let text = NSMutableAttributedString(string: title, attributes: [
             .font: UIFont.systemFont(ofSize: max(13, 46 * scale), weight: .medium), .foregroundColor: UIColor.white,
@@ -1160,21 +1215,13 @@ private final class LucaChoiceBanner: UIControl {
         label.textAlignment = .center
         label.lineBreakMode = .byTruncatingTail
         addSubview(label)
-        background.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         // A banner row is 225 px with its glow; compact lists overlap the glows.
-        let height = (compact ? 112 : 148) * scale
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: height),
-            background.leadingAnchor.constraint(equalTo: leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.centerYAnchor.constraint(equalTo: centerYAnchor),
-            background.heightAnchor.constraint(equalToConstant: 225 * scale),
             label.centerXAnchor.constraint(equalTo: centerXAnchor),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.7),
         ])
-        addAction(UIAction { [weak self] _ in self?.action() }, for: .touchUpInside)
     }
 
     @available(*, unavailable)

@@ -19,8 +19,17 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
     private var closing = false
 
     private static let trackTop: CGFloat = 70, trackBottom: CGFloat = 1010
+    private static let nameColour = UIColor(red: 1, green: 0.92, blue: 0.62, alpha: 1)
 
-    init(game: LucaGame, lines: [LucaMessage], onVoice: @escaping (LucaMessage) -> Void, onClose: @escaping () -> Void) {
+    /// Lays text out in the game's font: its size in stage pixels, and a way to draw it (nil
+    /// falls back to the system font). Lines are drawn only as they scroll into view.
+    typealias Typesetter = (_ text: String, _ width: Int, _ fill: UIColor) -> (size: CGSize, draw: () -> UIImage?)?
+    private let typeset: Typesetter?
+    private var undrawn: [(view: UIImageView, draw: () -> UIImage?)] = []
+
+    init(game: LucaGame, lines: [LucaMessage], typeset: Typesetter? = nil, onVoice: @escaping (LucaMessage) -> Void,
+         onClose: @escaping () -> Void) {
+        self.typeset = typeset
         self.onClose = onClose
         self.onVoice = onVoice
         super.init(frame: .zero)
@@ -79,6 +88,7 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
         layoutIfNeeded()
         scroll.contentOffset.y = max(0, scroll.contentSize.height - scroll.bounds.height)
         moveThumb()
+        drawVisible()
     }
 
     private func layOut(_ lines: [LucaMessage], game: LucaGame) {
@@ -99,11 +109,27 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
                 }, for: .touchUpInside)
                 scroll.addSubview(button)
             }
+            if let typeset {
+                if let speaker = line.speaker, let name = typeset(speaker, Int(textWidth), Self.nameColour) {
+                    let view = UIImageView(frame: CGRect(x: 290, y: y - 6, width: name.size.width, height: name.size.height))
+                    scroll.addSubview(view)
+                    undrawn.append((view, name.draw))
+                    y += 50
+                }
+                if let text = typeset(line.text, Int(textWidth), .white) {
+                    let view = UIImageView(frame: CGRect(x: 290, y: y - 6, width: text.size.width, height: text.size.height))
+                    scroll.addSubview(view)
+                    undrawn.append((view, text.draw))
+                    y += text.size.height + 30
+                }
+                rows.append((top - 10, y - 30))
+                continue
+            }
             if let speaker = line.speaker {
                 let name = UILabel(frame: CGRect(x: 290, y: y, width: textWidth, height: 44))
                 name.text = speaker
                 name.font = nameFont
-                name.textColor = UIColor(red: 1, green: 0.92, blue: 0.62, alpha: 1)
+                name.textColor = Self.nameColour
                 Self.shade(name)
                 scroll.addSubview(name)
                 y += 46
@@ -136,7 +162,21 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
         thumb.frame.origin.y = Self.trackTop + t * (Self.trackBottom - Self.trackTop - thumb.frame.height)
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { moveThumb() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        moveThumb()
+        drawVisible()
+    }
+
+    /// Draws the lines on screen and a screen's height around them.
+    private func drawVisible() {
+        guard !undrawn.isEmpty else { return }
+        let near = scroll.bounds.insetBy(dx: 0, dy: -scroll.bounds.height)
+        undrawn.removeAll { item in
+            guard item.view.frame.intersects(near) else { return false }
+            item.view.image = item.draw()
+            return true
+        }
+    }
 
     /// Pulling up past the newest line closes the log, as the wheel does on PC.
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
