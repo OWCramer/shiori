@@ -61,6 +61,31 @@ final class LucaAudio {
         }
     }
 
+    private var movieNode: AVAudioPlayerNode?
+    private var movieStart: CFTimeInterval?
+
+    /// A movie's soundtrack; `movieTime` follows it.
+    func playMovie(_ buffer: AVAudioPCMBuffer) {
+        stopMovie()
+        movieNode = play(buffer, loop: false, volume: 1, fadeFrames: 0)
+        movieStart = CACurrentMediaTime()
+    }
+
+    func stopMovie() {
+        if let movieNode { detach(movieNode) }
+        movieNode = nil
+        movieStart = nil
+    }
+
+    /// Seconds into the movie's soundtrack.
+    var movieTime: Double? {
+        guard let node = movieNode, let nodeTime = node.lastRenderTime, let playerTime = node.playerTime(forNodeTime: nodeTime)
+        else { return movieStart.map { CACurrentMediaTime() - $0 } }
+        return Double(playerTime.sampleTime) / playerTime.sampleRate
+    }
+
+    nonisolated static func movieBuffer(_ ogg: Data) -> AVAudioPCMBuffer? { buffer(ogg) }
+
     /// Advances fades; call every frame.
     func tick() {
         let now = CACurrentMediaTime()
@@ -116,7 +141,7 @@ final class LucaAudio {
         if node.engine != nil { engine.detach(node) }
     }
 
-    private static func buffer(_ data: Data) -> AVAudioPCMBuffer? {
+    nonisolated private static func buffer(_ data: Data) -> AVAudioPCMBuffer? {
         guard let pcm = decodeOggVorbis(data), pcm.channels > 0, pcm.frameCount > 0,
               let format = AVAudioFormat(standardFormatWithSampleRate: Double(pcm.sampleRate), channels: AVAudioChannelCount(pcm.channels)),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(pcm.frameCount))

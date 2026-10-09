@@ -16,6 +16,7 @@ final class LucaRenderer {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private var pipelines: [Int: MTLRenderPipelineState] = [:]
+    private var videoPipeline: MTLRenderPipelineState?
     private let sampler: MTLSamplerState
     let textures: LucaTextureCache
 
@@ -48,6 +49,7 @@ final class LucaRenderer {
             for blend in 0...2 {
                 pipelines[blend] = try Self.pipeline(device: device, library: library, blend: blend)
             }
+            videoPipeline = try Self.pipeline(device: device, library: library, blend: 0, fragment: "luca_video_fragment")
         } catch {
             NSLog("Luca: Metal shaders failed: %@", String(describing: error))
             return nil
@@ -171,6 +173,36 @@ final class LucaRenderer {
                        provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
+    /// A movie frame, letterboxed full screen, instead of the stage.
+    func drawMovie(_ frame: LucaVideoDecoder.Frame?) {
+        guard let drawable = layer.nextDrawable(), let buffer = queue.makeCommandBuffer() else { return }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = drawable.texture
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        pass.colorAttachments[0].storeAction = .store
+        if let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) {
+            if let frame, let pipeline = videoPipeline {
+                encoder.setRenderPipelineState(pipeline)
+                encoder.setFragmentSamplerState(sampler, index: 0)
+                var u = Uniforms(rect: SIMD4(0, 0, 1920, 1080), stage: Self.stageSize, alpha: 1,
+                                 mode: (frame.bt709 ? 1 : 0) | (frame.fullRange ? 2 : 0), tint: .zero, fade: .zero,
+                                 sepia: 0, tone: .zero, addColor: .zero)
+                encoder.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
+                encoder.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
+                encoder.setFragmentTexture(frame.y, index: 0)
+                encoder.setFragmentTexture(frame.u, index: 1)
+                encoder.setFragmentTexture(frame.v, index: 2)
+                encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+            }
+            encoder.endEncoding()
+        }
+        buffer.present(drawable)
+        buffer.commit()
+    }
+
+    var metalDevice: MTLDevice { device }
+
     // MARK: Drawing
 
     private struct Uniforms {
@@ -205,10 +237,11 @@ final class LucaRenderer {
         return device.makeTexture(descriptor: descriptor)
     }
 
-    private static func pipeline(device: MTLDevice, library: MTLLibrary, blend: Int) throws -> MTLRenderPipelineState {
+    private static func pipeline(device: MTLDevice, library: MTLLibrary, blend: Int,
+                                 fragment: String = "luca_fragment") throws -> MTLRenderPipelineState {
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = library.makeFunction(name: "luca_vertex")
-        descriptor.fragmentFunction = library.makeFunction(name: "luca_fragment")
+        descriptor.fragmentFunction = library.makeFunction(name: fragment)
         let color = descriptor.colorAttachments[0]!
         color.pixelFormat = .bgra8Unorm
         color.isBlendingEnabled = true
@@ -270,6 +303,29 @@ final class LucaRenderer {
         float a = u.alpha;
         if (u.mode == 2) a *= 1 - smoothstep(u.fade.x, u.fade.y, in.stagePos.x);
         return c * a;
+    }
+
+    // YUV 4:2:0 planes. mode bit 0: BT.709 (else BT.601); bit 1: full range (else studio).
+    // bit 2: alpha packed below the picture (the top half is colour, the bottom half alpha).
+    fragment float4 luca_video_fragment(VOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
+                                        texture2d<float> ty [[texture(0)]], texture2d<float> tu [[texture(1)]],
+                                        texture2d<float> tv [[texture(2)]], sampler s [[sampler(0)]]) {
+        bool packed = (u.mode & 4) != 0;
+        float2 uv = in.uv;
+        if (packed) uv.y *= 0.5;
+        float y = ty.sample(s, uv).r, cb = tu.sample(s, uv).r - 0.5, cr = tv.sample(s, uv).r - 0.5;
+        if ((u.mode & 2) == 0) { y = (y - 16.0 / 255.0) * (255.0 / 219.0); cb *= 255.0 / 224.0; cr *= 255.0 / 224.0; }
+        float3 rgb = (u.mode & 1) != 0
+            ? float3(y + 1.5748 * cr, y - 0.1873 * cb - 0.4681 * cr, y + 1.8556 * cb)
+            : float3(y + 1.402 * cr, y - 0.344136 * cb - 0.714136 * cr, y + 1.772 * cb);
+        rgb = clamp(rgb, 0.0, 1.0);
+        float a = u.alpha;
+        if (packed) {
+            float m = ty.sample(s, float2(in.uv.x, 0.5 + in.uv.y * 0.5)).r;
+            if ((u.mode & 2) == 0) m = (m - 16.0 / 255.0) * (255.0 / 219.0);
+            a *= clamp(m, 0.0, 1.0);
+        }
+        return float4(rgb * a, a);
     }
     """
 }

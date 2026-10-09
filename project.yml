@@ -104,6 +104,10 @@ targets:
       # (Scripts/siglus/build-ios-framework.sh). Exports only the engine's C interface.
       - framework: Vendor/ShioriSiglus.xcframework
         embed: true
+      # libvpx's VP9 decoder, static (Scripts/luca/build-ios-vpx.sh): Luca System movies and
+      # animated effects are VP9 WebM.
+      - framework: Vendor/ShioriVPX.xcframework
+        embed: false
       # Ren'Py runtimes from Scripts/build-renpy-runtimes.sh, loaded with dlopen when a game
       # starts (each carries its own CPython and SDL2, so they can't both be linked).
       - framework: Vendor/RenPy8.xcframework
