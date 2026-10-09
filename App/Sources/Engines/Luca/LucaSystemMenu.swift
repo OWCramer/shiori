@@ -88,12 +88,18 @@ final class LucaIconButton: UIControl {
         imageView.frame = bounds
     }
 
+    private var tinted = false
+
     override var isHighlighted: Bool {
-        didSet { imageView.image = isHighlighted ? (lit ?? plain) : plain }
+        didSet {
+            let image = isHighlighted ? (lit ?? plain) : plain
+            imageView.image = tinted ? image?.withRenderingMode(.alwaysTemplate) : image
+        }
     }
 
-    /// Draws the picture in one colour (its alpha as the shape).
+    /// Draws the picture in one colour (its alpha as the shape), pressed or not.
     func tint(_ color: UIColor) {
+        tinted = true
         imageView.image = imageView.image?.withRenderingMode(.alwaysTemplate)
         imageView.tintColor = color
     }

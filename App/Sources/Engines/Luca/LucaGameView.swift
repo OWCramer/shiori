@@ -64,6 +64,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     /// Whether the line on screen had been read before (on any playthrough).
     private var lineWasRead = false
     private var lineHasVoice = false
+    /// Lines passed since Skip was turned on.
+    private var linesSkipped = 0
     private var revealCarry = 0.0
     private var windowBar: LucaWindowBar?
     /// Auto reads on a moment after each line (and its voice) finishes; Skip races to the
@@ -467,9 +469,14 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             if player.choices != nil {
                 readMode = .normal
             } else if player.isWaitingForClick, settings.skipReadOnly, !lineWasRead {
-                // Skip stops at the first line not read before.
+                // Skip stops at the first line not read before; said so when it couldn't
+                // skip anything at all.
                 readMode = .normal
+                if linesSkipped == 0 {
+                    show(.acquired("Skip passes lines you've already read. To skip new lines too, choose All under OPTIONS › Basic › Skip."))
+                }
             } else if player.isWaitingForClick {
+                linesSkipped += 1
                 revealed = revealTarget
                 renderText()
                 player.finishAnimations()
@@ -862,6 +869,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             showMenu()
         case .skip:
             readMode = readMode == .skip ? .normal : .skip
+            linesSkipped = 0
             audio.playSystem("TOGGLE", game: game)
         case .auto:
             readMode = readMode == .auto ? .normal : .auto
