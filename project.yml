@@ -30,7 +30,12 @@ targets:
     sources:
       - App/Sources
       - path: App/Resources
-        excludes: ["KiriKiriSchemes/**"]
+        excludes: ["KiriKiriSchemes/**", "SiglusFonts/**"]
+      # BIZ UDGothic (SIL OFL), metric-compatible with MS Gothic, for Siglus games that ask
+      # for the Windows font (SiglusRuntime links it in as the game's font/ folder).
+      - path: App/Resources/SiglusFonts
+        type: folder
+        buildPhase: resources
       # CxDec schemes for KiriKiri titles, by Steam app id (Scripts/kirikiri/garbro-cx.py).
       - path: App/Resources/KiriKiriSchemes
         type: folder

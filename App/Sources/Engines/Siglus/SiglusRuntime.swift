@@ -41,6 +41,13 @@ enum SiglusRuntime {
         try overlay(base: base, patch: fileManager.fileExists(atPath: patch.path) ? patch : nil, into: root,
                     skipping: engineFiles.union(["savedata"]))
         try fileManager.createSymbolicLink(at: root.appendingPathComponent("savedata"), withDestinationURL: saves)
+        // Games ask for MS Gothic, a Windows font, and lay text out in its fixed half-width
+        // cells; siglus_rs falls back to a proportional font that leaves gaps between narrow
+        // letters. BIZ UDGothic is made to stand in for it. The engine looks in font/ first.
+        if !baseNames.contains(where: { ["font", "fonts"].contains($0.lowercased()) }),
+           let fonts = Bundle.main.url(forResource: "SiglusFonts", withExtension: nil) {
+            try fileManager.createSymbolicLink(at: root.appendingPathComponent("font"), withDestinationURL: fonts)
+        }
         // Multilingual Steam builds name their scripts and settings by language, and their
         // launcher picks one; the engine reads Scene.pck and Gameexe.dat.
         // The game asks the engine which language it runs in (SYSTEM.GET_LANGUAGE) and picks

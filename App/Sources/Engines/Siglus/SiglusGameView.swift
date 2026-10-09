@@ -31,6 +31,20 @@ final class SiglusGameViewController: UIViewController {
     /// together, and the engine reads the button once a step.
     private var stepsSincePress = 0
     private var heldRelease: (phase: Int32, point: CGPoint)?
+    #if DEBUG
+    /// `-VNHubSiglusTaps "seconds:x,y ..."`: clicks in the game's logical pixels at times since
+    /// the engine started (`seconds:rclick` for a right-click), for unattended simulator runs.
+    private lazy var scriptedTaps: [(at: Double, x: Double, y: Double, right: Bool)] =
+        (UserDefaults.standard.string(forKey: "VNHubSiglusTaps") ?? "").split(separator: " ").compactMap { item in
+            let parts = item.split(separator: ":")
+            guard parts.count == 2, let at = Double(parts[0]) else { return nil }
+            if parts[1] == "rclick" { return (at, 0, 0, true) }
+            let xy = parts[1].split(separator: ",").compactMap { Double($0) }
+            return xy.count == 2 ? (at, xy[0], xy[1], false) : nil
+        }
+    private var engineStart: CFTimeInterval = 0
+    private var scriptedRelease: (x: Double, y: Double)?
+    #endif
 
     init(gameFolder: URL, onFirstFrame: @escaping () -> Void = {}, onExit: @escaping () -> Void) {
         self.gameFolder = gameFolder
@@ -166,6 +180,9 @@ final class SiglusGameViewController: UIViewController {
         }
         steps += 1
         stepsSincePress += 1
+        #if DEBUG
+        runScriptedTaps(handle)
+        #endif
         if let release = heldRelease {
             heldRelease = nil
             send(phase: release.phase, at: release.point)
@@ -175,6 +192,26 @@ final class SiglusGameViewController: UIViewController {
             lift()
         }
     }
+
+    #if DEBUG
+    private func runScriptedTaps(_ handle: UnsafeMutableRawPointer) {
+        if engineStart == 0 { engineStart = CACurrentMediaTime() }
+        if let release = scriptedRelease {
+            scriptedRelease = nil
+            siglus_ios_touch(handle, 2, release.x, release.y)
+        }
+        let elapsed = CACurrentMediaTime() - engineStart
+        guard let next = scriptedTaps.first, elapsed >= next.at else { return }
+        scriptedTaps.removeFirst()
+        if next.right {
+            siglus_ios_mouse_button(handle, 1, 1)
+            siglus_ios_mouse_button(handle, 1, 0)
+        } else {
+            siglus_ios_touch(handle, 0, next.x, next.y)
+            scriptedRelease = (next.x, next.y)
+        }
+    }
+    #endif
 
     // MARK: Touch
 
