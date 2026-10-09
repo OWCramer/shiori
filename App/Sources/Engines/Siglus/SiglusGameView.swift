@@ -31,16 +31,21 @@ final class SiglusGameViewController: UIViewController {
     /// together, and the engine reads the button once a step.
     private var stepsSincePress = 0
     private var heldRelease: (phase: Int32, point: CGPoint)?
+    /// A right button pressed this step, released after the next one (the engine reads the
+    /// button once a step, so a press and release in one step is no click).
+    private var rightButtonDown = false
     #if DEBUG
     /// `-VNHubSiglusTaps "seconds:x,y ..."`: clicks in the game's logical pixels at times since
-    /// the engine started (`seconds:rclick` for a right-click), for unattended simulator runs.
-    private lazy var scriptedTaps: [(at: Double, x: Double, y: Double, right: Bool)] =
+    /// the engine started (`seconds:rclick` for a right-click, `seconds:wheel±n` for wheel steps),
+    /// for unattended simulator runs.
+    private lazy var scriptedTaps: [(at: Double, x: Double, y: Double, right: Bool, wheel: Int32)] =
         (UserDefaults.standard.string(forKey: "VNHubSiglusTaps") ?? "").split(separator: " ").compactMap { item in
             let parts = item.split(separator: ":")
             guard parts.count == 2, let at = Double(parts[0]) else { return nil }
-            if parts[1] == "rclick" { return (at, 0, 0, true) }
+            if parts[1] == "rclick" { return (at, 0, 0, true, 0) }
+            if parts[1].hasPrefix("wheel"), let steps = Int32(parts[1].dropFirst(5)) { return (at, 0, 0, false, steps) }
             let xy = parts[1].split(separator: ",").compactMap { Double($0) }
-            return xy.count == 2 ? (at, xy[0], xy[1], false) : nil
+            return xy.count == 2 ? (at, xy[0], xy[1], false, 0) : nil
         }
     private var engineStart: CFTimeInterval = 0
     private var scriptedRelease: (x: Double, y: Double)?
@@ -187,6 +192,10 @@ final class SiglusGameViewController: UIViewController {
             heldRelease = nil
             send(phase: release.phase, at: release.point)
         }
+        if rightButtonDown {
+            rightButtonDown = false
+            siglus_ios_mouse_button(handle, 1, 0)
+        }
         if steps == 3, let lift = onFirstFrame {
             onFirstFrame = nil
             lift()
@@ -204,8 +213,9 @@ final class SiglusGameViewController: UIViewController {
         guard let next = scriptedTaps.first, elapsed >= next.at else { return }
         scriptedTaps.removeFirst()
         if next.right {
-            siglus_ios_mouse_button(handle, 1, 1)
-            siglus_ios_mouse_button(handle, 1, 0)
+            pressRightButton(handle)
+        } else if next.wheel != 0 {
+            siglus_ios_mouse_wheel(handle, next.wheel)
         } else {
             siglus_ios_touch(handle, 0, next.x, next.y)
             scriptedRelease = (next.x, next.y)
@@ -214,6 +224,12 @@ final class SiglusGameViewController: UIViewController {
     #endif
 
     // MARK: Touch
+
+    private func pressRightButton(_ handle: UnsafeMutableRawPointer) {
+        guard !rightButtonDown else { return }
+        siglus_ios_mouse_button(handle, 1, 1)
+        rightButtonDown = true
+    }
 
     private func send(phase: Int32, at point: CGPoint) {
         guard let handle, gameRect.width > 0 else { return }
@@ -258,8 +274,7 @@ final class SiglusGameViewController: UIViewController {
     @objc private func rightClick(_ recognizer: UITapGestureRecognizer) {
         guard let handle else { return }
         send(phase: 1, at: recognizer.location(in: view))
-        siglus_ios_mouse_button(handle, 1, 1)
-        siglus_ios_mouse_button(handle, 1, 0)
+        pressRightButton(handle)
     }
 
     @objc private func scrollBack(_ recognizer: UISwipeGestureRecognizer) {
@@ -348,8 +363,7 @@ final class SiglusGameViewController: UIViewController {
             siglus_ios_key(handle, code, down ? 1 : 0)
         case .rightClick:
             guard down else { return }
-            siglus_ios_mouse_button(handle, 1, 1)
-            siglus_ios_mouse_button(handle, 1, 0)
+            pressRightButton(handle)
         case .wheelUp:
             guard down else { return }
             siglus_ios_mouse_wheel(handle, 1)
