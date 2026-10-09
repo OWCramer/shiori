@@ -1,6 +1,7 @@
 #import "RenPyRuntime.h"
 
 @import UIKit;
+#import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -534,6 +535,14 @@ static BOOL FrameHasContent(UIView *view) {
 }
 
 #if DEBUG
+/// What the GPU device has allocated in this process: ANGLE (Ren'Py's OpenGL ES) draws
+/// through the system default Metal device.
+static double MetalAllocatedMB(void) {
+    static id<MTLDevice> device;
+    if (!device) device = MTLCreateSystemDefaultDevice();
+    return device.currentAllocatedSize / 1048576.0;
+}
+
 /// Debug builds: frame timing every 5 seconds to <cache>/perf.txt, like KiriKiri's, so a
 /// device run can be pulled and read. "interval" is swap to swap; "swap" is the time spent
 /// presenting (GPU and display wait), the rest of each interval is Ren'Py's own work.
@@ -571,11 +580,11 @@ static void RecordFramePerf(double interval, double swap) {
         if (file) {
             NSString *time = [NSDateFormatter localizedStringFromDate:NSDate.date dateStyle:NSDateFormatterNoStyle
                                                             timeStyle:NSDateFormatterMediumStyle];
-            fprintf(file, "%s interval avg %.1f p50 %.1f p95 %.1f max %.1f >17.5ms %d | swap avg %.1f p50 %.1f p95 %.1f max %.1f | frames %d | %.0f MB\n",
+            fprintf(file, "%s interval avg %.1f p50 %.1f p95 %.1f max %.1f >17.5ms %d | swap avg %.1f p50 %.1f p95 %.1f max %.1f | frames %d | %.0f MB, Metal %.0f MB\n",
                     time.UTF8String, intervalSum / count, sortedIntervals[count / 2],
                     sortedIntervals[(int)(count * 0.95)], sortedIntervals[count - 1], slow,
                     swapSum / count, sortedSwaps[count / 2], sortedSwaps[(int)(count * 0.95)],
-                    sortedSwaps[count - 1], count, FootprintMB());
+                    sortedSwaps[count - 1], count, FootprintMB(), MetalAllocatedMB());
             fclose(file);
         }
     }

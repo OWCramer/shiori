@@ -248,9 +248,15 @@ def _patch_renpy():
             loads = cache_report[1]
             cache_report[1] = 0
             recent = ", ".join(str(name)[:60] for name in recent_loads) if loads else ""
-            _say_cache("entries %d, %d MB of %d MB, %d loads%s" % (
+            textures = ""
+            try:
+                size, count = renpy.display.draw.get_texture_size()
+                textures = ", GL textures %d (%d MB)" % (count, size // 1048576)
+            except Exception:
+                pass
+            _say_cache("entries %d, %d MB of %d MB, %d loads%s%s" % (
                 len(cache.cache), cache.cache_size * 4 // 1048576, cache.cache_limit * 4 // 1048576,
-                loads, (" (latest: " + recent + ")") if recent else ""))
+                loads, textures, (" (latest: " + recent + ")") if recent else ""))
         except Exception as e:
             _say_cache("unavailable (%r)" % (e,))
 
