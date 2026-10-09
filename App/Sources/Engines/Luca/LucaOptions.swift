@@ -10,7 +10,8 @@ struct LucaSettings: Codable, Equatable {
     var voiceStopsOnTap = true
     /// Basic: the MENU / SKIP / AUTO / VOICE column right of the window (the Shortcut Menu).
     var shortcutMenu = true
-    /// Text1.
+    /// Text1: the face (`LucaGame.fontFaces`).
+    var font = "GOTHIC1"
     var windowTransparency = 0.5
     var colourReadText = true
     var readTextColour = 0
@@ -293,6 +294,10 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
             choice("Voice", ["Stop on Next Message", "Play until Next Voice"], settings.voiceStopsOnTap ? 0 : 1) { $0.voiceStopsOnTap = $1 == 0 }
             choice("Shortcut Menu", ["Show", "Hide"], settings.shortcutMenu ? 0 : 1) { $0.shortcutMenu = $1 == 0 }
         case .text1:
+            let faces = LucaGame.fontFaces
+            choice("Font", ["Gothic 1", "Gothic 2", "Gothic 3", "Mincho", "Modern"], faces.firstIndex(of: settings.font) ?? 0) {
+                $0.font = faces[$1]
+            }
             slider("Window Transparency", settings.windowTransparency) { $0.windowTransparency = $1 }
             choice("Color of Previously Read Text", ["On", "Off"], settings.colourReadText ? 0 : 1) { $0.colourReadText = $1 == 0 }
             choice("Read Text Color", LucaSettings.readTextColours.map(\.name), settings.readTextColour) { $0.readTextColour = $1 }

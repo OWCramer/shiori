@@ -41,8 +41,16 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private let namePlate = UIImageView()
     private let pageMarker = UIImageView()
     private let overlay = UIView()
-    private let nameLabel = UILabel()
-    private let textLabel = UILabel()
+    /// The speaker's name and the line, drawn in the game's own bitmap font (LucaTypeset);
+    /// the line is revealed as it types through a mask.
+    private let nameView = UIImageView()
+    private let textView = UIImageView()
+    private let textMask = CAShapeLayer()
+    private var typeset: LucaTypeset?
+    private var composedKey: String?
+    private var messageFonts: (face: String, fonts: [LucaFont])?
+    /// Size 40 has every character; size 37 (the window's) lacks a few rare ones.
+    private var fallbackFont: (face: String, font: LucaFont)?
     private var shownMessage: LucaMessage?
     private var lastHadFace = false
     private var faceRects: [Int: CGRect] = [:]
@@ -107,15 +115,13 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         view.addSubview(overlay)
         namePlate.tintColor = UIColor(red: 0, green: 0.55, blue: 0.62, alpha: 0.75)
         overlay.addSubview(namePlate)
-        for label in [nameLabel, textLabel] {
-            label.textColor = .white
-            label.numberOfLines = 0
-            label.layer.shadowColor = UIColor(red: 0, green: 0.08, blue: 0.2, alpha: 1).cgColor
-            label.layer.shadowOpacity = 1
-            label.layer.shadowRadius = 2.5
-            label.layer.shadowOffset = .zero
-            overlay.addSubview(label)
+        for view in [nameView, textView] {
+            view.isUserInteractionEnabled = false
+            view.layer.minificationFilter = .trilinear
+            overlay.addSubview(view)
         }
+        textMask.fillColor = UIColor.white.cgColor
+        textView.layer.mask = textMask
         overlay.addSubview(pageMarker)
 
         // Tap reads on; two-finger tap opens the menu; swipe down shows the backlog; a
@@ -435,8 +441,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             pageMarker.isHidden = !waiting
             if waiting { pageMarker.startAnimating() } else { pageMarker.stopAnimating() }
         }
-        nameLabel.isHidden = !visible
-        textLabel.isHidden = !visible
+        nameView.isHidden = !visible
+        textView.isHidden = !visible
         if let windowBar {
             windowBar.isHidden = !(visible && settings.shortcutMenu && player.choices == nil)
             windowBar.update(skip: readMode == .skip, auto: readMode == .auto, voice: lineHasVoice)
@@ -457,7 +463,6 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             } else {
                 lineWasRead = false
             }
-            nameLabel.text = shownMessage?.speaker
             layoutText()
         }
         if revealed < revealTarget {
@@ -476,37 +481,93 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         }
     }
 
+    /// The window's text geometry, in the game's 1920×1080 space, measured from the PC
+    /// game: glyph cells start at x 396 (474 beside a face), the name's at y 791 and the line's
+    /// at y 855, lines 56 apart, wrapping at 1300 px.
+    private static let textSize = 37, lineHeight = 56, textWidth = 1300
+    private static let outline: (UInt8, UInt8, UInt8) = (20, 50, 60)
+    private var textLeft: CGFloat { player?.windowFace != nil ? 474 : 396 }
+
+    /// The fonts for `text` in the chosen face: size 37 and its patch, and size 40 when the
+    /// text has a character size 37 lacks.
+    private func fonts(for text: String) -> [LucaFont] {
+        guard let game else { return [] }
+        let face = settings.font
+        if messageFonts?.face != face {
+            let loaded = game.font(face: face, size: Self.textSize) ?? game.font(face: "GOTHIC1", size: Self.textSize)
+            messageFonts = (face, loaded.map { [$0.main] + ($0.patch.map { [$0] } ?? []) } ?? [])
+        }
+        var fonts = messageFonts?.fonts ?? []
+        let missing = text.unicodeScalars.contains { scalar in
+            scalar.value > 32 && scalar.value != 0x3000 && !fonts.contains { $0.glyph(scalar) != nil }
+        }
+        if missing {
+            if fallbackFont?.face != face, let font = game.font(face: face, size: 40)?.main { fallbackFont = (face, font) }
+            if let fallback = fallbackFont?.font { fonts.append(fallback) }
+        }
+        return fonts
+    }
+
+    private func textImage(_ set: LucaTypeset, fill: UIColor) -> UIImage? {
+        var r: CGFloat = 1, g: CGFloat = 1, b: CGFloat = 1, a: CGFloat = 1
+        fill.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let pixels = set.render(fill: (UInt8(r * 255), UInt8(g * 255), UInt8(b * 255)), outline: Self.outline, outlineWidth: 2)
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData),
+              let image = CGImage(width: set.width, height: set.height, bitsPerComponent: 8, bitsPerPixel: 32,
+                                  bytesPerRow: set.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        else { return nil }
+        return UIImage(cgImage: image)
+    }
+
+    /// Draws the line (and name) when they or their look changed, then reveals as much of the
+    /// line as has typed.
     private func renderText() {
-        guard let message = shownMessage else { textLabel.attributedText = nil; return }
-        let font = UIFont.systemFont(ofSize: 48 * stageScale, weight: .medium)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 12 * stageScale
+        let s = stageScale
+        guard s > 0, let message = shownMessage else {
+            textView.image = nil
+            nameView.image = nil
+            typeset = nil
+            composedKey = nil
+            return
+        }
         let colour = lineWasRead && settings.colourReadText
             ? LucaSettings.readTextColours[min(settings.readTextColour, LucaSettings.readTextColours.count - 1)].color : UIColor.white
-        let text = NSMutableAttributedString(string: message.text, attributes: [
-            .font: font, .foregroundColor: colour, .paragraphStyle: paragraph,
-        ])
-        let shown = message.text.index(message.text.startIndex, offsetBy: min(revealed, message.text.count))
-        let hidden = NSRange(shown..<message.text.endIndex, in: message.text)
-        text.addAttribute(.foregroundColor, value: UIColor.clear, range: hidden)
-        textLabel.attributedText = text
-        // Top-aligned: as tall as the whole line needs (hidden letters included, so the text
-        // doesn't move as it types).
-        let needed = text.boundingRect(with: CGSize(width: textLabel.bounds.width, height: .greatestFiniteMagnitude),
-                                       options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height
-        textLabel.frame.size.height = ceil(needed)
+        let left = textLeft
+        let key = "\(message.speaker ?? "")\u{1}\(message.text)\u{1}\(settings.font)\u{1}\(colour)\u{1}\(left)\u{1}\(s)"
+        if key != composedKey {
+            composedKey = key
+            let width = Self.textWidth - Int(left - 396)
+            let set = LucaTypeset(message.text, fonts: fonts(for: message.text), width: width, lineHeight: Self.lineHeight)
+            typeset = set
+            textView.image = textImage(set, fill: colour)
+            let top = CGFloat(855 - (Self.lineHeight - Self.textSize - 1) / 2)
+            textView.frame = CGRect(x: left * s, y: top * s, width: CGFloat(set.width) * s, height: CGFloat(set.height) * s)
+            textMask.frame = textView.bounds
+            if let speaker = message.speaker, !speaker.isEmpty {
+                let name = LucaTypeset(speaker, fonts: fonts(for: speaker), width: 900, lineHeight: Self.lineHeight)
+                nameView.image = textImage(name, fill: .white)
+                nameView.frame = CGRect(x: left * s, y: (top - 64) * s, width: CGFloat(name.width) * s, height: CGFloat(name.height) * s)
+            } else {
+                nameView.image = nil
+            }
+        }
+        guard let typeset else { return }
+        let path = CGMutablePath()
+        for rect in typeset.revealed(revealed) {
+            path.addRect(CGRect(x: CGFloat(rect.x) * s, y: CGFloat(rect.y) * s, width: CGFloat(rect.width) * s, height: CGFloat(rect.height) * s))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        textMask.path = path
+        CATransaction.commit()
     }
 
     private func layoutText() {
         let s = stageScale
         guard s > 0 else { return }
-        let hasFace = player?.windowFace != nil
-        let left: CGFloat = hasFace ? 470 : 396
-        // The name sits on its plate over the window's top edge; the text below, as on PC.
-        namePlate.frame = CGRect(x: (left - 150) * s, y: 712 * s, width: 496 * s, height: 110 * s)
-        nameLabel.font = UIFont.systemFont(ofSize: 40 * s, weight: .semibold)
-        nameLabel.frame = CGRect(x: left * s, y: 740 * s, width: 900 * s, height: 52 * s)
-        textLabel.frame = CGRect(x: left * s, y: 806 * s, width: (1920 - left - 200) * s, height: 220 * s)
+        namePlate.frame = CGRect(x: (textLeft - 150) * s, y: 712 * s, width: 496 * s, height: 110 * s)
         pageMarker.frame = CGRect(x: 1640 * s, y: 996 * s, width: 72 * s, height: 72 * s)
         let bar = LucaWindowBar.frameInStage
         windowBar?.frame = CGRect(x: bar.minX * s, y: bar.minY * s, width: bar.width * s, height: bar.height * s)
@@ -872,8 +933,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.start(state: nil) }
         }
         #endif
-        nameLabel.isHidden = true
-        textLabel.isHidden = true
+        nameView.isHidden = true
+        textView.isHidden = true
         choiceStack?.removeFromSuperview()
         choiceStack = nil
         shownChoices = nil
