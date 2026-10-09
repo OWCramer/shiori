@@ -6,7 +6,7 @@ import UIKit
 /// Plays a Luca System game (Summer Pockets REFLECTION BLUE) with LucaKit. The scripts tell
 /// the stage what to show; the screens the PC game draws in its executable (title, menu,
 /// save and load, backlog) are Shiori's own, dressed in the game's art where it has some.
-final class LucaGameViewController: UIViewController {
+final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegate {
     private let gameFolder: URL
     private let onExit: () -> Void
     private var onFirstFrame: (() -> Void)?
@@ -31,7 +31,15 @@ final class LucaGameViewController: UIViewController {
     private var transitionRunning = false
 
     // Text window
-    private let windowRect = CGRect(x: 0, y: 735, width: 1920, height: 345)
+    /// MWIN0's shape starts 100 px down, so the window's top edge shows at y 791, as in the
+    /// PC game; stretched to the bottom of the screen.
+    private let windowRect = CGRect(x: 0, y: 691, width: 1920, height: 389)
+    /// The window's teal, measured from the PC game.
+    private static let windowTint = SIMD4<Float>(0.0, 0.745, 0.765, 0.45)
+    /// The speaker's name plate (mwin1920_0, white, tinted) and the flapping butterfly that
+    /// says a tap reads on (__SYS_MW01_KEY00, 24 frames).
+    private let namePlate = UIImageView()
+    private let pageMarker = UIImageView()
     private let overlay = UIView()
     private let nameLabel = UILabel()
     private let textLabel = UILabel()
@@ -44,6 +52,7 @@ final class LucaGameViewController: UIViewController {
     /// The island map behind the day's map choice.
     private var mapBackdrop: UIImageView?
     private var shownChoices: [String]?
+    private var choiceImages: [CGImage] = []
     private var titleView: UIView?
     private var textHidden = false
     /// Auto reads on a moment after each line (and its voice) finishes; Skip races to the
@@ -82,20 +91,23 @@ final class LucaGameViewController: UIViewController {
 
         overlay.isUserInteractionEnabled = true
         view.addSubview(overlay)
+        namePlate.tintColor = UIColor(red: 0, green: 0.55, blue: 0.62, alpha: 0.75)
+        overlay.addSubview(namePlate)
         for label in [nameLabel, textLabel] {
             label.textColor = .white
             label.numberOfLines = 0
-            label.layer.shadowColor = UIColor.black.cgColor
-            label.layer.shadowOpacity = 0.8
-            label.layer.shadowRadius = 2
-            label.layer.shadowOffset = CGSize(width: 0, height: 1)
+            label.layer.shadowColor = UIColor(red: 0, green: 0.1, blue: 0.25, alpha: 1).cgColor
+            label.layer.shadowOpacity = 0.9
+            label.layer.shadowRadius = 1.5
+            label.layer.shadowOffset = .zero
             overlay.addSubview(label)
         }
-        nameLabel.textColor = UIColor(red: 0.62, green: 0.84, blue: 1, alpha: 1)
+        overlay.addSubview(pageMarker)
 
         // Tap reads on; two-finger tap opens the menu; swipe down shows the backlog; a
         // two-finger hold leaves.
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        tap.delegate = self
         view.addGestureRecognizer(tap)
         let menu = UITapGestureRecognizer(target: self, action: #selector(showMenu))
         menu.numberOfTouchesRequired = 2
@@ -115,6 +127,20 @@ final class LucaGameViewController: UIViewController {
             self.game = game
             // MWIN0 is the window's shape in white; the engine tints it.
             windowMask = renderer?.textures.texture(Self.windowImageID, game: game)
+            if let plate = game.image(Self.namePlateID).flatMap(Self.cgImage) {
+                namePlate.image = UIImage(cgImage: plate).withRenderingMode(.alwaysTemplate)
+            }
+            if let sheet = game.image(Self.pageMarkerID).flatMap(Self.cgImage) {
+                let size = sheet.height
+                pageMarker.animationImages = (0..<(sheet.width / size)).compactMap {
+                    sheet.cropping(to: CGRect(x: $0 * size, y: 0, width: size, height: size)).map { UIImage(cgImage: $0) }
+                }
+                pageMarker.animationDuration = 0.8
+            }
+            if let buttons = game.image(Self.choiceSheetID).flatMap(Self.cgImage) {
+                // Four states, 225 px each: blue, gold (highlighted), gold (pressed), grey.
+                choiceImages = (0..<4).compactMap { buttons.cropping(to: CGRect(x: 0, y: $0 * 225, width: buttons.width, height: 225)) }
+            }
             try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
             showTitle()
         } catch {
@@ -247,7 +273,7 @@ final class LucaGameViewController: UIViewController {
         onScreen = shown
         let windowShown = player.windowVisible && !textHidden && titleView == nil
         let window = LucaRenderer.Window(visible: windowShown, mask: windowMask,
-                                         tint: SIMD4(0.04, 0.1, 0.22, 0.78), rect: windowRect,
+                                         tint: Self.windowTint, rect: windowRect,
                                          face: windowShown && player.message != nil ? face : nil)
         renderer.draw(layers: items, shake: player.shake, window: window, effects: LucaEffects(sepia: player.effects.sepia))
     }
@@ -302,6 +328,12 @@ final class LucaGameViewController: UIViewController {
 
     private func syncText(_ player: LucaPlayer) {
         let visible = player.windowVisible && !textHidden && player.message != nil
+        namePlate.isHidden = !visible || player.message?.speaker == nil
+        let waiting = visible && player.isWaitingForClick && !typing
+        if waiting != !pageMarker.isHidden {
+            pageMarker.isHidden = !waiting
+            if waiting { pageMarker.startAnimating() } else { pageMarker.stopAnimating() }
+        }
         nameLabel.isHidden = !visible
         textLabel.isHidden = !visible
         if (player.windowFace != nil) != lastHadFace {
@@ -323,15 +355,17 @@ final class LucaGameViewController: UIViewController {
 
     private func renderText() {
         guard let message = shownMessage else { textLabel.attributedText = nil; return }
-        let font = UIFont.systemFont(ofSize: 44 * stageScale, weight: .medium)
+        let font = UIFont.systemFont(ofSize: 48 * stageScale, weight: .medium)
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 10 * stageScale
+        paragraph.lineSpacing = 12 * stageScale
         let text = NSMutableAttributedString(string: message.text, attributes: [
             .font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph,
+            .strokeColor: UIColor(red: 0.02, green: 0.12, blue: 0.25, alpha: 0.9), .strokeWidth: -2.5,
         ])
         let shown = message.text.index(message.text.startIndex, offsetBy: min(revealed, message.text.count))
         let hidden = NSRange(shown..<message.text.endIndex, in: message.text)
         text.addAttribute(.foregroundColor, value: UIColor.clear, range: hidden)
+        text.addAttribute(.strokeColor, value: UIColor.clear, range: hidden)
         textLabel.attributedText = text
         // Top-aligned: as tall as the whole line needs (hidden letters included, so the text
         // doesn't move as it types).
@@ -344,10 +378,13 @@ final class LucaGameViewController: UIViewController {
         let s = stageScale
         guard s > 0 else { return }
         let hasFace = player?.windowFace != nil
-        let left: CGFloat = hasFace ? 460 : 300
-        nameLabel.font = UIFont.systemFont(ofSize: 40 * s, weight: .bold)
-        nameLabel.frame = CGRect(x: left * s, y: (windowRect.minY + 112) * s, width: 1100 * s, height: 52 * s)
-        textLabel.frame = CGRect(x: left * s, y: (windowRect.minY + 170) * s, width: (1920 - left - 180) * s, height: 160 * s)
+        let left: CGFloat = hasFace ? 470 : 396
+        // The name sits on its plate over the window's top edge; the text below, as on PC.
+        namePlate.frame = CGRect(x: (left - 150) * s, y: 712 * s, width: 496 * s, height: 110 * s)
+        nameLabel.font = UIFont.systemFont(ofSize: 40 * s, weight: .semibold)
+        nameLabel.frame = CGRect(x: left * s, y: 740 * s, width: 900 * s, height: 52 * s)
+        textLabel.frame = CGRect(x: left * s, y: 806 * s, width: (1920 - left - 200) * s, height: 220 * s)
+        pageMarker.frame = CGRect(x: 1640 * s, y: 996 * s, width: 72 * s, height: 72 * s)
         renderText()
     }
 
@@ -505,7 +542,7 @@ final class LucaGameViewController: UIViewController {
         stack.axis = .vertical
         // Long lists (the map can offer nine places) sit tighter to fit a phone in landscape.
         let compact = choices.count > 5
-        stack.spacing = compact ? 6 : 14
+        stack.spacing = compact ? 0 : 6 * stageScale
         if let prompt = player.choicePrompt {
             let label = UILabel()
             label.text = prompt
@@ -519,20 +556,10 @@ final class LucaGameViewController: UIViewController {
             stack.addArrangedSubview(label)
         }
         for (index, choice) in choices.enumerated() {
-            var config = UIButton.Configuration.filled()
-            config.title = choice
-            if player.choiceDetails.indices.contains(index), let detail = player.choiceDetails[index] {
-                config.subtitle = detail
-                config.titleAlignment = .center
-            }
-            config.baseBackgroundColor = UIColor(red: 0.05, green: 0.16, blue: 0.34, alpha: 0.88)
-            config.baseForegroundColor = .white
-            config.cornerStyle = .capsule
-            config.contentInsets = NSDirectionalEdgeInsets(top: compact ? 5 : 12, leading: 28, bottom: compact ? 5 : 12, trailing: 28)
-            let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in
-                self?.player?.choose(index)
-            })
-            stack.addArrangedSubview(button)
+            let detail = player.choiceDetails.indices.contains(index) ? player.choiceDetails[index] : nil
+            let banner = LucaChoiceBanner(images: choiceImages, title: choice, detail: detail, scale: stageScale,
+                                          compact: compact) { [weak self] in self?.player?.choose(index) }
+            stack.addArrangedSubview(banner)
         }
         overlay.addSubview(stack)
         choiceStack = stack
@@ -541,7 +568,8 @@ final class LucaGameViewController: UIViewController {
 
     private func layoutChoices() {
         guard let stack = choiceStack else { return }
-        let width = min(overlay.bounds.width * 0.7, 640)
+        // The banners are 1680 game px wide, glow included.
+        let width = choiceImages.isEmpty ? min(overlay.bounds.width * 0.7, 640) : 1680 * stageScale
         let size = stack.systemLayoutSizeFitting(CGSize(width: width, height: 0), withHorizontalFittingPriority: .required,
                                                  verticalFittingPriority: .fittingSizeLevel)
         let y = min(max(10, overlay.bounds.height * 0.42 - size.height / 2), overlay.bounds.height - size.height - 10)
@@ -550,6 +578,16 @@ final class LucaGameViewController: UIViewController {
     }
 
     // MARK: Input
+
+    /// Taps on the choice banners (and other controls) go to them, not to reading on.
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if current is UIControl { return false }
+            view = current.superview
+        }
+        return true
+    }
 
     @objc private func tapped() {
         guard titleView == nil, presentedViewController == nil, let player else { return }
@@ -729,8 +767,74 @@ final class LucaGameViewController: UIViewController {
     static let titleLogoID = 25_160
     /// __SYS_MAP_BG01en in OTHCG.PAK: the island map.
     static let mapImageID = 25_133
+    /// mwin1920_0 in PARTS.PAK: the name plate.
+    static let namePlateID = 64_123
+    /// __SYS_MW01_KEY00 in PARTS.PAK: the flapping butterfly, 24 frames of 72 px.
+    static let pageMarkerID = 64_004
+    /// __SYS_SEL_BTN02 in OTHCG.PAK: the choice banners.
+    static let choiceSheetID = 25_170
     /// BGM01 in MUSIC.PAK.
     static let titleMusicID = 100_001
+}
+
+/// A choice drawn as the game's banner: blue, gold while pressed, the text centred on it.
+private final class LucaChoiceBanner: UIControl {
+    private let background = UIImageView()
+    private let images: [CGImage]
+    private let action: () -> Void
+
+    init(images: [CGImage], title: String, detail: String?, scale: CGFloat, compact: Bool, action: @escaping () -> Void) {
+        self.images = images
+        self.action = action
+        super.init(frame: .zero)
+        background.contentMode = .scaleToFill
+        background.image = images.first.map { UIImage(cgImage: $0) }
+        if images.isEmpty {
+            background.backgroundColor = UIColor(red: 0.05, green: 0.45, blue: 0.7, alpha: 0.85)
+            background.layer.cornerRadius = 8
+        }
+        addSubview(background)
+        let label = UILabel()
+        let text = NSMutableAttributedString(string: title, attributes: [
+            .font: UIFont.systemFont(ofSize: max(13, 46 * scale), weight: .medium), .foregroundColor: UIColor.white,
+            .strokeColor: UIColor(red: 0.02, green: 0.15, blue: 0.3, alpha: 0.9), .strokeWidth: -2.5,
+        ])
+        if let detail, !detail.isEmpty {
+            text.append(NSAttributedString(string: "\n" + detail, attributes: [
+                .font: UIFont.systemFont(ofSize: max(10, 30 * scale)), .foregroundColor: UIColor(white: 1, alpha: 0.9),
+            ]))
+        }
+        label.attributedText = text
+        label.numberOfLines = 2
+        label.textAlignment = .center
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(label)
+        background.translatesAutoresizingMaskIntoConstraints = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        // A banner row is 225 px with its glow; compact lists overlap the glows.
+        let height = (compact ? 112 : 148) * scale
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: height),
+            background.leadingAnchor.constraint(equalTo: leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            background.centerYAnchor.constraint(equalTo: centerYAnchor),
+            background.heightAnchor.constraint(equalToConstant: 225 * scale),
+            label.centerXAnchor.constraint(equalTo: centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.7),
+        ])
+        addAction(UIAction { [weak self] _ in self?.action() }, for: .touchUpInside)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isHighlighted: Bool {
+        didSet {
+            guard images.count > 2 else { return }
+            background.image = UIImage(cgImage: isHighlighted ? images[2] : images[0])
+        }
+    }
 }
 
 private final class PaddedLabel: UILabel {
