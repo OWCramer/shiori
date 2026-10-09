@@ -55,6 +55,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var choiceImages: [CGImage] = []
     private var titleView: UIView?
     private var bootShown = false
+    private var systemMenu: LucaSystemMenu?
+    private var saveScreen: LucaSaveScreen?
     private var textHidden = false
     /// Auto reads on a moment after each line (and its voice) finishes; Skip races to the
     /// next choice. A tap stops either.
@@ -114,6 +116,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         menu.numberOfTouchesRequired = 2
         view.addGestureRecognizer(menu)
         tap.require(toFail: menu)
+        // The PC game's touch controls (manual page 2): flick up for the system menu.
+        let flick = UISwipeGestureRecognizer(target: self, action: #selector(showMenu))
+        flick.direction = .up
+        view.addGestureRecognizer(flick)
         let history = UISwipeGestureRecognizer(target: self, action: #selector(showBacklog))
         history.direction = .down
         view.addGestureRecognizer(history)
@@ -286,7 +292,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             face = (texture, CGRect(x: 215 - r.midX, y: windowRect.minY + 215 - r.midY, width: w, height: h))
         }
         onScreen = shown
-        let windowShown = player.windowVisible && !textHidden && titleView == nil
+        let windowShown = player.windowVisible && !textHidden && titleView == nil && systemMenu == nil && saveScreen == nil
         let window = LucaRenderer.Window(visible: windowShown, mask: windowMask,
                                          tint: Self.windowTint, rect: windowRect,
                                          face: windowShown && player.message != nil ? face : nil)
@@ -342,7 +348,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var stageScale: CGFloat { overlay.bounds.width / stageSize.width }
 
     private func syncText(_ player: LucaPlayer) {
-        let visible = player.windowVisible && !textHidden && player.message != nil
+        let visible = player.windowVisible && !textHidden && player.message != nil && systemMenu == nil && saveScreen == nil
         // The PC game shows the name without a plate.
         namePlate.isHidden = true
         let waiting = visible && player.isWaitingForClick && !typing
@@ -604,7 +610,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func tapped() {
-        guard titleView == nil, presentedViewController == nil, let player else { return }
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, let player else { return }
         if movieLoading { return }
         if let movie {
             if CACurrentMediaTime() - movie.start > 1 { endMovie() }
@@ -628,30 +634,39 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func showMenu() {
-        guard titleView == nil, presentedViewController == nil, player != nil else { return }
-        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in self?.presentSlots(saving: true) })
-        sheet.addAction(UIAlertAction(title: "Load", style: .default) { [weak self] _ in self?.presentSlots(saving: false) })
-        sheet.addAction(UIAlertAction(title: "Backlog", style: .default) { [weak self] _ in self?.showBacklog() })
-        sheet.addAction(UIAlertAction(title: readMode == .auto ? "Stop Auto" : "Auto", style: .default) { [weak self] _ in
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, let player, let game else { return }
+        let sheet = game.imageID(named: "systemmenuen").flatMap { game.image($0) }.flatMap(Self.cgImage)
+        audio.playSystem("TOGGLE", game: game)
+        let menu = LucaSystemMenu(sheet: sheet) { [weak self] item in
             guard let self else { return }
-            self.readMode = self.readMode == .auto ? .normal : .auto
-        })
-        sheet.addAction(UIAlertAction(title: "Skip to Next Choice", style: .default) { [weak self] _ in self?.readMode = .skip })
-        sheet.addAction(UIAlertAction(title: "Hide Text", style: .default) { [weak self] _ in self?.textHidden = true })
-        sheet.addAction(UIAlertAction(title: "Title Screen", style: .default) { [weak self] _ in
-            self?.autosave()
-            self?.showTitle()
-        })
-        sheet.addAction(UIAlertAction(title: "Leave Game", style: .destructive) { [weak self] _ in self?.leave() })
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        sheet.popoverPresentationController?.sourceView = view
-        sheet.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
-        present(sheet, animated: true)
+            self.systemMenu?.removeFromSuperview()
+            self.systemMenu = nil
+            guard let item else { return }
+            switch item {
+            case .save: self.presentSlots(saving: true)
+            case .load: self.presentSlots(saving: false)
+            case .record: self.showBacklog()
+            case .options: self.presentOptions()
+            case .title:
+                self.autosave()
+                self.showTitle()
+            case .quickSave:
+                try? LucaSaves.write(player.saveState(), slot: LucaSaves.quickSlot, thumbnail: self.thumbnail(), in: self.saves)
+                self.show(.acquired("Quick saved"))
+            case .quickLoad:
+                if let save = LucaSaves.read(slot: LucaSaves.quickSlot, in: self.saves) { self.start(state: save.state) }
+            case .manual: self.presentManual()
+            case .exit: self.leave()
+            }
+        }
+        menu.frame = view.bounds
+        menu.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(menu)
+        systemMenu = menu
     }
 
     @objc private func showBacklog() {
-        guard titleView == nil, presentedViewController == nil, let player else { return }
+        guard titleView == nil, presentedViewController == nil, saveScreen == nil, let player else { return }
         let backlog = UIHostingController(rootView: LucaBacklogView(lines: player.backlog) { [weak self] in
             self?.dismiss(animated: true)
         })
@@ -773,25 +788,29 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     private func presentSlots(saving: Bool) {
+        guard let game else { return }
         let thumbnail = saving ? thumbnail() : nil
-        let slots = UIHostingController(rootView: LucaSlotsView(
-            folder: saves, saving: saving,
-            onPick: { [weak self] slot in
-                guard let self else { return }
-                if saving {
-                    if let player = self.player {
-                        try? LucaSaves.write(player.saveState(), slot: slot, thumbnail: thumbnail, in: self.saves)
-                    }
-                    self.dismiss(animated: true)
-                } else if let save = LucaSaves.read(slot: slot, in: self.saves) {
-                    self.dismiss(animated: true)
-                    self.start(state: save.state)
+        var screen: LucaSaveScreen?
+        screen = LucaSaveScreen(game: game, folder: saves, saving: saving) { [weak self] slot in
+            guard let self else { return }
+            screen?.removeFromSuperview()
+            self.saveScreen = nil
+            guard let slot else { return }
+            if saving {
+                if let player = self.player {
+                    try? LucaSaves.write(player.saveState(), slot: slot, thumbnail: thumbnail, in: self.saves)
+                    self.audio.playSystem("TOGGLE", game: game)
                 }
-            },
-            onClose: { [weak self] in self?.dismiss(animated: true) }))
-        slots.modalPresentationStyle = .overFullScreen
-        slots.view.backgroundColor = .clear
-        present(slots, animated: true)
+            } else if let save = LucaSaves.read(slot: slot, in: self.saves) {
+                self.start(state: save.state)
+            }
+        }
+        guard let screen else { return }
+        audio.playSystem("TOGGLE", game: game)
+        screen.frame = view.bounds
+        screen.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(screen)
+        saveScreen = screen
     }
 
     // MARK: Game art (REFLECTION BLUE ids)

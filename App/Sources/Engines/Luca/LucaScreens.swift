@@ -27,10 +27,12 @@ enum LucaSaves {
     }
 
     static func latest(in folder: URL) -> Save? {
-        (0...slotCount).compactMap { read(slot: $0, in: folder) }.max { $0.date < $1.date }
+        ((0...slotCount) + [quickSlot]).compactMap { read(slot: $0, in: folder) }.max { $0.date < $1.date }
     }
 
     static let slotCount = 30
+    /// Q.SAVE / Q.LOAD's slot, apart from the numbered ones.
+    static let quickSlot = 99
 }
 
 private let lucaBlue = Color(red: 0.25, green: 0.56, blue: 0.93)
