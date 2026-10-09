@@ -397,12 +397,12 @@ struct GameDetailView: View {
         }
     }
 
-    /// Artemis saves aren't the PC's format. KiriKiri's are, and sync when the game's cloud
-    /// rules name its savedata folder (not when it writes the cloud through Steam's API).
+    /// Artemis saves aren't the PC's format. KiriKiri's and Siglus's are, and sync when the
+    /// game's cloud rules name its savedata folder (not when it writes the cloud through Steam's API).
     private var engineUsesSteamCloud: Bool {
         switch record?.engine?.engine {
         case "artemis": false
-        case "kirikiri": games.steamCloudMapped[appID] == true
+        case "kirikiri", "siglus": games.steamCloudMapped[appID] == true
         default: true
         }
     }
@@ -424,7 +424,7 @@ struct GameDetailView: View {
                     }
                     if let engine = record?.engine {
                         GlassChip(EngineDetection.displayName(for: engine.engine), systemImage: "gearshape.2",
-                                  tint: [RenPyEngine.id, "artemis", "kirikiri"].contains(engine.engine) ? .green : .orange)
+                                  tint: [RenPyEngine.id, "artemis", "kirikiri", "siglus"].contains(engine.engine) ? .green : .orange)
                             .glassEffectID("engine", in: glassNamespace)
                         // Artemis reads keyboard, mouse and touch only. (KiriKiri games take a
                         // controller as their keyboard: see KiriKiriGameViewController.pad.)

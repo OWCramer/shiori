@@ -80,6 +80,12 @@ struct RootView: View {
                         .ignoresSafeArea()
                 }
             }
+            .fullScreenCover(item: $games.siglusSession) { session in
+                CoveredGame(art: session.cover) { firstFrame in
+                    SiglusGameView(gameFolder: session.folder, onFirstFrame: firstFrame) { games.siglusSession = nil }
+                        .ignoresSafeArea()
+                }
+            }
             .fullScreenCover(item: $games.kirikiriSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
                     KiriKiriGameView(gameFolder: session.folder, appID: session.appID, onFirstFrame: firstFrame) {

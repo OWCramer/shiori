@@ -35,7 +35,14 @@ enum EngineDetection {
     static let signatures: [Signature] = [
         Signature(id: "artemis", name: "Artemis") { names, _ in names.contains { $0.hasSuffix(".pfs") || $0.contains(".pfs.") } },
         Signature(id: "kirikiri", name: "Kirikiri") { names, _ in names.contains { $0.hasSuffix(".xp3") } },
-        Signature(id: "siglus", name: "SiglusEngine") { names, _ in names.contains("scene.pck") || names.contains("siglusengine.exe") },
+        // Steam's multilingual builds (planetarian HD, Summer Pockets) ship SceneEN.pck and
+        // GameexeEN.dat, not Scene.pck: match before Godot, which also uses .pck.
+        Signature(id: "siglus", name: "SiglusEngine") { names, _ in
+            names.contains { name in
+                (name.hasPrefix("scene") && name.hasSuffix(".pck")) || (name.hasPrefix("gameexe") && name.hasSuffix(".dat"))
+                    || (name.hasPrefix("siglusengine") && name.hasSuffix(".exe"))
+            }
+        },
         Signature(id: "nscripter", name: "NScripter") { names, _ in
             names.contains("nscript.dat") || names.contains("0.txt") || names.contains("00.txt") || names.contains { $0.hasSuffix(".nsa") }
         },

@@ -21,6 +21,8 @@ packages:
     path: Packages/ArtemisKit
   KiriKiriKit:
     path: Packages/KiriKiriKit
+  SiglusKit:
+    path: Packages/SiglusKit
 targets:
   VNHub:
     type: application
@@ -86,6 +88,12 @@ targets:
       # AetherKrkr, the KiriKiri runtime (GPL-3.0), with its dependencies inside one image
       # (Scripts/kirikiri/build-ios-framework.sh). Exports only the engine API.
       - framework: Vendor/ShioriKiriKiri.xcframework
+        embed: true
+      - package: SiglusKit
+        product: CSiglus
+      # siglus_rs, the SiglusEngine runtime (MPL-2.0), as one dynamic framework
+      # (Scripts/siglus/build-ios-framework.sh). Exports only the engine's C interface.
+      - framework: Vendor/ShioriSiglus.xcframework
         embed: true
       # Ren'Py runtimes from Scripts/build-renpy-runtimes.sh, loaded with dlopen when a game
       # starts (each carries its own CPython and SDL2, so they can't both be linked).
