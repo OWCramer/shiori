@@ -96,9 +96,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         for label in [nameLabel, textLabel] {
             label.textColor = .white
             label.numberOfLines = 0
-            label.layer.shadowColor = UIColor(red: 0, green: 0.1, blue: 0.25, alpha: 1).cgColor
-            label.layer.shadowOpacity = 0.9
-            label.layer.shadowRadius = 1.5
+            label.layer.shadowColor = UIColor(red: 0, green: 0.08, blue: 0.2, alpha: 1).cgColor
+            label.layer.shadowOpacity = 1
+            label.layer.shadowRadius = 2.5
             label.layer.shadowOffset = .zero
             overlay.addSubview(label)
         }
@@ -251,11 +251,21 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         var items: [(layer: LucaLayer, texture: MTLTexture, rect: CGRect)] = []
         var shown = Set<Int>()
         for layer in player.sortedLayers {
-            guard let image = player.game.image(layer.imageID), let texture = texture(layer.imageID) else { continue }
+            guard let image = player.game.image(layer.imageID), let picture = texture(layer.imageID) else { continue }
             shown.insert(layer.imageID)
+            if let baseID = layer.baseImageID, let base = player.game.image(baseID), let baseTexture = texture(baseID) {
+                // The layer's whole picture, then the smaller one over it at its own offset.
+                shown.insert(baseID)
+                let bw = Double(base.width) * layer.scale, bh = Double(base.height) * layer.scale
+                let (bx, by) = layer.origin(width: bw, height: bh, offsetX: 0, offsetY: 0)
+                items.append((layer, baseTexture, CGRect(x: bx, y: by, width: bw, height: bh)))
+                items.append((layer, picture, CGRect(x: bx + Double(image.offsetX) * layer.scale, y: by + Double(image.offsetY) * layer.scale,
+                                                     width: Double(image.width) * layer.scale, height: Double(image.height) * layer.scale)))
+                continue
+            }
             let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
             let (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
-            items.append((layer, texture, CGRect(x: x, y: y, width: w, height: h)))
+            items.append((layer, picture, CGRect(x: x, y: y, width: w, height: h)))
         }
         var face: (texture: MTLTexture, rect: CGRect)?
         if let layer = player.windowFace, let image = player.game.image(layer.imageID), let texture = texture(layer.imageID) {
@@ -328,7 +338,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     private func syncText(_ player: LucaPlayer) {
         let visible = player.windowVisible && !textHidden && player.message != nil
-        namePlate.isHidden = !visible || player.message?.speaker == nil
+        // The PC game shows the name without a plate.
+        namePlate.isHidden = true
         let waiting = visible && player.isWaitingForClick && !typing
         if waiting != !pageMarker.isHidden {
             pageMarker.isHidden = !waiting
@@ -360,12 +371,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         paragraph.lineSpacing = 12 * stageScale
         let text = NSMutableAttributedString(string: message.text, attributes: [
             .font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph,
-            .strokeColor: UIColor(red: 0.02, green: 0.12, blue: 0.25, alpha: 0.9), .strokeWidth: -2.5,
         ])
         let shown = message.text.index(message.text.startIndex, offsetBy: min(revealed, message.text.count))
         let hidden = NSRange(shown..<message.text.endIndex, in: message.text)
         text.addAttribute(.foregroundColor, value: UIColor.clear, range: hidden)
-        text.addAttribute(.strokeColor, value: UIColor.clear, range: hidden)
         textLabel.attributedText = text
         // Top-aligned: as tall as the whole line needs (hidden letters included, so the text
         // doesn't move as it types).
@@ -591,8 +600,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     @objc private func tapped() {
         guard titleView == nil, presentedViewController == nil, let player else { return }
-        if movie != nil || movieLoading {
-            endMovie()
+        if movieLoading { return }
+        if let movie {
+            if CACurrentMediaTime() - movie.start > 1 { endMovie() }
             return
         }
         if readMode != .normal {
@@ -797,8 +807,11 @@ private final class LucaChoiceBanner: UIControl {
         let label = UILabel()
         let text = NSMutableAttributedString(string: title, attributes: [
             .font: UIFont.systemFont(ofSize: max(13, 46 * scale), weight: .medium), .foregroundColor: UIColor.white,
-            .strokeColor: UIColor(red: 0.02, green: 0.15, blue: 0.3, alpha: 0.9), .strokeWidth: -2.5,
         ])
+        label.layer.shadowColor = UIColor(red: 0, green: 0.12, blue: 0.3, alpha: 1).cgColor
+        label.layer.shadowOpacity = 1
+        label.layer.shadowRadius = 2.5
+        label.layer.shadowOffset = .zero
         if let detail, !detail.isEmpty {
             text.append(NSAttributedString(string: "\n" + detail, attributes: [
                 .font: UIFont.systemFont(ofSize: max(10, 30 * scale)), .foregroundColor: UIColor(white: 1, alpha: 0.9),
