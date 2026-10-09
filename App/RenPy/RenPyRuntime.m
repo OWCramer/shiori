@@ -71,6 +71,8 @@ static BOOL LoadRuntime(const char *name) {
     if (sdl.handle) return YES;
     NSString *path = [NSString stringWithFormat:@"%@/%s.framework/%s", NSBundle.mainBundle.privateFrameworksPath, name, name];
     sdl.handle = dlopen(path.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+    // vnhub_main2.py reaches GL through it (ctypes), to free Ren'Py 7's textures.
+    setenv("VNHUB_RUNTIME_LIBRARY", path.fileSystemRepresentation, 1);
     if (!sdl.handle) {
         NSLog(@"VN Hub: couldn't load %s: %s", name, dlerror());
         return NO;

@@ -251,7 +251,10 @@ def _patch_renpy():
             textures = ""
             try:
                 size, count = renpy.display.draw.get_texture_size()
-                textures = ", GL textures %d (%d MB)" % (count, size // 1048576)
+                textures = ", GL textures %d" % count
+                freed = getattr(renpy.config, "shiori_freed_textures", None)
+                if freed is not None:
+                    textures += ", %d freed by Shiori" % freed[0]
             except Exception:
                 pass
             _say_cache("entries %d, %d MB of %d MB, %d loads%s%s" % (
@@ -268,6 +271,53 @@ def _patch_renpy():
     controller.init = init
     controller.start = start
     controller.post_event = post_event
+
+    # GL textures are freed by GLTexture.__del__, which this runtime's Cython compiled into a
+    # Python 3 finalizer (tp_finalize) that Python 2 never calls: every texture Ren'Py drew to
+    # and dropped stayed allocated. Each game menu (screenshots, transitions) kept 40-70 of
+    # them, and the user's iPhone ran out of memory after a dozen menus (Sakura Swim Club, DDLC,
+    # Fatal Twelve; Ren'Py 8 on Python 3 was fine). Give the Python subclass a real __del__
+    # that queues the texture, and delete queued textures between frames, as Ren'Py's own
+    # TextureLoader.cleanup() would.
+    try:
+        import ctypes
+        import renpy.gl2.gl2texture as gl2texture
+
+        runtime = ctypes.CDLL(os.environ["VNHUB_RUNTIME_LIBRARY"])
+        get_proc = runtime.SDL_GL_GetProcAddress
+        get_proc.restype = ctypes.c_void_p
+        get_proc.argtypes = [ctypes.c_char_p]
+        delete_textures = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.POINTER(ctypes.c_uint))
+        gl_delete = [None]
+        doomed = []
+        freed = [0]
+
+        def texture_del(self):
+            try:
+                if self.loaded and self.number:
+                    doomed.append(self.number)
+            except Exception:
+                pass
+
+        def free_doomed():
+            if not doomed:
+                return
+            if gl_delete[0] is None:
+                address = get_proc(b"glDeleteTextures")
+                if not address:
+                    return
+                gl_delete[0] = delete_textures(address)
+            numbers = (ctypes.c_uint * len(doomed))(*doomed)
+            gl_delete[0](len(doomed), numbers)
+            freed[0] += len(doomed)
+            del doomed[:]
+
+        if not hasattr(gl2texture.GLTexture, "__del__"):
+            gl2texture.Texture.__del__ = texture_del
+            renpy.config.periodic_callbacks.append(free_doomed)
+            renpy.config.shiori_freed_textures = freed
+    except Exception as e:
+        print("Shiori textures: no fix (%r)" % (e,))
 
     # Compiled scripts from Ren'Py before 6.99 (Sakura Swim Club's 6.18) predate the
     # Translate statement's `alternate` slot, so loading them failed with
