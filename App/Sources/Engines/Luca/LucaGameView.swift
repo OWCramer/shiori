@@ -44,6 +44,11 @@ final class LucaGameViewController: UIViewController {
     private var shownChoices: [String]?
     private var titleView: UIView?
     private var textHidden = false
+    /// Auto reads on a moment after each line (and its voice) finishes; Skip races to the
+    /// next choice. A tap stops either.
+    private enum ReadMode { case normal, auto, skip }
+    private var readMode = ReadMode.normal
+    private var lineDoneAt: CFTimeInterval?
     #if DEBUG
     /// `-VNHubLucaAuto N`: reads on through N lines by itself (first choice picked), and
     /// `-VNHubLucaNewGame YES` starts a new game from the title, for unattended runs.
@@ -211,6 +216,7 @@ final class LucaGameViewController: UIViewController {
         CATransaction.commit()
         syncText(player)
         syncChoices(player)
+        advanceByMode(player)
         #if DEBUG
         if autoLines > 0, player.transition == nil {
             if player.choices != nil {
@@ -218,6 +224,7 @@ final class LucaGameViewController: UIViewController {
             } else if player.isWaitingForClick {
                 autoLines -= 1
                 revealed = revealTarget
+                renderText()
                 player.click()
                 if autoLines == 0 { NSLog("Luca: auto run done at %@@%d", player.currentScript, player.currentPosition) }
             }
@@ -373,6 +380,38 @@ final class LucaGameViewController: UIViewController {
 
     private var typing: Bool { revealed < revealTarget }
 
+    private func advanceByMode(_ player: LucaPlayer) {
+        switch readMode {
+        case .normal:
+            return
+        case .skip:
+            if player.choices != nil {
+                readMode = .normal
+            } else if player.isWaitingForClick {
+                revealed = revealTarget
+                renderText()
+                player.finishAnimations()
+                player.click()
+            } else {
+                player.finishAnimations()
+            }
+        case .auto:
+            guard player.isWaitingForClick, !typing, player.transition == nil, !audio.isVoicePlaying else {
+                lineDoneAt = nil
+                return
+            }
+            let now = CACurrentMediaTime()
+            if let done = lineDoneAt {
+                if now - done > 1.2 + Double(shownMessage?.text.count ?? 0) * 0.01 {
+                    lineDoneAt = nil
+                    player.click()
+                }
+            } else {
+                lineDoneAt = now
+            }
+        }
+    }
+
     // MARK: Choices
 
     private func syncChoices(_ player: LucaPlayer) {
@@ -414,6 +453,10 @@ final class LucaGameViewController: UIViewController {
 
     @objc private func tapped() {
         guard titleView == nil, presentedViewController == nil, let player else { return }
+        if readMode != .normal {
+            readMode = .normal
+            return
+        }
         if textHidden {
             textHidden = false
             return
@@ -433,6 +476,11 @@ final class LucaGameViewController: UIViewController {
         sheet.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in self?.presentSlots(saving: true) })
         sheet.addAction(UIAlertAction(title: "Load", style: .default) { [weak self] _ in self?.presentSlots(saving: false) })
         sheet.addAction(UIAlertAction(title: "Backlog", style: .default) { [weak self] _ in self?.showBacklog() })
+        sheet.addAction(UIAlertAction(title: readMode == .auto ? "Stop Auto" : "Auto", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.readMode = self.readMode == .auto ? .normal : .auto
+        })
+        sheet.addAction(UIAlertAction(title: "Skip to Next Choice", style: .default) { [weak self] _ in self?.readMode = .skip })
         sheet.addAction(UIAlertAction(title: "Hide Text", style: .default) { [weak self] _ in self?.textHidden = true })
         sheet.addAction(UIAlertAction(title: "Title Screen", style: .default) { [weak self] _ in
             self?.autosave()
