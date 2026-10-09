@@ -23,6 +23,11 @@ final class LucaGameViewController: UIViewController {
     private var pictureImages: [Int: Int] = [:]
     private var images: [Int: CGImage] = [:]
     private var imageOrder: [Int] = []
+    /// Pictures being decoded off the main thread, and the ones done, waiting to be taken.
+    private let prefetchQueue = DispatchQueue(label: "luca.prefetch", qos: .userInitiated)
+    private var prefetching = Set<Int>()
+    private let prefetched = LucaPrefetched()
+    private var framesSincePrefetch = 0
     private var lastDraw = -1
 
     // Text window
@@ -175,6 +180,7 @@ final class LucaGameViewController: UIViewController {
         }
         audio.tick()
         guard let player, let game, titleView == nil else { return }
+        prefetch(player)
         player.tick()
         for sound in player.sounds { audio.handle(sound, game: game) }
         player.sounds.removeAll()
@@ -259,8 +265,31 @@ final class LucaGameViewController: UIViewController {
         faceLayer.isHidden = !player.windowVisible || textHidden
     }
 
+    /// Every quarter second, decodes what the script will show next on a background queue.
+    private func prefetch(_ player: LucaPlayer) {
+        framesSincePrefetch += 1
+        guard framesSincePrefetch >= 15, let game else { return }
+        framesSincePrefetch = 0
+        prefetching.subtract(prefetched.drainDone())
+        for id in player.upcomingImages() where images[id] == nil && !prefetching.contains(id) && prefetching.count < 4 {
+            prefetching.insert(id)
+            let store = prefetched
+            prefetchQueue.async {
+                let cg = game.image(id).flatMap(LucaGameViewController.cgImage)
+                store.put(id, cg)
+            }
+        }
+    }
+
     private func cgImage(_ id: Int, _ image: CZImage) -> CGImage? {
         if let cached = images[id] { return cached }
+        if let ready = prefetched.take(id) {
+            prefetching.remove(id)
+            images[id] = ready
+            imageOrder.append(id)
+            if imageOrder.count > 40 { images.removeValue(forKey: imageOrder.removeFirst()) }
+            return ready
+        }
         guard let cg = Self.cgImage(image) else { return nil }
         images[id] = cg
         imageOrder.append(id)
@@ -268,7 +297,7 @@ final class LucaGameViewController: UIViewController {
         return cg
     }
 
-    static func cgImage(_ image: CZImage) -> CGImage? {
+    nonisolated static func cgImage(_ image: CZImage) -> CGImage? {
         // Premultiply for Core Animation.
         var pixels = image.rgba
         pixels.withUnsafeMutableBufferPointer { p in
@@ -558,6 +587,35 @@ final class LucaGameViewController: UIViewController {
     static let titleLogoID = 25_160
     /// BGM01 in MUSIC.PAK.
     static let titleMusicID = 100_001
+}
+
+/// Decoded pictures handed from the prefetch queue to the main thread.
+final class LucaPrefetched: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ready: [Int: CGImage] = [:]
+    private var done = Set<Int>()
+
+    func put(_ id: Int, _ image: CGImage?) {
+        lock.lock()
+        done.insert(id)
+        guard let image else { lock.unlock(); return }
+        ready[id] = image
+        if ready.count > 12, let old = ready.keys.first(where: { $0 != id }) { ready.removeValue(forKey: old) }
+        lock.unlock()
+    }
+
+    /// Ids finished since last asked (decoded or not).
+    func drainDone() -> Set<Int> {
+        lock.lock()
+        defer { done.removeAll(); lock.unlock() }
+        return done
+    }
+
+    func take(_ id: Int) -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return ready.removeValue(forKey: id)
+    }
 }
 
 struct LucaGameView: UIViewControllerRepresentable {
