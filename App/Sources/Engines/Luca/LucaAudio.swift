@@ -14,16 +14,31 @@ final class LucaAudio {
     private var fades: [(node: AVAudioPlayerNode, from: Float, to: Float, start: CFTimeInterval, duration: CFTimeInterval, stop: Bool)] = []
     /// Decoded music, so a track that comes back doesn't decode again.
     private var musicCache: [Int: AVAudioPCMBuffer] = [:]
-    var musicVolume: Float = 0.8
-    var voiceVolume: Float = 1
-    var effectVolume: Float = 0.9
+    /// The script's own volume for each effect channel, scaled by `effectVolume`.
+    private var effectLevels: [Int: Float] = [:]
+    var musicVolume: Float = 0.8 {
+        didSet { if let music, !fades.contains(where: { $0.node === music }) { music.volume = musicVolume } }
+    }
+    var voiceVolume: Float = 1 {
+        didSet { voice?.volume = voiceVolume }
+    }
+    var effectVolume: Float = 0.9 {
+        didSet {
+            for (channel, node) in effects where !fades.contains(where: { $0.node === node }) {
+                node.volume = effectVolume * (effectLevels[channel] ?? 1)
+            }
+        }
+    }
+    var systemVolume: Float = 0.9
 
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
-    var isVoicePlaying: Bool { voice?.isPlaying ?? false }
+    /// When the voice on now ends (a player node still reports playing after its buffer ends).
+    private var voiceEnds: CFTimeInterval = 0
+    var isVoicePlaying: Bool { voice != nil && CACurrentMediaTime() < voiceEnds }
 
     func handle(_ sound: LucaSound, game: LucaGame) {
         switch sound {
@@ -42,6 +57,7 @@ final class LucaAudio {
         case .effect(let channel, let id, let loop, let volume, let fade):
             stop(effects[channel], frames: 0)
             guard let buffer = game.soundEffect(id).flatMap(Self.buffer) else { effects[channel] = nil; return }
+            effectLevels[channel] = Float(volume)
             effects[channel] = play(buffer, loop: loop, volume: effectVolume * Float(volume), fadeFrames: fade)
         case .stopEffect(let channel, let fade):
             if channel < 0 {
@@ -55,6 +71,7 @@ final class LucaAudio {
             stop(voice, frames: 0)
             guard let buffer = game.voice(id).flatMap(Self.buffer) else { voice = nil; return }
             voice = play(buffer, loop: false, volume: voiceVolume, fadeFrames: 0)
+            voiceEnds = CACurrentMediaTime() + Double(buffer.frameLength) / buffer.format.sampleRate
         case .stopVoice:
             stop(voice, frames: 0)
             voice = nil
@@ -89,12 +106,17 @@ final class LucaAudio {
     /// A sound from SYSSE.PAK (title_hit, TOGGLE, …).
     func playSystem(_ name: String, game: LucaGame) {
         guard let buffer = game.systemSound(named: name).flatMap(Self.buffer) else { return }
-        let node = play(buffer, loop: false, volume: effectVolume, fadeFrames: 0)
+        let node = play(buffer, loop: false, volume: systemVolume, fadeFrames: 0)
         // Detached when done.
         if let node {
             let length = Double(buffer.frameLength) / buffer.format.sampleRate
             DispatchQueue.main.asyncAfter(deadline: .now() + length + 0.2) { [weak self] in self?.detach(node) }
         }
+    }
+
+    /// Plays a line's voice again (the window's VOICE button).
+    func replayVoice(_ id: Int, game: LucaGame) {
+        handle(.voice(id: id), game: game)
     }
 
     /// Advances fades; call every frame.

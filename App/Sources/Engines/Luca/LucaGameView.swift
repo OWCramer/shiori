@@ -35,7 +35,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     /// PC game; stretched to the bottom of the screen.
     private let windowRect = CGRect(x: 0, y: 691, width: 1920, height: 389)
     /// The window's teal, measured from the PC game.
-    private static let windowTint = SIMD4<Float>(0.0, 0.745, 0.765, 0.45)
+    private var windowTint: SIMD4<Float> { SIMD4<Float>(0.0, 0.745, 0.765, settings.windowAlpha) }
     /// The speaker's name plate (mwin1920_0, white, tinted) and the flapping butterfly that
     /// says a tap reads on (__SYS_MW01_KEY00, 24 frames).
     private let namePlate = UIImageView()
@@ -58,6 +58,14 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var systemMenu: LucaSystemMenu?
     private var saveScreen: LucaSaveScreen?
     private var textHidden = false
+    private var optionsScreen: LucaOptionsScreen?
+    private var settings = LucaSettings()
+    private var readLog: LucaReadLog?
+    /// Whether the line on screen had been read before (on any playthrough).
+    private var lineWasRead = false
+    private var lineHasVoice = false
+    private var revealCarry = 0.0
+    private var windowBar: LucaWindowBar?
     /// Auto reads on a moment after each line (and its voice) finishes; Skip races to the
     /// next choice. A tap stops either.
     private enum ReadMode { case normal, auto, skip }
@@ -123,6 +131,13 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         let history = UISwipeGestureRecognizer(target: self, action: #selector(showBacklog))
         history.direction = .down
         view.addGestureRecognizer(history)
+        let skip = UISwipeGestureRecognizer(target: self, action: #selector(flickedRight))
+        skip.direction = .right
+        view.addGestureRecognizer(skip)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(heldOnWindow(_:)))
+        hold.minimumPressDuration = 0.6
+        hold.delegate = self
+        view.addGestureRecognizer(hold)
         let leave = UILongPressGestureRecognizer(target: self, action: #selector(askToLeave(_:)))
         leave.numberOfTouchesRequired = 2
         leave.minimumPressDuration = 0.8
@@ -149,6 +164,14 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
                 choiceImages = (0..<4).compactMap { buttons.cropping(to: CGRect(x: 0, y: $0 * 225, width: buttons.width, height: 225)) }
             }
             try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
+            settings = LucaSettings.load(from: saves)
+            readLog = LucaReadLog(saves: saves)
+            let bar = LucaWindowBar(sheet: game.imageID(named: "legacy_pt").flatMap { game.image($0) }.flatMap(Self.cgImage))
+            bar.onPick = { [weak self] item in self?.windowBarPicked(item) }
+            bar.isHidden = true
+            overlay.addSubview(bar)
+            windowBar = bar
+            applySettings()
             showTitle()
         } catch {
             NSLog("Luca: couldn't open the game: %@", String(describing: error))
@@ -292,9 +315,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             face = (texture, CGRect(x: 215 - r.midX, y: windowRect.minY + 215 - r.midY, width: w, height: h))
         }
         onScreen = shown
-        let windowShown = player.windowVisible && !textHidden && titleView == nil && systemMenu == nil && saveScreen == nil
+        let windowShown = player.windowVisible && !textHidden && titleView == nil && systemMenu == nil && saveScreen == nil && optionsScreen == nil
         let window = LucaRenderer.Window(visible: windowShown, mask: windowMask,
-                                         tint: Self.windowTint, rect: windowRect,
+                                         tint: windowTint, rect: windowRect,
                                          face: windowShown && player.message != nil ? face : nil)
         renderer.draw(layers: items, shake: player.shake, window: window, effects: LucaEffects(sepia: player.effects.sepia))
     }
@@ -348,7 +371,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var stageScale: CGFloat { overlay.bounds.width / stageSize.width }
 
     private func syncText(_ player: LucaPlayer) {
-        let visible = player.windowVisible && !textHidden && player.message != nil && systemMenu == nil && saveScreen == nil
+        let visible = player.windowVisible && !textHidden && player.message != nil && systemMenu == nil && saveScreen == nil && optionsScreen == nil
         // The PC game shows the name without a plate.
         namePlate.isHidden = true
         let waiting = visible && player.isWaitingForClick && !typing
@@ -358,6 +381,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         }
         nameLabel.isHidden = !visible
         textLabel.isHidden = !visible
+        if let windowBar {
+            windowBar.isHidden = !(visible && settings.shortcutMenu && player.choices == nil)
+            windowBar.update(skip: readMode == .skip, auto: readMode == .auto, voice: lineHasVoice)
+        }
         if (player.windowFace != nil) != lastHadFace {
             lastHadFace = player.windowFace != nil
             layoutText()
@@ -365,13 +392,31 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         if player.message != shownMessage {
             shownMessage = player.message
             revealed = 0
+            revealCarry = 0
+            lineHasVoice = shownMessage.map { player.game.hasVoice($0.voice) } ?? false
             revealTarget = shownMessage?.text.count ?? 0
+            if let key = player.messageKey, let readLog {
+                lineWasRead = readLog.contains(key)
+                readLog.insert(key)
+            } else {
+                lineWasRead = false
+            }
             nameLabel.text = shownMessage?.speaker
             layoutText()
         }
         if revealed < revealTarget {
-            revealed = min(revealTarget, revealed + 2)
-            renderText()
+            if let speed = settings.lettersPerSecond {
+                revealCarry += speed / 60
+                let step = Int(revealCarry)
+                revealCarry -= Double(step)
+                if step > 0 {
+                    revealed = min(revealTarget, revealed + step)
+                    renderText()
+                }
+            } else {
+                revealed = revealTarget
+                renderText()
+            }
         }
     }
 
@@ -380,8 +425,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         let font = UIFont.systemFont(ofSize: 48 * stageScale, weight: .medium)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 12 * stageScale
+        let colour = lineWasRead && settings.colourReadText
+            ? LucaSettings.readTextColours[min(settings.readTextColour, LucaSettings.readTextColours.count - 1)].color : UIColor.white
         let text = NSMutableAttributedString(string: message.text, attributes: [
-            .font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph,
+            .font: font, .foregroundColor: colour, .paragraphStyle: paragraph,
         ])
         let shown = message.text.index(message.text.startIndex, offsetBy: min(revealed, message.text.count))
         let hidden = NSRange(shown..<message.text.endIndex, in: message.text)
@@ -405,6 +452,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         nameLabel.frame = CGRect(x: left * s, y: 740 * s, width: 900 * s, height: 52 * s)
         textLabel.frame = CGRect(x: left * s, y: 806 * s, width: (1920 - left - 200) * s, height: 220 * s)
         pageMarker.frame = CGRect(x: 1640 * s, y: 996 * s, width: 72 * s, height: 72 * s)
+        let bar = LucaWindowBar.frameInStage
+        windowBar?.frame = CGRect(x: bar.minX * s, y: bar.minY * s, width: bar.width * s, height: bar.height * s)
         renderText()
     }
 
@@ -416,6 +465,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             return
         case .skip:
             if player.choices != nil {
+                readMode = .normal
+            } else if player.isWaitingForClick, settings.skipReadOnly, !lineWasRead {
+                // Skip stops at the first line not read before.
                 readMode = .normal
             } else if player.isWaitingForClick {
                 revealed = revealTarget
@@ -432,7 +484,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             }
             let now = CACurrentMediaTime()
             if let done = lineDoneAt {
-                if now - done > 1.2 + Double(shownMessage?.text.count ?? 0) * 0.01 {
+                if now - done > settings.autoWait(letters: shownMessage?.text.count ?? 0) {
                     lineDoneAt = nil
                     player.click()
                 }
@@ -610,7 +662,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func tapped() {
-        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, let player else { return }
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, let player else { return }
         if movieLoading { return }
         if let movie {
             if CACurrentMediaTime() - movie.start > 1 { endMovie() }
@@ -634,7 +686,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func showMenu() {
-        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, let player, let game else { return }
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, let player, let game else { return }
         let sheet = game.imageID(named: "systemmenuen").flatMap { game.image($0) }.flatMap(Self.cgImage)
         audio.playSystem("TOGGLE", game: game)
         let menu = LucaSystemMenu(sheet: sheet) { [weak self] item in
@@ -744,7 +796,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         do {
             let player = try LucaPlayer(game: game)
             if let state { try player.restore(state) }
+            player.stopsVoiceOnClick = settings.voiceStopsOnTap
             self.player = player
+            readMode = .normal
             audio.handle(.stopMusic(fadeFrames: 30), game: game)
             lastDraw = -1
             shownMessage = nil
@@ -770,14 +824,73 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     private func presentOptions() {
-        let alert = UIAlertController(title: "Options", message: "Text speed and volumes are coming next.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+        guard let game, optionsScreen == nil else { return }
+        audio.playSystem("TOGGLE", game: game)
+        let screen = LucaOptionsScreen(game: game, settings: settings, onSound: { [weak self] name in
+            guard let self, let game = self.game else { return }
+            self.audio.playSystem(name, game: game)
+        }, onChange: { [weak self] settings in
+            self?.settings = settings
+            self?.applySettings()
+        }, onClose: { [weak self] in
+            guard let self else { return }
+            self.settings.save(to: self.saves)
+            self.optionsScreen?.removeFromSuperview()
+            self.optionsScreen = nil
+        })
+        screen.frame = view.bounds
+        screen.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(screen)
+        optionsScreen = screen
+    }
+
+    private func applySettings() {
+        audio.musicVolume = Float(settings.music)
+        audio.effectVolume = Float(settings.effects)
+        audio.voiceVolume = Float(settings.voice)
+        audio.systemVolume = Float(settings.system)
+        player?.stopsVoiceOnClick = settings.voiceStopsOnTap
+        renderText()
+    }
+
+    // MARK: Shortcut menu
+
+    private func windowBarPicked(_ item: LucaWindowBar.Item) {
+        guard let game else { return }
+        switch item {
+        case .menu:
+            showMenu()
+        case .skip:
+            readMode = readMode == .skip ? .normal : .skip
+            audio.playSystem("TOGGLE", game: game)
+        case .auto:
+            readMode = readMode == .auto ? .normal : .auto
+            lineDoneAt = nil
+            audio.playSystem("TOGGLE", game: game)
+        case .voice:
+            if lineHasVoice, let voice = shownMessage?.voice { audio.replayVoice(voice, game: game) }
+        }
+    }
+
+    /// Manual page 10: a flick right starts Skip; holding a finger on the window toggles Auto.
+    @objc private func flickedRight() {
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil,
+              player?.choices == nil else { return }
+        windowBarPicked(.skip)
+    }
+
+    @objc private func heldOnWindow(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began, titleView == nil, presentedViewController == nil, systemMenu == nil,
+              saveScreen == nil, optionsScreen == nil, player?.choices == nil else { return }
+        let point = recognizer.location(in: overlay)
+        guard point.y > windowRect.minY * stageScale else { return }
+        windowBarPicked(.auto)
     }
 
     // MARK: Saves
 
     private func autosave() {
+        readLog?.save()
         guard let player, !player.finished else { return }
         try? LucaSaves.write(player.saveState(), slot: 0, thumbnail: thumbnail(), in: saves)
     }
