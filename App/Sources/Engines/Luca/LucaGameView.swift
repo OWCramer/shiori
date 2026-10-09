@@ -59,6 +59,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var saveScreen: LucaSaveScreen?
     private var textHidden = false
     private var optionsScreen: LucaOptionsScreen?
+    private var messageLog: LucaMessageLog?
     private var settings = LucaSettings()
     private var readLog: LucaReadLog?
     /// Whether the line on screen had been read before (on any playthrough).
@@ -280,9 +281,20 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     private func drawStage(_ player: LucaPlayer) {
         guard let renderer else { return }
-        var items: [(layer: LucaLayer, texture: MTLTexture, rect: CGRect)] = []
+        var items: [LucaRenderer.Item] = []
         var shown = Set<Int>()
+        /// Pictures on the stage, so effects that left it stop decoding.
+        var effectsShown = Set<Int>()
         for layer in player.sortedLayers {
+            effectsShown.insert(layer.imageID)
+            if let effect = effectFrame(layer.imageID) {
+                // An animated effect (MVT), scaled to the size it covers.
+                let w = Double(effect.header.shownWidth) * layer.scale, h = Double(effect.header.shownHeight) * layer.scale
+                let (x, y) = layer.origin(width: w, height: h, offsetX: 0, offsetY: 0)
+                let packing = effect.header.alphaBelow ? 1 : effect.header.alphaRight ? 2 : 0
+                items.append(.init(layer: layer, source: .video(effect.frame, packing: packing), rect: CGRect(x: x, y: y, width: w, height: h)))
+                continue
+            }
             guard let image = player.game.image(layer.imageID), let picture = texture(layer.imageID) else { continue }
             shown.insert(layer.imageID)
             if let baseID = layer.baseImageID, let base = player.game.image(baseID), let baseTexture = texture(baseID) {
@@ -290,9 +302,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
                 shown.insert(baseID)
                 let bw = Double(base.width) * layer.scale, bh = Double(base.height) * layer.scale
                 let (bx, by) = layer.origin(width: bw, height: bh, offsetX: 0, offsetY: 0)
-                items.append((layer, baseTexture, CGRect(x: bx, y: by, width: bw, height: bh)))
-                items.append((layer, picture, CGRect(x: bx + Double(image.offsetX) * layer.scale, y: by + Double(image.offsetY) * layer.scale,
-                                                     width: Double(image.width) * layer.scale, height: Double(image.height) * layer.scale)))
+                items.append(.init(layer: layer, source: .picture(baseTexture), rect: CGRect(x: bx, y: by, width: bw, height: bh)))
+                items.append(.init(layer: layer, source: .picture(picture),
+                                   rect: CGRect(x: bx + Double(image.offsetX) * layer.scale, y: by + Double(image.offsetY) * layer.scale,
+                                                width: Double(image.width) * layer.scale, height: Double(image.height) * layer.scale)))
                 continue
             }
             let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
@@ -301,8 +314,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
                 // Where these pixels sit on the whole sprite, centred like the sprite.
                 x = layer.x - Double(anchor.width) * layer.scale / 2 + Double(image.offsetX - anchor.x) * layer.scale
             }
-            items.append((layer, picture, CGRect(x: x, y: y, width: w, height: h)))
+            items.append(.init(layer: layer, source: .picture(picture), rect: CGRect(x: x, y: y, width: w, height: h)))
         }
+        // Effects no longer on the stage stop decoding.
+        for id in effects.keys where !effectsShown.contains(id) && !effectsLoading.contains(id) { effects[id] = nil }
         var face: (texture: MTLTexture, rect: CGRect)?
         if let layer = player.windowFace, let image = player.game.image(layer.imageID), let texture = texture(layer.imageID) {
             shown.insert(layer.imageID)
@@ -317,11 +332,46 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             face = (texture, CGRect(x: 215 - r.midX, y: windowRect.minY + 215 - r.midY, width: w, height: h))
         }
         onScreen = shown
-        let windowShown = player.windowVisible && !textHidden && titleView == nil && systemMenu == nil && saveScreen == nil && optionsScreen == nil
+        let windowShown = player.windowVisible && !textHidden && titleView == nil && systemMenu == nil && saveScreen == nil && optionsScreen == nil && messageLog == nil
         let window = LucaRenderer.Window(visible: windowShown, mask: windowMask,
                                          tint: windowTint, rect: windowRect,
                                          face: windowShown && player.message != nil ? face : nil)
         renderer.draw(layers: items, shake: player.shake, window: window, effects: LucaEffects(sepia: player.effects.sepia))
+    }
+
+    // MARK: Animated effects
+
+    /// MVT effects on the stage (sun flares, light lines, sparkles), decoding and looping from
+    /// when they first appeared.
+    private var effects: [Int: (decoder: LucaVideoDecoder, header: WebM.MVTHeader, start: CFTimeInterval)] = [:]
+    private var effectsLoading = Set<Int>()
+    private var notEffects = Set<Int>()
+
+    /// The frame to show now for effect `id`, starting its decoder the first time (nil while it
+    /// loads, or when `id` is a picture).
+    private func effectFrame(_ id: Int) -> (frame: LucaVideoDecoder.Frame, header: WebM.MVTHeader)? {
+        if let effect = effects[id] {
+            guard let frame = effect.decoder.frame(at: CACurrentMediaTime() - effect.start) else { return nil }
+            return (frame, effect.header)
+        }
+        guard !notEffects.contains(id), !effectsLoading.contains(id), let game, let device = renderer?.metalDevice else { return nil }
+        guard game.isMVT(id) else { notEffects.insert(id); return nil }
+        effectsLoading.insert(id)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let mvt = game.mvt(id)
+            let decoder = mvt.flatMap { LucaVideoDecoder(webm: $0.webm, device: device, loops: true) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.effectsLoading.remove(id)
+                guard let mvt, let decoder else {
+                    NSLog("Luca: couldn't play effect %d", id)
+                    self.notEffects.insert(id)
+                    return
+                }
+                self.effects[id] = (decoder, mvt.header, CACurrentMediaTime())
+            }
+        }
+        return nil
     }
 
     /// Every quarter second, decodes and uploads what the script will show next.
@@ -373,7 +423,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var stageScale: CGFloat { overlay.bounds.width / stageSize.width }
 
     private func syncText(_ player: LucaPlayer) {
-        let visible = player.windowVisible && !textHidden && player.message != nil && systemMenu == nil && saveScreen == nil && optionsScreen == nil
+        let visible = player.windowVisible && !textHidden && player.message != nil && systemMenu == nil && saveScreen == nil && optionsScreen == nil && messageLog == nil
         // The PC game shows the name without a plate.
         namePlate.isHidden = true
         let waiting = visible && player.isWaitingForClick && !typing
@@ -669,7 +719,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func tapped() {
-        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, let player else { return }
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil, let player else { return }
         if movieLoading { return }
         if let movie {
             if CACurrentMediaTime() - movie.start > 1 { endMovie() }
@@ -693,7 +743,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func showMenu() {
-        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, let player, let game else { return }
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil, let player, let game else { return }
         let sheet = game.imageID(named: "systemmenuen").flatMap { game.image($0) }.flatMap(Self.cgImage)
         audio.playSystem("TOGGLE", game: game)
         let menu = LucaSystemMenu(sheet: sheet) { [weak self] item in
@@ -725,13 +775,24 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func showBacklog() {
-        guard titleView == nil, presentedViewController == nil, saveScreen == nil, let player else { return }
-        let backlog = UIHostingController(rootView: LucaBacklogView(lines: player.backlog) { [weak self] in
-            self?.dismiss(animated: true)
+        guard titleView == nil, presentedViewController == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil,
+              systemMenu == nil, let player, let game else { return }
+        readMode = .normal
+        audio.playSystem("TOGGLE", game: game)
+        let log = LucaMessageLog(game: game, lines: player.backlog, onVoice: { [weak self] voice in
+            guard let self, let game = self.game else { return }
+            self.audio.replayVoice(voice, game: game)
+        }, onClose: { [weak self] in
+            guard let self else { return }
+            if let game = self.game { self.audio.playSystem("TOGGLE", game: game) }
+            self.messageLog?.removeFromSuperview()
+            self.messageLog = nil
         })
-        backlog.modalPresentationStyle = .overFullScreen
-        backlog.view.backgroundColor = .clear
-        present(backlog, animated: true)
+        log.frame = view.bounds
+        log.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(log)
+        log.scrollToEnd()
+        messageLog = log
     }
 
     @objc private func askToLeave(_ recognizer: UILongPressGestureRecognizer) {
@@ -831,7 +892,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     private func presentOptions() {
-        guard let game, optionsScreen == nil else { return }
+        guard let game, optionsScreen == nil, messageLog == nil else { return }
         audio.playSystem("TOGGLE", game: game)
         let screen = LucaOptionsScreen(game: game, settings: settings, onSound: { [weak self] name in
             guard let self, let game = self.game else { return }
@@ -882,14 +943,14 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     /// Manual page 10: a flick right starts Skip; holding a finger on the window toggles Auto.
     @objc private func flickedRight() {
-        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil,
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil,
               player?.choices == nil else { return }
         windowBarPicked(.skip)
     }
 
     @objc private func heldOnWindow(_ recognizer: UILongPressGestureRecognizer) {
         guard recognizer.state == .began, titleView == nil, presentedViewController == nil, systemMenu == nil,
-              saveScreen == nil, optionsScreen == nil, player?.choices == nil else { return }
+              saveScreen == nil, optionsScreen == nil , messageLog == nil, player?.choices == nil else { return }
         let point = recognizer.location(in: overlay)
         guard point.y > windowRect.minY * stageScale else { return }
         windowBarPicked(.auto)

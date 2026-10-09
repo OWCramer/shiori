@@ -17,6 +17,8 @@ final class LucaRenderer {
     private let queue: MTLCommandQueue
     private var pipelines: [Int: MTLRenderPipelineState] = [:]
     private var videoPipeline: MTLRenderPipelineState?
+    /// Animated effects (MVT) on the stage, one per blend mode.
+    private var videoLayerPipelines: [Int: MTLRenderPipelineState] = [:]
     private let sampler: MTLSamplerState
     let textures: LucaTextureCache
 
@@ -50,6 +52,10 @@ final class LucaRenderer {
                 pipelines[blend] = try Self.pipeline(device: device, library: library, blend: blend)
             }
             videoPipeline = try Self.pipeline(device: device, library: library, blend: 0, fragment: "luca_video_fragment")
+            for blend in 0...2 {
+                videoLayerPipelines[blend] = try Self.pipeline(device: device, library: library, blend: blend,
+                                                               fragment: "luca_video_fragment")
+            }
         } catch {
             NSLog("Luca: Metal shaders failed: %@", String(describing: error))
             return nil
@@ -81,7 +87,19 @@ final class LucaRenderer {
 
     func endFade() { fade = nil }
 
-    func draw(layers: [(layer: LucaLayer, texture: MTLTexture, rect: CGRect)], shake: (x: Double, y: Double),
+    /// One thing on the stage: a picture, or a frame of an animated effect.
+    struct Item {
+        enum Source {
+            case picture(MTLTexture)
+            /// Packing: 0 none, 1 alpha below the picture, 2 alpha right of it.
+            case video(LucaVideoDecoder.Frame, packing: Int)
+        }
+        var layer: LucaLayer
+        var source: Source
+        var rect: CGRect
+    }
+
+    func draw(layers: [Item], shake: (x: Double, y: Double),
               window: Window, effects: LucaEffects) {
         let size = layer.drawableSize
         guard size.width >= 1, size.height >= 1, let drawable = layer.nextDrawable(),
@@ -106,8 +124,14 @@ final class LucaRenderer {
                 var rect = item.rect
                 rect.origin.x += shake.x
                 rect.origin.y += shake.y
-                quad(encoder, texture: item.texture, rect: rect, alpha: Float(item.layer.alpha),
-                     blend: item.layer.blend, effects: effects)
+                switch item.source {
+                case .picture(let texture):
+                    quad(encoder, texture: texture, rect: rect, alpha: Float(item.layer.alpha),
+                         blend: item.layer.blend, effects: effects)
+                case .video(let frame, let packing):
+                    videoQuad(encoder, frame: frame, rect: rect, alpha: Float(item.layer.alpha),
+                              blend: item.layer.blend, packing: packing)
+                }
             }
             encoder.endEncoding()
         }
@@ -230,6 +254,24 @@ final class LucaRenderer {
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
     }
 
+    private func videoQuad(_ encoder: MTLRenderCommandEncoder, frame: LucaVideoDecoder.Frame, rect: CGRect, alpha: Float,
+                           blend: Int, packing: Int) {
+        guard alpha > 0.001, let pipeline = videoLayerPipelines[blend] ?? videoLayerPipelines[0] else { return }
+        encoder.setRenderPipelineState(pipeline)
+        var mode: Int32 = (frame.bt709 ? 1 : 0) | (frame.fullRange ? 2 : 0)
+        if packing == 1 { mode |= 4 }
+        if packing == 2 { mode |= 8 }
+        var u = Uniforms(rect: SIMD4(Float(rect.minX), Float(rect.minY), Float(rect.width), Float(rect.height)),
+                         stage: Self.stageSize, alpha: alpha, mode: mode, tint: .zero, fade: .zero,
+                         sepia: 0, tone: .zero, addColor: .zero)
+        encoder.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
+        encoder.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
+        encoder.setFragmentTexture(frame.y, index: 0)
+        encoder.setFragmentTexture(frame.u, index: 1)
+        encoder.setFragmentTexture(frame.v, index: 2)
+        encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+    }
+
     private func makeTarget(width: Int, height: Int, shared: Bool = false) -> MTLTexture? {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
         descriptor.usage = [.renderTarget, .shaderRead]
@@ -306,13 +348,15 @@ final class LucaRenderer {
     }
 
     // YUV 4:2:0 planes. mode bit 0: BT.709 (else BT.601); bit 1: full range (else studio).
-    // bit 2: alpha packed below the picture (the top half is colour, the bottom half alpha).
+    // bit 2: alpha packed below the picture (the top half is colour, the bottom half alpha);
+    // bit 3: alpha packed right of it (the left half colour).
     fragment float4 luca_video_fragment(VOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
                                         texture2d<float> ty [[texture(0)]], texture2d<float> tu [[texture(1)]],
                                         texture2d<float> tv [[texture(2)]], sampler s [[sampler(0)]]) {
-        bool packed = (u.mode & 4) != 0;
+        bool below = (u.mode & 4) != 0, right = (u.mode & 8) != 0;
         float2 uv = in.uv;
-        if (packed) uv.y *= 0.5;
+        if (below) uv.y *= 0.5;
+        if (right) uv.x *= 0.5;
         float y = ty.sample(s, uv).r, cb = tu.sample(s, uv).r - 0.5, cr = tv.sample(s, uv).r - 0.5;
         if ((u.mode & 2) == 0) { y = (y - 16.0 / 255.0) * (255.0 / 219.0); cb *= 255.0 / 224.0; cr *= 255.0 / 224.0; }
         float3 rgb = (u.mode & 1) != 0
@@ -320,8 +364,9 @@ final class LucaRenderer {
             : float3(y + 1.402 * cr, y - 0.344136 * cb - 0.714136 * cr, y + 1.772 * cb);
         rgb = clamp(rgb, 0.0, 1.0);
         float a = u.alpha;
-        if (packed) {
-            float m = ty.sample(s, float2(in.uv.x, 0.5 + in.uv.y * 0.5)).r;
+        if (below || right) {
+            float2 at = below ? float2(in.uv.x, 0.5 + in.uv.y * 0.5) : float2(0.5 + in.uv.x * 0.5, in.uv.y);
+            float m = ty.sample(s, at).r;
             if ((u.mode & 2) == 0) m = (m - 16.0 / 255.0) * (255.0 / 219.0);
             a *= clamp(m, 0.0, 1.0);
         }
