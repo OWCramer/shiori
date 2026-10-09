@@ -43,6 +43,11 @@ enum EngineDetection {
                     || (name.hasPrefix("siglusengine") && name.hasSuffix(".exe"))
             }
         },
+        // Prototype's Luca System (Summer Pockets REFLECTION BLUE): files/SCRIPT.PAK.
+        Signature(id: "luca", name: "Luca System") { names, root in
+            names.contains("files")
+                && FileManager.default.fileExists(atPath: root.appendingPathComponent("files/SCRIPT.PAK").path)
+        },
         Signature(id: "nscripter", name: "NScripter") { names, _ in
             names.contains("nscript.dat") || names.contains("0.txt") || names.contains("00.txt") || names.contains { $0.hasSuffix(".nsa") }
         },

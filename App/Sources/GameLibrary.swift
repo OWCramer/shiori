@@ -129,8 +129,14 @@ final class GameLibrary {
         for name in (try? fm.contentsOfDirectory(atPath: Self.gamesDirectory.path)) ?? [] {
             let url = Self.gamesDirectory.appendingPathComponent(name).appendingPathComponent("game.json")
             guard let data = try? Data(contentsOf: url),
-                  let record = try? Self.decoder.decode(GameRecord.self, from: data)
+                  var record = try? Self.decoder.decode(GameRecord.self, from: data)
             else { continue }
+            // Installed before Shiori knew its engine: look again (detection reads a few names).
+            if record.engine == nil,
+               let engine = EngineDetection.detect(gameRoot: url.deletingLastPathComponent().appendingPathComponent("base", isDirectory: true)) {
+                record.engine = engine
+                try? Self.encoder.encode(record).write(to: url, options: .atomic)
+            }
             statuses[record.appID] = .installed(record)
         }
         for name in (try? fm.contentsOfDirectory(atPath: Self.installsDirectory.path)) ?? [] {
@@ -528,7 +534,7 @@ final class GameLibrary {
     func playBlocker(appID: UInt32) -> String? {
         guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
         guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
-        if engine.engine == "artemis" || engine.engine == "siglus" { return nil }
+        if engine.engine == "artemis" || engine.engine == "siglus" || engine.engine == "luca" { return nil }
         if engine.engine == "kirikiri" {
             #if targetEnvironment(simulator)
             return "KiriKiri games play on an iPhone or iPad, not in the simulator."
@@ -586,13 +592,23 @@ final class GameLibrary {
         }
     }
 
+    /// A Luca System game being played (LucaKit, in-process; leaving returns here).
+    var lucaSession: ArtemisSession? {
+        didSet {
+            // Leaving: send its saves up (Shiori's own format, so iCloud only).
+            if let ended = oldValue, lucaSession == nil, ended.appID != 0 {
+                Task { await syncSaves(appID: ended.appID, direction: .push) }
+            }
+        }
+    }
+
     /// Hands the app over to the game. Never returns: the app exits when the game quits.
     func play(appID: UInt32) {
         guard playBlocker(appID: appID) == nil, tasks[appID] == nil, launching == nil,
               case let .installed(record) = statuses[appID], let engine = record.engine
         else { return }
         let folder = folder(appID: appID, name: record.name)
-        if engine.engine == "artemis" || engine.engine == "kirikiri" || engine.engine == "siglus" {
+        if engine.engine == "artemis" || engine.engine == "kirikiri" || engine.engine == "siglus" || engine.engine == "luca" {
             // ArtemisKit's saves aren't the PC's format, so no Steam Cloud; iCloud mirrors them.
             // KiriKiri's and Siglus's are the PC's own: Steam Cloud too, for games whose cloud
             // rules name savedata/ (games that write the cloud through Steam's API aren't mapped).
@@ -603,7 +619,7 @@ final class GameLibrary {
                 // The cover's art downloads while saves sync (usually from URLCache).
                 async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
                 await syncSaves(appID: appID, direction: .pull)
-                if engine.engine != "artemis", steamCloudMapped[appID] == true { await pullSteamCloud(appID: appID) }
+                if engine.engine != "artemis", engine.engine != "luca", steamCloudMapped[appID] == true { await pullSteamCloud(appID: appID) }
                 let (heroFile, logoFile) = await cover
                 let art = LaunchCover.Art(hero: heroFile.flatMap { UIImage(contentsOfFile: $0.path) },
                                           logo: logoFile.flatMap { UIImage(contentsOfFile: $0.path) },
@@ -613,6 +629,8 @@ final class GameLibrary {
                     kirikiriSession = ArtemisSession(appID: appID, folder: folder, cover: art)
                 } else if engine.engine == "siglus" {
                     siglusSession = ArtemisSession(appID: appID, folder: folder, cover: art)
+                } else if engine.engine == "luca" {
+                    lucaSession = ArtemisSession(appID: appID, folder: folder, cover: art)
                 } else {
                     artemisSession = ArtemisSession(appID: appID, folder: folder, cover: art)
                 }

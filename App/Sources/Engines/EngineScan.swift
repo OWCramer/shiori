@@ -33,7 +33,7 @@ enum Playability: Equatable {
 
     init(_ engine: EngineMatch?) {
         guard let engine else { self = .unknownEngine; return }
-        if ["artemis", "kirikiri", "siglus"].contains(engine.engine) { self = .playable; return }
+        if ["artemis", "kirikiri", "siglus", "luca"].contains(engine.engine) { self = .playable; return }
         guard engine.engine == RenPyEngine.id else {
             self = .unsupportedEngine(EngineDetection.displayName(for: engine.engine))
             return
@@ -66,7 +66,7 @@ final class EngineScanStore {
     private let session: SteamSession
 
     /// Bumped when detection changes, so older results are scanned again.
-    private static var url: URL { URL.applicationSupportDirectory.appendingPathComponent("engine-scan-5.json") }
+    private static var url: URL { URL.applicationSupportDirectory.appendingPathComponent("engine-scan-6.json") }
 
     init(session: SteamSession) {
         self.session = session
