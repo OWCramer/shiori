@@ -220,6 +220,45 @@ def _patch_renpy():
                 renpy.display.interface.keyboard_focused, getattr(renpy.display.interface, "mouse_focused", None)))
 
     renpy.config.periodic_callbacks.append(report_focus)
+
+    # Image cache use every 5 seconds: size against its limit, and how many images were
+    # loaded since (a cache that keeps reloading would show here; the user's iPhone ran out of
+    # memory in Sakura Swim Club with no characters drawn).
+    import time
+    cache_report = [time.time(), 0]
+    recent_loads = []
+    image_cache = renpy.display.im.Cache
+    original_add_load_log = image_cache.add_load_log
+
+    def add_load_log(self, filename):
+        cache_report[1] += 1
+        recent_loads.append(filename)
+        del recent_loads[:-3]
+        return original_add_load_log(self, filename)
+
+    image_cache.add_load_log = add_load_log
+
+    def report_cache():
+        now = time.time()
+        if now - cache_report[0] < 5:
+            return
+        cache_report[0] = now
+        try:
+            cache = renpy.display.im.cache
+            loads = cache_report[1]
+            cache_report[1] = 0
+            recent = ", ".join(str(name)[:60] for name in recent_loads) if loads else ""
+            _say_cache("entries %d, %d MB of %d MB, %d loads%s" % (
+                len(cache.cache), cache.cache_size * 4 // 1048576, cache.cache_limit * 4 // 1048576,
+                loads, (" (latest: " + recent + ")") if recent else ""))
+        except Exception as e:
+            _say_cache("unavailable (%r)" % (e,))
+
+    def _say_cache(text):
+        print("Shiori image cache: " + text)
+        sys.stdout.flush()
+
+    renpy.config.periodic_callbacks.append(report_cache)
     controller.init = init
     controller.start = start
     controller.post_event = post_event

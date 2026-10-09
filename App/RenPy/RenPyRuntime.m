@@ -571,11 +571,11 @@ static void RecordFramePerf(double interval, double swap) {
         if (file) {
             NSString *time = [NSDateFormatter localizedStringFromDate:NSDate.date dateStyle:NSDateFormatterNoStyle
                                                             timeStyle:NSDateFormatterMediumStyle];
-            fprintf(file, "%s interval avg %.1f p50 %.1f p95 %.1f max %.1f >17.5ms %d | swap avg %.1f p50 %.1f p95 %.1f max %.1f | frames %d\n",
+            fprintf(file, "%s interval avg %.1f p50 %.1f p95 %.1f max %.1f >17.5ms %d | swap avg %.1f p50 %.1f p95 %.1f max %.1f | frames %d | %.0f MB\n",
                     time.UTF8String, intervalSum / count, sortedIntervals[count / 2],
                     sortedIntervals[(int)(count * 0.95)], sortedIntervals[count - 1], slow,
                     swapSum / count, sortedSwaps[count / 2], sortedSwaps[(int)(count * 0.95)],
-                    sortedSwaps[count - 1], count);
+                    sortedSwaps[count - 1], count, FootprintMB());
             fclose(file);
         }
     }
