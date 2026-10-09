@@ -4,13 +4,17 @@ import UIKit
 /// The game's Message Log (manual page 11), from its art: the olive `backlog_texture`, the
 /// lines with their speakers, a speaker icon (`speaker_1920`, six frames that play while the
 /// voice does) on lines whose voice can be heard again, and the `MessageLogBar` grip as the
-/// scroll thumb. A tap closes it, as do a two-finger tap and pulling up past the last line.
+/// scroll thumb. A tap closes it, as do a two-finger tap and pulling up past the last line;
+/// pressing and holding a line returns the game to it.
 final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     private let stage = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
     private let scroll = UIScrollView(frame: CGRect(x: 0, y: 40, width: 1920, height: 1000))
     private let thumb = UIImageView()
     private let onClose: () -> Void
     private let onVoice: (LucaMessage) -> Void
+    /// Pressing and holding line `i` (an index into the lines) returns the game to it.
+    var onReturn: ((Int) -> Void)?
+    private var rows: [(top: CGFloat, bottom: CGFloat)] = []
     private var speakerFrames: [UIImage] = []
     private var closing = false
 
@@ -50,6 +54,9 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
         let tap = UITapGestureRecognizer(target: self, action: #selector(close))
         tap.delegate = self
         addGestureRecognizer(tap)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        hold.minimumPressDuration = 0.6
+        scroll.addGestureRecognizer(hold)
         let twoFinger = UITapGestureRecognizer(target: self, action: #selector(close))
         twoFinger.numberOfTouchesRequired = 2
         addGestureRecognizer(twoFinger)
@@ -82,6 +89,7 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
         let textWidth: CGFloat = 1420
         var y: CGFloat = 40
         for line in lines {
+            let top = y
             if game.hasVoice(line.voice) {
                 let button = LucaSpeakerButton(frames: speakerFrames)
                 button.frame = CGRect(x: 170, y: y + (line.speaker == nil ? -4 : 30), width: 76, height: 76)
@@ -110,6 +118,7 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
             Self.shade(label)
             scroll.addSubview(label)
             y += height + 44
+            rows.append((top - 10, y - 30))
         }
         scroll.contentSize = CGSize(width: 1920, height: y + 20)
     }
@@ -134,6 +143,13 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         let end = max(0, scrollView.contentSize.height - scrollView.bounds.height)
         if scrollView.contentOffset.y > end + 120 { close() }
+    }
+
+    @objc private func held(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        let y = recognizer.location(in: scroll).y
+        guard let index = rows.firstIndex(where: { $0.top...$0.bottom ~= y }) else { return }
+        onReturn?(index)
     }
 
     @objc private func close() {

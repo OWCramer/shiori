@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct VNHubApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var steam: SteamModel
     @State private var games: GameLibrary
     @State private var controllers = ControllerInput()

@@ -137,6 +137,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         let skip = UISwipeGestureRecognizer(target: self, action: #selector(flickedRight))
         skip.direction = .right
         view.addGestureRecognizer(skip)
+        let back = UISwipeGestureRecognizer(target: self, action: #selector(flickedLeft))
+        back.direction = .left
+        view.addGestureRecognizer(back)
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(heldOnWindow(_:)))
         hold.minimumPressDuration = 0.6
         hold.delegate = self
@@ -193,7 +196,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        view.window?.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { _ in }
+        OrientationLock.set(.landscape, in: view.window?.windowScene)
     }
 
     override func viewDidLayoutSubviews() {
@@ -789,6 +792,22 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             self.messageLog?.removeFromSuperview()
             self.messageLog = nil
         })
+        log.onReturn = { [weak self] index in
+            guard let self, let player = self.player else { return }
+            let serial = player.serial(ofBacklogLine: index)
+            guard player.canReturn(to: serial) else {
+                self.show(.acquired("That line is too far back to return to."))
+                return
+            }
+            let alert = UIAlertController(title: "Return to this line?", message: player.backlog[index].text, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Return", style: .default) { _ in
+                self.messageLog?.removeFromSuperview()
+                self.messageLog = nil
+                self.returnTo(line: serial)
+            })
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            self.present(alert, animated: true)
+        }
         log.frame = view.bounds
         log.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(log)
@@ -811,7 +830,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         displayLink?.invalidate()
         displayLink = nil
         audio.stopAll()
-        view.window?.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .all)) { _ in }
+        OrientationLock.set(.all, in: view.window?.windowScene)
         onExit()
     }
 
@@ -955,6 +974,27 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil,
               player?.choices == nil else { return }
         windowBarPicked(.skip)
+    }
+
+    /// Manual page 10: a flick left goes back a line.
+    @objc private func flickedLeft() {
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil,
+              messageLog == nil, movie == nil, let serial = player?.previousLine else { return }
+        returnTo(line: serial)
+    }
+
+    private func returnTo(line serial: Int) {
+        guard let player else { return }
+        do {
+            try player.returnTo(line: serial)
+        } catch {
+            NSLog("Luca: couldn't go back: %@", String(describing: error))
+            return
+        }
+        readMode = .normal
+        lastDraw = -1
+        renderer?.endFade()
+        transitionRunning = false
     }
 
     @objc private func heldOnWindow(_ recognizer: UILongPressGestureRecognizer) {

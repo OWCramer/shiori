@@ -169,8 +169,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     }
 
     private func requestOrientations(_ mask: UIInterfaceOrientationMask) {
-        guard let scene = view.window?.windowScene else { return }
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+        OrientationLock.set(mask, in: view.window?.windowScene)
     }
 
     override func viewDidLayoutSubviews() {
