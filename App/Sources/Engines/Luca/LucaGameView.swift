@@ -54,6 +54,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var shownChoices: [String]?
     private var choiceImages: [CGImage] = []
     private var titleView: UIView?
+    private var bootShown = false
     private var textHidden = false
     /// Auto reads on a moment after each line (and its voice) finishes; Skip races to the
     /// next choice. A tap stops either.
@@ -179,7 +180,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         }
         CATransaction.commit()
         overlay.frame = frame
-        titleView?.frame = overlay.bounds
+        titleView?.frame = view.bounds
         layoutText()
         layoutChoices()
     }
@@ -685,25 +686,31 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         player = nil
         audio.handle(.stopVoice, game: game)
         audio.handle(.stopEffect(channel: -1, fadeFrames: 0), game: game)
-        audio.handle(.music(id: Self.titleMusicID, fadeFrames: 60), game: game)
+        audio.handle(.stopMusic(fadeFrames: 30), game: game)
         titleView?.removeFromSuperview()
-        let title = UIHostingController(rootView: LucaTitleView(
-            background: game.image(Self.titleBackgroundID).flatMap(Self.cgImage),
-            logo: game.image(Self.titleLogoID).flatMap(Self.cgImage),
-            canContinue: LucaSaves.latest(in: saves) != nil,
-            onNewGame: { [weak self] in self?.start(state: nil) },
-            onContinue: { [weak self] in
-                guard let self, let latest = LucaSaves.latest(in: self.saves) else { return }
-                self.start(state: latest.state)
-            },
-            onLoad: { [weak self] in self?.presentSlots(saving: false) },
-            onLeave: { [weak self] in self?.leave() }))
-        addChild(title)
-        title.view.backgroundColor = .black
-        title.view.frame = overlay.bounds
-        overlay.addSubview(title.view)
-        title.didMove(toParent: self)
-        titleView = title.view
+        // The boot sequence (warning and logos) plays once per launch; after that, the title.
+        let title = LucaTitleScreen(game: game, boot: !bootShown, onSound: { [weak self] sound in
+            guard let self, let game = self.game else { return }
+            if sound == "music" {
+                self.audio.handle(.music(id: Self.titleMusicID, fadeFrames: 60), game: game)
+            } else {
+                self.audio.playSystem(sound, game: game)
+            }
+        }, onAction: { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .start: self.start(state: nil)
+            case .load: self.presentSlots(saving: false)
+            case .options: self.presentOptions()
+            case .manual: self.presentManual()
+            case .exit: self.leave()
+            }
+        })
+        bootShown = true
+        title.frame = view.bounds
+        title.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(title)
+        titleView = title
         #if DEBUG
         if UserDefaults.standard.bool(forKey: "VNHubLucaNewGame") {
             UserDefaults.standard.removeObject(forKey: "VNHubLucaNewGame")
@@ -728,13 +735,29 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             shownMessage = nil
             textHidden = false
             if let titleView {
-                children.first { $0.view === titleView }?.removeFromParent()
                 titleView.removeFromSuperview()
                 self.titleView = nil
             }
         } catch {
             NSLog("Luca: couldn't start: %@", String(describing: error))
         }
+    }
+
+    // MARK: Manual and options
+
+    /// The game's digital manual: its 16 English pages over manual_BG, swiped or tapped through.
+    private func presentManual() {
+        guard let game else { return }
+        let pages = (1...16).compactMap { game.imageID(named: String(format: "en_manual%02d", $0)) }
+        let pager = LucaManualViewController(game: game, pages: pages, background: game.imageID(named: "manual_BG"))
+        pager.modalPresentationStyle = .overFullScreen
+        present(pager, animated: true)
+    }
+
+    private func presentOptions() {
+        let alert = UIAlertController(title: "Options", message: "Text speed and volumes are coming next.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 
     // MARK: Saves

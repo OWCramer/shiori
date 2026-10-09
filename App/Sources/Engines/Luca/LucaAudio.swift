@@ -86,6 +86,17 @@ final class LucaAudio {
 
     nonisolated static func movieBuffer(_ ogg: Data) -> AVAudioPCMBuffer? { buffer(ogg) }
 
+    /// A sound from SYSSE.PAK (title_hit, TOGGLE, …).
+    func playSystem(_ name: String, game: LucaGame) {
+        guard let buffer = game.systemSound(named: name).flatMap(Self.buffer) else { return }
+        let node = play(buffer, loop: false, volume: effectVolume, fadeFrames: 0)
+        // Detached when done.
+        if let node {
+            let length = Double(buffer.frameLength) / buffer.format.sampleRate
+            DispatchQueue.main.asyncAfter(deadline: .now() + length + 0.2) { [weak self] in self?.detach(node) }
+        }
+    }
+
     /// Advances fades; call every frame.
     func tick() {
         let now = CACurrentMediaTime()
