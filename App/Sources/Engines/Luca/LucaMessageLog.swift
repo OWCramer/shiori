@@ -10,13 +10,13 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
     private let scroll = UIScrollView(frame: CGRect(x: 0, y: 40, width: 1920, height: 1000))
     private let thumb = UIImageView()
     private let onClose: () -> Void
-    private let onVoice: (Int) -> Void
+    private let onVoice: (LucaMessage) -> Void
     private var speakerFrames: [UIImage] = []
     private var closing = false
 
     private static let trackTop: CGFloat = 70, trackBottom: CGFloat = 1010
 
-    init(game: LucaGame, lines: [LucaMessage], onVoice: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
+    init(game: LucaGame, lines: [LucaMessage], onVoice: @escaping (LucaMessage) -> Void, onClose: @escaping () -> Void) {
         self.onClose = onClose
         self.onVoice = onVoice
         super.init(frame: .zero)
@@ -85,9 +85,8 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
             if game.hasVoice(line.voice) {
                 let button = LucaSpeakerButton(frames: speakerFrames)
                 button.frame = CGRect(x: 170, y: y + (line.speaker == nil ? -4 : 30), width: 76, height: 76)
-                let voice = line.voice
                 button.addAction(UIAction { [weak self, weak button] _ in
-                    self?.onVoice(voice)
+                    self?.onVoice(line)
                     button?.play()
                 }, for: .touchUpInside)
                 scroll.addSubview(button)

@@ -237,6 +237,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         guard let player, let game, titleView == nil else { return }
         prefetch(player)
         player.tick()
+        audio.nextVoiceLevel = Float(settings.voiceLevel(for: player.message?.speaker))
         for sound in player.sounds { audio.handle(sound, game: game) }
         player.sounds.removeAll()
         for notice in player.notices { show(notice) }
@@ -779,9 +780,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
               systemMenu == nil, let player, let game else { return }
         readMode = .normal
         audio.playSystem("TOGGLE", game: game)
-        let log = LucaMessageLog(game: game, lines: player.backlog, onVoice: { [weak self] voice in
+        let log = LucaMessageLog(game: game, lines: player.backlog, onVoice: { [weak self] line in
             guard let self, let game = self.game else { return }
-            self.audio.replayVoice(voice, game: game)
+            self.audio.replayVoice(line.voice, level: Float(self.settings.voiceLevel(for: line.speaker)), game: game)
         }, onClose: { [weak self] in
             guard let self else { return }
             if let game = self.game { self.audio.playSystem("TOGGLE", game: game) }
@@ -906,6 +907,12 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             self.optionsScreen?.removeFromSuperview()
             self.optionsScreen = nil
         })
+        screen.onSample = { [weak self] name in
+            // The character's most recent voiced line, at the level being set.
+            guard let self, let game = self.game,
+                  let line = self.player?.backlog.last(where: { $0.speaker == name && game.hasVoice($0.voice) }) else { return }
+            self.audio.replayVoice(line.voice, level: Float(self.settings.voiceLevel(for: name)), game: game)
+        }
         screen.frame = view.bounds
         screen.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(screen)
@@ -937,7 +944,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             lineDoneAt = nil
             audio.playSystem("TOGGLE", game: game)
         case .voice:
-            if lineHasVoice, let voice = shownMessage?.voice { audio.replayVoice(voice, game: game) }
+            if lineHasVoice, let line = shownMessage {
+                audio.replayVoice(line.voice, level: Float(settings.voiceLevel(for: line.speaker)), game: game)
+            }
         }
     }
 

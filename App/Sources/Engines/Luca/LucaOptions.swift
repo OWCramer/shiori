@@ -24,6 +24,12 @@ struct LucaSettings: Codable, Equatable {
     var effects = 0.9
     var voice = 1.0
     var system = 0.9
+    /// Voice: each character's own level, by English name (missing means 1).
+    var characterVoices: [String: Double] = [:]
+
+    func voiceLevel(for speaker: String?) -> Double {
+        speaker.flatMap { characterVoices[$0] } ?? 1
+    }
 
     static let readTextColours: [(name: String, color: UIColor)] = [
         ("Blue", UIColor(red: 0.62, green: 0.86, blue: 1, alpha: 1)),
@@ -40,8 +46,15 @@ struct LucaSettings: Codable, Equatable {
 
     static func url(in saves: URL) -> URL { saves.appendingPathComponent("luca-settings.json") }
 
+    /// The saved settings over the defaults, so settings added later keep their defaults.
     static func load(from saves: URL) -> LucaSettings {
-        (try? Data(contentsOf: url(in: saves))).flatMap { try? JSONDecoder().decode(LucaSettings.self, from: $0) } ?? LucaSettings()
+        guard let data = try? Data(contentsOf: url(in: saves)),
+              let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let defaults = (try? JSONEncoder().encode(LucaSettings()))
+                .flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else { return LucaSettings() }
+        let merged = defaults.merging(saved) { _, new in new }
+        return (try? JSONSerialization.data(withJSONObject: merged))
+            .flatMap { try? JSONDecoder().decode(LucaSettings.self, from: $0) } ?? LucaSettings()
     }
 
     func save(to saves: URL) {
@@ -121,6 +134,11 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
     private var tabLights: [UIImageView] = []
     private var tab = Tab.basic
     private let pieces: Pieces
+    /// The voiced characters (English names) and their faces from `VOICE_ICONRB`, in the
+    /// order `_voice_param` lists them.
+    private let characters: [(name: String, face: CGImage?)]
+    /// Plays a line of the named character's (a tap on a face on the Voice page).
+    var onSample: ((String) -> Void)?
 
     struct Pieces {
         var on: UIImage?
@@ -150,6 +168,12 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
             knob: art.piece("options_parts", in: CGRect(x: 960, y: 74, width: 40, height: 52)).map { UIImage(cgImage: $0) },
             back: (icons?.cropping(to: CGRect(x: 4 * 270, y: 0, width: 270, height: 270)),
                    icons?.cropping(to: CGRect(x: 4 * 270, y: 270, width: 270, height: 270))))
+        let faces = art.picture("VOICE_ICONRB")
+        characters = game.voiceCharacters().enumerated().compactMap { index, names in
+            // The two "Misc" groups have no name a line can be matched to.
+            names.english.hasPrefix("Misc") ? nil
+                : (names.english, faces?.cropping(to: CGRect(x: index * 111, y: 0, width: 111, height: 111)))
+        }
         super.init(frame: .zero)
         backgroundColor = .black
         stage.layer.anchorPoint = .zero
@@ -283,7 +307,7 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
             slider("Voice", settings.voice) { $0.voice = $1 }
             slider("System Sounds", settings.system) { $0.system = $1 }
         case .voice:
-            note("Each character's own voice volume is coming in a later version. The Sound page sets every voice at once.")
+            voicePage()
         case .keyboard, .mouse:
             note("These settings are for a keyboard and mouse on PC. On iPhone and iPad the game is played by touch; see the Touch page.")
         case .touch:
@@ -347,6 +371,42 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
         }, for: .valueChanged)
         page.addSubview(slider)
         rowY += 130
+    }
+
+    /// Each character's voice level, two columns of faces and sliders; a tap on a face plays
+    /// one of their lines.
+    private func voicePage() {
+        let rows = (characters.count + 1) / 2
+        let rowHeight = min(110, 840 / CGFloat(max(rows, 1)))
+        for (index, character) in characters.enumerated() {
+            let column = CGFloat(index / rows), row = CGFloat(index % rows)
+            let x = 110 + column * 860, y = 20 + row * rowHeight
+            let face = UIButton(type: .custom)
+            face.setImage(character.face.map { UIImage(cgImage: $0) }, for: .normal)
+            face.frame = CGRect(x: x, y: y, width: rowHeight - 12, height: rowHeight - 12)
+            face.addAction(UIAction { [weak self] _ in self?.onSample?(character.name) }, for: .touchUpInside)
+            page.addSubview(face)
+            let label = UILabel(frame: CGRect(x: x + rowHeight, y: y, width: 230, height: rowHeight - 12))
+            label.text = character.name
+            label.font = .systemFont(ofSize: 34, weight: .semibold)
+            label.textColor = .white
+            label.adjustsFontSizeToFitWidth = true
+            label.minimumScaleFactor = 0.6
+            label.layer.shadowColor = UIColor(red: 0, green: 0.2, blue: 0.3, alpha: 1).cgColor
+            label.layer.shadowOpacity = 0.9
+            label.layer.shadowRadius = 3
+            label.layer.shadowOffset = .zero
+            page.addSubview(label)
+            let slider = LucaOptionSlider(pieces: pieces)
+            slider.frame = CGRect(x: x + rowHeight + 240, y: y, width: 520, height: rowHeight - 12)
+            slider.value = settings.characterVoices[character.name] ?? 1
+            slider.addAction(UIAction { [weak self, weak slider] _ in
+                guard let self, let slider else { return }
+                self.settings.characterVoices[character.name] = slider.value
+                self.onChange(self.settings)
+            }, for: .valueChanged)
+            page.addSubview(slider)
+        }
     }
 
     private func note(_ text: String) {

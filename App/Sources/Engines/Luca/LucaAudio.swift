@@ -20,8 +20,11 @@ final class LucaAudio {
         didSet { if let music, !fades.contains(where: { $0.node === music }) { music.volume = musicVolume } }
     }
     var voiceVolume: Float = 1 {
-        didSet { voice?.volume = voiceVolume }
+        didSet { voice?.volume = voiceVolume * voiceLevel }
     }
+    /// The speaking character's own level (OPTIONS › Voice), for the next voice.
+    var nextVoiceLevel: Float = 1
+    private var voiceLevel: Float = 1
     var effectVolume: Float = 0.9 {
         didSet {
             for (channel, node) in effects where !fades.contains(where: { $0.node === node }) {
@@ -70,7 +73,8 @@ final class LucaAudio {
         case .voice(let id):
             stop(voice, frames: 0)
             guard let buffer = game.voice(id).flatMap(Self.buffer) else { voice = nil; return }
-            voice = play(buffer, loop: false, volume: voiceVolume, fadeFrames: 0)
+            voiceLevel = nextVoiceLevel
+            voice = play(buffer, loop: false, volume: voiceVolume * voiceLevel, fadeFrames: 0)
             voiceEnds = CACurrentMediaTime() + Double(buffer.frameLength) / buffer.format.sampleRate
         case .stopVoice:
             stop(voice, frames: 0)
@@ -115,7 +119,8 @@ final class LucaAudio {
     }
 
     /// Plays a line's voice again (the window's VOICE button).
-    func replayVoice(_ id: Int, game: LucaGame) {
+    func replayVoice(_ id: Int, level: Float = 1, game: LucaGame) {
+        nextVoiceLevel = level
         handle(.voice(id: id), game: game)
     }
 
