@@ -38,6 +38,8 @@ final class LucaGameViewController: UIViewController {
     private let nameLabel = UILabel()
     private let textLabel = UILabel()
     private var shownMessage: LucaMessage?
+    private var lastHadFace = false
+    private var faceRects: [Int: CGRect] = [:]
     private var revealed = 0
     private var revealTarget = 0
     private var choiceStack: UIStackView?
@@ -86,6 +88,14 @@ final class LucaGameViewController: UIViewController {
         stageLayer.addSublayer(windowLayer)
         faceLayer.frame = windowRect
         faceLayer.masksToBounds = true
+        // The face sits in the window's left end and fades out towards the text.
+        let faceFade = CAGradientLayer()
+        faceFade.frame = faceLayer.bounds
+        faceFade.startPoint = CGPoint(x: 0, y: 0.5)
+        faceFade.endPoint = CGPoint(x: 1, y: 0.5)
+        faceFade.colors = [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
+        faceFade.locations = [0, 0.17, 0.23]
+        faceLayer.mask = faceFade
         stageLayer.addSublayer(faceLayer)
         view.layer.addSublayer(stageLayer)
 
@@ -236,7 +246,9 @@ final class LucaGameViewController: UIViewController {
 
     private func syncPictures(_ player: LucaPlayer) {
         var seen = Set<Int>()
-        for layer in player.sortedLayers {
+        var wanted = player.sortedLayers
+        if let face = player.windowFace { wanted.append(face) }
+        for layer in wanted {
             seen.insert(layer.number)
             let isFace = layer.kind == 7
             let parent = isFace ? faceLayer : pictureLayer
@@ -259,7 +271,18 @@ final class LucaGameViewController: UIViewController {
             ca.isHidden = false
             let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
             var (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
-            if isFace { x = layer.x - w / 2 }
+            if isFace {
+                // Window coordinates: the face (its expression patch's rectangle) centred in
+                // the window's left end.
+                if faceRects[layer.imageID] == nil {
+                    faceRects[layer.imageID] = player.game.faceRect(layer.imageID).map {
+                        CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+                    } ?? CGRect(x: w / 2 - 90, y: h * 0.12, width: 180, height: 150)
+                }
+                let face = faceRects[layer.imageID]!
+                x = 215 - face.midX
+                y = 215 - face.midY
+            }
             ca.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             ca.position = CGPoint(x: x, y: y)
             ca.opacity = Float(layer.alpha)
@@ -271,7 +294,7 @@ final class LucaGameViewController: UIViewController {
             pictures.removeValue(forKey: number)
             pictureImages.removeValue(forKey: number)
         }
-        faceLayer.isHidden = !player.windowVisible || textHidden
+        faceLayer.isHidden = !player.windowVisible || textHidden || player.message == nil
     }
 
     /// Every quarter second, decodes what the script will show next on a background queue.
@@ -350,6 +373,10 @@ final class LucaGameViewController: UIViewController {
         windowLayer.isHidden = !(player.windowVisible && !textHidden)
         nameLabel.isHidden = !visible
         textLabel.isHidden = !visible
+        if (player.windowFace != nil) != lastHadFace {
+            lastHadFace = player.windowFace != nil
+            layoutText()
+        }
         if player.message != shownMessage {
             shownMessage = player.message
             revealed = 0
@@ -385,8 +412,8 @@ final class LucaGameViewController: UIViewController {
     private func layoutText() {
         let s = stageScale
         guard s > 0 else { return }
-        let hasFace = pictures.keys.contains { $0 & 0xFF == 7 }
-        let left: CGFloat = hasFace ? 420 : 300
+        let hasFace = player?.windowFace != nil
+        let left: CGFloat = hasFace ? 460 : 300
         nameLabel.font = UIFont.systemFont(ofSize: 40 * s, weight: .bold)
         nameLabel.frame = CGRect(x: left * s, y: (windowRect.minY + 112) * s, width: 1100 * s, height: 52 * s)
         textLabel.frame = CGRect(x: left * s, y: (windowRect.minY + 170) * s, width: (1920 - left - 180) * s, height: 160 * s)
