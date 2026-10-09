@@ -41,6 +41,8 @@ final class LucaGameViewController: UIViewController {
     private var revealed = 0
     private var revealTarget = 0
     private var choiceStack: UIStackView?
+    /// The island map behind the day's map choice.
+    private var mapBackdrop: UIImageView?
     private var shownChoices: [String]?
     private var titleView: UIView?
     private var textHidden = false
@@ -432,17 +434,43 @@ final class LucaGameViewController: UIViewController {
         shownChoices = player.choices
         choiceStack?.removeFromSuperview()
         choiceStack = nil
+        mapBackdrop?.removeFromSuperview()
+        mapBackdrop = nil
         guard let choices = player.choices else { return }
+        if player.choicePrompt != nil, let map = player.game.image(Self.mapImageID).flatMap(Self.cgImage) {
+            let backdrop = UIImageView(image: UIImage(cgImage: map))
+            backdrop.contentMode = .scaleAspectFill
+            backdrop.clipsToBounds = true
+            backdrop.alpha = 0.85
+            backdrop.frame = overlay.bounds
+            backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.insertSubview(backdrop, at: 0)
+            mapBackdrop = backdrop
+        }
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 14
+        // Long lists (the map can offer nine places) sit tighter to fit a phone in landscape.
+        let compact = choices.count > 5
+        stack.spacing = compact ? 6 : 14
+        if let prompt = player.choicePrompt {
+            let label = UILabel()
+            label.text = prompt
+            label.font = .systemFont(ofSize: 22, weight: .semibold)
+            label.textColor = .white
+            label.textAlignment = .center
+            label.layer.shadowColor = UIColor.black.cgColor
+            label.layer.shadowOpacity = 0.9
+            label.layer.shadowRadius = 3
+            label.layer.shadowOffset = .zero
+            stack.addArrangedSubview(label)
+        }
         for (index, choice) in choices.enumerated() {
             var config = UIButton.Configuration.filled()
             config.title = choice
             config.baseBackgroundColor = UIColor(red: 0.05, green: 0.16, blue: 0.34, alpha: 0.88)
             config.baseForegroundColor = .white
             config.cornerStyle = .capsule
-            config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 28, bottom: 12, trailing: 28)
+            config.contentInsets = NSDirectionalEdgeInsets(top: compact ? 5 : 12, leading: 28, bottom: compact ? 5 : 12, trailing: 28)
             let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in
                 self?.player?.choose(index)
             })
@@ -458,8 +486,9 @@ final class LucaGameViewController: UIViewController {
         let width = min(overlay.bounds.width * 0.7, 640)
         let size = stack.systemLayoutSizeFitting(CGSize(width: width, height: 0), withHorizontalFittingPriority: .required,
                                                  verticalFittingPriority: .fittingSizeLevel)
-        stack.frame = CGRect(x: (overlay.bounds.width - width) / 2, y: (overlay.bounds.height * 0.42 - size.height / 2),
-                             width: width, height: size.height)
+        let y = min(max(10, overlay.bounds.height * 0.42 - size.height / 2), overlay.bounds.height - size.height - 10)
+        stack.frame = CGRect(x: (overlay.bounds.width - width) / 2, y: max(10, y), width: width, height: size.height)
+        mapBackdrop?.frame = overlay.bounds
     }
 
     // MARK: Input
@@ -646,6 +675,8 @@ final class LucaGameViewController: UIViewController {
     static let titleBackgroundID = 513
     /// __SYS_RBLOGO02a in OTHCG.PAK.
     static let titleLogoID = 25_160
+    /// __SYS_MAP_BG01en in OTHCG.PAK: the island map.
+    static let mapImageID = 25_133
     /// BGM01 in MUSIC.PAK.
     static let titleMusicID = 100_001
 }
