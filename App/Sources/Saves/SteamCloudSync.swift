@@ -117,7 +117,7 @@ enum SteamCloudSync {
 
     /// Where remote copies are saved before Shiori replaces them.
     static func backupsDirectory(appID: UInt32) -> URL {
-        URL.applicationSupportDirectory.appendingPathComponent("SteamCloudBackups/\(appID)", isDirectory: true)
+        URL.shioriSupport.appendingPathComponent("SteamCloudBackups/\(appID)", isDirectory: true)
     }
 
     /// Uploads save files that are newer here than in Steam Cloud. Backs up every remote

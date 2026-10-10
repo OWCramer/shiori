@@ -7,7 +7,7 @@ import Observation
 final class ArtworkStore {
     private(set) var picks: [UInt32: [SteamGridDB.Kind: URL]] = [:]
 
-    private static var url: URL { URL.applicationSupportDirectory.appendingPathComponent("artwork.json") }
+    private static var url: URL { URL.shioriSupport.appendingPathComponent("artwork.json") }
 
     init() {
         if let data = try? Data(contentsOf: Self.url),

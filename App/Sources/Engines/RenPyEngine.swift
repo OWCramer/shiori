@@ -222,7 +222,7 @@ extension RenPyEngine {
             "exit": (try? String(contentsOf: cache.appendingPathComponent("exit.txt"), encoding: .utf8)) ?? "",
         ]
         if let data = try? JSONSerialization.data(withJSONObject: note, options: [.prettyPrinted, .sortedKeys]) {
-            try? data.write(to: URL.applicationSupportDirectory.appendingPathComponent("last-game-session.json"))
+            try? data.write(to: URL.shioriSupport.appendingPathComponent("last-game-session.json"))
         }
         return status
     }

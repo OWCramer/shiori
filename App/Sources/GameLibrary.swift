@@ -61,7 +61,7 @@ final class GameLibrary {
     private var resumeOnForeground: [UInt32: String] = [:]
 
     static var gamesDirectory: URL {
-        URL.documentsDirectory.appendingPathComponent("Games", isDirectory: true)
+        URL.shioriDocuments.appendingPathComponent("Games", isDirectory: true)
     }
 
     /// Regenerable runtime files (compiled bytecode, Ren'Py caches), kept out of the game folder.
@@ -70,7 +70,7 @@ final class GameLibrary {
     }
 
     private static var installsDirectory: URL {
-        URL.applicationSupportDirectory.appendingPathComponent("Installs", isDirectory: true)
+        URL.shioriSupport.appendingPathComponent("Installs", isDirectory: true)
     }
 
     init(session: SteamSession) {

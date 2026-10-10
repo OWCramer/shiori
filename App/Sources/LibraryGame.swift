@@ -41,7 +41,7 @@ struct LibraryGame: Codable, Hashable, Identifiable, Sendable {
 /// The last library Steam returned, kept in Application Support.
 enum LibraryCache {
     private static var url: URL {
-        URL.applicationSupportDirectory.appendingPathComponent("library.json")
+        URL.shioriSupport.appendingPathComponent("library.json")
     }
 
     static func load() -> [LibraryGame] {
