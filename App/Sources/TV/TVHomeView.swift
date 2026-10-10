@@ -55,12 +55,26 @@ struct TVHomeView: View {
             .task(id: steam.library.count) {
                 let appID = UserDefaults.standard.integer(forKey: "ShioriOpenGame")
                 if path.isEmpty, let game = steam.library.first(where: { $0.appID == appID }) { path = [game] }
+                // `-ShioriOpenScreen downloads|settings` opens that screen.
+                switch UserDefaults.standard.string(forKey: "ShioriOpenScreen") {
+                case "downloads": showingDownloads = true
+                case "settings": showingSettings = true
+                default: break
+                }
             }
             #endif
         }
         .environment(\.colorScheme, .dark)
-        .fullScreenCover(isPresented: $showingDownloads) { DownloadsView(library: steam.library) }
-        .fullScreenCover(isPresented: $showingSettings) { SettingsView() }
+        .fullScreenCover(isPresented: $showingDownloads) {
+            DownloadsView(library: steam.library)
+                .background { TVCoverBackground(game: hero) }
+                .environment(\.colorScheme, .dark)
+        }
+        .fullScreenCover(isPresented: $showingSettings) {
+            SettingsView()
+                .background { TVCoverBackground(game: hero) }
+                .environment(\.colorScheme, .dark)
+        }
         .onAppear { ControllerInput.tabSwitch = { step in switchTab(step) } }
         .onDisappear { ControllerInput.tabSwitch = nil }
         .onChange(of: focusedCard) { _, id in
@@ -90,22 +104,28 @@ struct TVHomeView: View {
                 Button(tab.rawValue) { filter = tab }
                     .buttonStyle(TVPillButtonStyle(selected: tab == filter))
             }
+            Spacer()
+            // Downloads and Settings open screens over the library rather than switching
+            // what it shows, so they sit apart from the tabs, at the right.
             Button {
                 showingDownloads = true
             } label: {
-                HStack(spacing: 10) {
-                    Text("Downloads")
-                    if !games.downloadItems.isEmpty {
-                        Text("\(games.downloadItems.count)")
-                            .font(.caption.weight(.bold))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 2)
-                            .background(.blue, in: .capsule)
+                Image(systemName: games.isDownloading ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    .symbolEffect(.pulse, isActive: games.isDownloading)
+                    .overlay(alignment: .topTrailing) {
+                        if !games.downloadItems.isEmpty {
+                            Text("\(games.downloadItems.count)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 1)
+                                .background(.blue, in: .capsule)
+                                .offset(x: 14, y: -10)
+                        }
                     }
-                }
             }
             .buttonStyle(TVPillButtonStyle(selected: false))
-            Spacer()
+            .accessibilityLabel(games.downloadItems.isEmpty ? "Downloads" : "Downloads, \(games.downloadItems.count)")
             Button {
                 showingSettings = true
             } label: {
@@ -224,6 +244,25 @@ struct TVCapsule: View {
         case .downloading, .notInstalled:
             EmptyView()
         }
+    }
+}
+
+/// Behind a screen opened over the library (Downloads, Settings): the library's art,
+/// blurred and dimmed, as tvOS's own full-screen sheets look.
+struct TVCoverBackground: View {
+    let game: LibraryGame?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let game {
+                RemoteImage(url: game.hero, fallback: game.header) { Color.black }
+                    .blur(radius: 60)
+                    .scaleEffect(1.15)
+            }
+            Color.black.opacity(0.62)
+        }
+        .ignoresSafeArea()
     }
 }
 

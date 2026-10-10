@@ -44,7 +44,11 @@ struct SettingsView: View {
                 } header: {
                     Text("Storage")
                 } footer: {
+                    #if os(tvOS)
+                    Text("tvOS may clear downloaded games when it needs space; Shiori downloads them again. Saves sync off this Apple TV.")
+                    #else
                     Text("Downloaded games are kept out of iCloud device backups; they can always be downloaded again.")
+                    #endif
                 }
 
                 Section {
