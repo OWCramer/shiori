@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-# Shiori's entry point for Ren'Py 6.99 / 7.x games (Python 2). Ren'Py's iOS launcher runs
-# this as main.py from a runner folder (Library/Caches/RenPy/<game>/runner/base/) whose
-# lib/, renpy/ and renpy.py link to Ren'Py 7.8.7 bundled with Shiori. The game's own
+# Shiori's entry point for games that run on Ren'Py bundled with Shiori rather than their
+# own engine code: 6.10-7.x games on 7.8.7 (Python 2), and 8.0 games on 8.1.3 (Python 3).
+# Ren'Py's iOS launcher runs this as main.py from a runner folder
+# (Library/Caches/RenPy/<game>/runner/base/) whose lib/, renpy/ and renpy.py are that
+# bundled Ren'Py (RenPy7Base or RenPy8Base). The game's own
 # game/ folder is used as is; its bundled renpy/ is not, since older 7.x engine code can't
 # run on 7.8.7's compiled modules (Ren'Py 7.8 runs games made with older 7.x and 6.99).
 #
@@ -86,6 +88,9 @@ sys.dont_write_bytecode = True
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RENPY_PY = os.path.join(HERE, "renpy.py")
+# The bundled renpy/ sits next to this file (Python 2's launcher already looks here).
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 
 
 def _makedirs(path):
@@ -148,7 +153,7 @@ def _stub_steam_api():
 
 _stub_steam_api()
 
-import renpy  # noqa: E402  (Ren'Py 7.8.7 from the runner's renpy/)
+import renpy  # noqa: E402  (the bundled Ren'Py, from the runner's renpy/)
 
 
 def _cache_path(name):
@@ -257,9 +262,12 @@ def _patch_renpy():
                     textures += ", %d freed by Shiori" % freed[0]
             except Exception:
                 pass
-            _say_cache("entries %d, %d MB of %d MB, %d loads%s%s" % (
-                len(cache.cache), cache.cache_size * 4 // 1048576, cache.cache_limit * 4 // 1048576,
-                loads, textures, (" (latest: " + recent + ")") if recent else ""))
+            # Ren'Py 7 counts the cache in pixels (cache_size, cache_limit); 8 doesn't keep them.
+            size = getattr(cache, "cache_size", None)
+            limit = getattr(cache, "cache_limit", None)
+            usage = ", %d MB of %d MB" % (size * 4 // 1048576, limit * 4 // 1048576) if size is not None and limit is not None else ""
+            _say_cache("entries %d%s, %d loads%s%s" % (
+                len(cache.cache), usage, loads, textures, (" (latest: " + recent + ")") if recent else ""))
         except Exception as e:
             _say_cache("unavailable (%r)" % (e,))
 
@@ -280,6 +288,8 @@ def _patch_renpy():
     # that queues the texture, and delete queued textures between frames, as Ren'Py's own
     # TextureLoader.cleanup() would.
     try:
+        if sys.version_info[0] != 2:
+            raise ImportError("Python 3 runs the finalizer itself")
         import ctypes
         import renpy.gl2.gl2texture as gl2texture
 
@@ -292,9 +302,27 @@ def _patch_renpy():
         doomed = []
         freed = [0]
 
+        # Each texture remembers its generation: Ren'Py kills every texture before a resize
+        # and when the app goes to the background (Interface.kill_textures), then makes new
+        # ones whose numbers start over, keeping the same loader. An old texture dying later
+        # must not delete a new texture that reuses its number (games drew black after
+        # returning from the Home Screen).
+        generation = [0]
+        interface_class = renpy.display.core.Interface
+        original_kill_textures = interface_class.kill_textures
+
+        def kill_textures(self, *args, **kwargs):
+            generation[0] += 1
+            del doomed[:]
+            return original_kill_textures(self, *args, **kwargs)
+
+        def texture_init(self, size, loader, *args, **kwargs):
+            gl2texture.GLTexture.__init__(self, size, loader, *args, **kwargs)
+            self.__dict__["_shiori_generation"] = generation[0]
+
         def texture_del(self):
             try:
-                if self.loaded and self.number:
+                if self.loaded and self.number and self.__dict__.get("_shiori_generation") == generation[0]:
                     doomed.append(self.number)
             except Exception:
                 pass
@@ -302,17 +330,20 @@ def _patch_renpy():
         def free_doomed():
             if not doomed:
                 return
+            live = list(doomed)
+            del doomed[:]
             if gl_delete[0] is None:
                 address = get_proc(b"glDeleteTextures")
                 if not address:
                     return
                 gl_delete[0] = delete_textures(address)
-            numbers = (ctypes.c_uint * len(doomed))(*doomed)
-            gl_delete[0](len(doomed), numbers)
-            freed[0] += len(doomed)
-            del doomed[:]
+            numbers = (ctypes.c_uint * len(live))(*live)
+            gl_delete[0](len(live), numbers)
+            freed[0] += len(live)
 
         if not hasattr(gl2texture.GLTexture, "__del__"):
+            interface_class.kill_textures = kill_textures
+            gl2texture.Texture.__init__ = texture_init
             gl2texture.Texture.__del__ = texture_del
             renpy.config.periodic_callbacks.append(free_doomed)
             renpy.config.shiori_freed_textures = freed

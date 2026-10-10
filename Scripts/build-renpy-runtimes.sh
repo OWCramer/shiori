@@ -6,6 +6,9 @@
 #   Vendor/RenPy7.xcframework  Ren'Py 7.8.7, CPython 2.7  (runs Ren'Py 6.99 and 7.x games)
 #   Vendor/RenPy7Base/          Ren'Py 7.8.7's own engine code and Python library, bundled
 #                               with the app because Ren'Py 7 games run on it
+#   Vendor/RenPy8Base/          Ren'Py 8.1.3's engine code and Python library, for Ren'Py 8
+#                               games older than 8.1, whose own engine code doesn't match
+#                               8.1.3's compiled modules
 #
 # Both runtimes contain CPython, SDL2 and ffmpeg with the same symbol names, so they
 # can't be linked into one executable. Each becomes its own framework, and Shiori loads
@@ -37,6 +40,26 @@ if [ ! -f "$R7/.version" ] || [ "$(cat "$R7/.version")" != "$R7_VERSION" ]; then
   mv "$sdk/lib/python2.7" Vendor/RenPy7Base/lib/python2.7
   cp "$sdk/renpy.py" Vendor/RenPy7Base/renpy.py
   echo "$R7_VERSION" > "$R7/.version"
+fi
+
+# --- Ren'Py 8.1.3 engine code (for Ren'Py 8.0 games) ------------------------------
+R8_VERSION=8.1.3
+if [ ! -f Vendor/RenPy8Base/.version ] || [ "$(cat Vendor/RenPy8Base/.version)" != "$R8_VERSION" ]; then
+  tmp8=$(mktemp -d)
+  echo "Downloading Ren'Py $R8_VERSION SDK..."
+  curl -fL --progress-bar -o "$tmp8/sdk.tar.bz2" "https://www.renpy.org/dl/$R8_VERSION/renpy-$R8_VERSION-sdk.tar.bz2"
+  echo "b15fdaf1322f18aaa1a588761f52543683aefd1a3c9e45c5bf045e3a4ad468b7  $tmp8/sdk.tar.bz2" | shasum -a 256 -c -
+  tar xjf "$tmp8/sdk.tar.bz2" -C "$tmp8" "renpy-$R8_VERSION-sdk/renpy" "renpy-$R8_VERSION-sdk/renpy.py" "renpy-$R8_VERSION-sdk/lib/python3.9"
+  rm -rf Vendor/RenPy8Base
+  mkdir -p Vendor/RenPy8Base/lib
+  sdk="$tmp8/renpy-$R8_VERSION-sdk"
+  mv "$sdk/renpy" Vendor/RenPy8Base/renpy
+  mv "$sdk/lib/python3.9" Vendor/RenPy8Base/lib/python3.9
+  cp "$sdk/renpy.py" Vendor/RenPy8Base/renpy.py
+  # Compiled bytecode and Cython sources aren't needed: the runtime carries the modules.
+  find Vendor/RenPy8Base \( -name "__pycache__" -o -name "*.pyx" -o -name "*.pxd" -o -name "*.pyi" \) -prune -exec rm -rf {} +
+  echo "$R8_VERSION" > Vendor/RenPy8Base/.version
+  rm -rf "$tmp8"
 fi
 
 # --- Frameworks -------------------------------------------------------------

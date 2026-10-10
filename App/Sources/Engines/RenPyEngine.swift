@@ -108,18 +108,25 @@ struct RenPyRuntime: Equatable, Sendable {
     let framework: String
     let version: String
     let python: String
+    /// The runtime's own engine code and Python library in the app bundle, for games whose
+    /// own engine code can't run on it; nil when the game runs on its own `renpy/`.
+    var bundledEngine: String? = nil
 
     /// Ren'Py 8.1.3 on CPython 3.9, Highway Blossoms' version. Runs Ren'Py 8 games with the
     /// game's own engine code.
     static let renpy8 = RenPyRuntime(framework: "RenPy8", version: "8.1.3", python: "3")
     /// Ren'Py 7.8.7 on CPython 2.7. Runs Ren'Py 6.10–7.x games with its own engine code
     /// (bundled as RenPy7Base), since the games' older engine can't load its compiled modules.
-    static let renpy7 = RenPyRuntime(framework: "RenPy7", version: "7.8.7", python: "2")
+    static let renpy7 = RenPyRuntime(framework: "RenPy7", version: "7.8.7", python: "2", bundledEngine: "RenPy7Base")
+    /// Ren'Py 8.1.3 with its own engine code (bundled as RenPy8Base), for Ren'Py 8.0 games:
+    /// their engine code expects 8.0's compiled modules (8.1 renamed and changed some), and
+    /// 8.1 plays 8.0 games.
+    static let renpy8Bundled = RenPyRuntime(framework: "RenPy8", version: "8.1.3", python: "3", bundledEngine: "RenPy8Base")
 
     static let all = [renpy8, renpy7]
 
     /// Whether the game runs on its own `renpy/` folder or on the runtime's.
-    var usesGameEngine: Bool { python == "3" }
+    var usesGameEngine: Bool { bundledEngine == nil }
 }
 
 extension RenPyEngine {
@@ -131,7 +138,10 @@ extension RenPyEngine {
         guard let version = match.version, let major = version.split(separator: ".").first.flatMap({ Int($0) }) else { return nil }
         let python = match.details["python"] ?? (major >= 8 ? "3" : "2")
         switch (major, python) {
-        case (8, "3"): return .renpy8
+        case (8, "3"):
+            // 8.1 and newer on their own engine; 8.0 on 8.1.3's.
+            let minor = version.split(separator: ".").dropFirst().first.flatMap { Int($0) } ?? 1
+            return minor >= 1 ? .renpy8 : .renpy8Bundled
         case (6 ... 7, "2"): return .renpy7
         default: return nil
         }
@@ -258,7 +268,7 @@ extension RenPyEngine {
                       only: { $0.hasPrefix("python") })
         } else {
             bootstrapName = "shiori_main2"
-            guard let engine = Bundle.main.url(forResource: "RenPy7Base", withExtension: nil) else {
+            guard let engine = Bundle.main.url(forResource: runtime.bundledEngine, withExtension: nil) else {
                 throw CocoaError(.fileNoSuchFile)
             }
             for name in ["lib", "renpy", "renpy.py"] {

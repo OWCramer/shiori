@@ -56,6 +56,10 @@ targets:
       - path: Vendor/RenPy7Base
         type: folder
         buildPhase: resources
+      # Ren'Py 8.1.3's engine code and Python library, for Ren'Py 8.0 games.
+      - path: Vendor/RenPy8Base
+        type: folder
+        buildPhase: resources
     # Merged with the generated Info.plist. Game folders in Documents show up in the Files
     # app and can be edited in place (no INFOPLIST_KEY_ build setting exists for these).
     info:
@@ -168,6 +172,10 @@ targets:
       - path: App/RenPy/shiori_main2.py
         buildPhase: resources
       - path: Vendor/RenPy7Base
+        type: folder
+        buildPhase: resources
+      # Ren'Py 8.1.3's engine code and Python library, for Ren'Py 8.0 games.
+      - path: Vendor/RenPy8Base
         type: folder
         buildPhase: resources
     info:
