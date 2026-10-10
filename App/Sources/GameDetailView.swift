@@ -11,6 +11,7 @@ struct GameDetailView: View {
     @Environment(SteamModel.self) private var steam
     @Environment(LibraryCuration.self) private var curation
     @Environment(EngineScanStore.self) private var engineScans
+    @Environment(CompatibilityStore.self) private var compatibility
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmingDelete = false
     /// A Steam branch picked for a game that's already (partly) downloaded, awaiting confirmation.
@@ -46,6 +47,7 @@ struct GameDetailView: View {
                 branchSuggestion
                 chips
                 if let record { statTiles(record) }
+                GameSection(title: "Compatibility", systemImage: "checklist") { compatibilityCard }
                 if record != nil {
                     GameSection(title: "Saves", systemImage: "icloud") { savesCard }
                     GameSection(title: "Patches", systemImage: "bandage") { patchesCard }
@@ -372,6 +374,64 @@ struct GameDetailView: View {
                 Label("Checking the engine…", systemImage: "magnifyingglass").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20)
             }
         }
+    }
+
+    /// This game's entry in the public compatibility list, or an invitation to add one.
+    @ViewBuilder private var compatibilityCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let (entry, engine) = compatibility.entry(for: appID) {
+                Label(compatibilityTitle(entry.status), systemImage: compatibilityIcon(entry.status))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(compatibilityColour(entry.status))
+                if let notes = entry.notes, !notes.isEmpty {
+                    Text(notes).font(.callout)
+                }
+                if let branch = entry.branch {
+                    Label("Play the \(branch) beta (Steam Version).", systemImage: "arrow.triangle.branch").font(.caption)
+                }
+                Text(compatibilitySource(entry, engine: engine)).font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Not in the compatibility list yet.").font(.callout)
+            }
+            Link(destination: CompatibilityStore.repository) {
+                Label("Report on GitHub", systemImage: "square.and.pencil").font(.caption.weight(.semibold))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func compatibilityTitle(_ status: CompatibilityStore.Status) -> String {
+        switch status {
+        case .complete: "Complete"
+        case .plays: "Plays"
+        case .boots: "Boots"
+        case .unsupported: "Unsupported"
+        }
+    }
+
+    private func compatibilityIcon(_ status: CompatibilityStore.Status) -> String {
+        switch status {
+        case .complete: "checkmark.seal.fill"
+        case .plays: "checkmark.circle.fill"
+        case .boots: "circle.lefthalf.filled"
+        case .unsupported: "xmark.octagon"
+        }
+    }
+
+    private func compatibilityColour(_ status: CompatibilityStore.Status) -> Color {
+        switch status {
+        case .complete, .plays: .green
+        case .boots: .yellow
+        case .unsupported: .red
+        }
+    }
+
+    private func compatibilitySource(_ entry: CompatibilityStore.Entry, engine: String) -> String {
+        var parts = [engine]
+        if let tested = entry.tested { parts.append("tested \(tested)") }
+        if let source = entry.source { parts.append(source == "shiori" ? "by Shiori" : "by \(source)") }
+        return parts.joined(separator: " · ")
     }
 
     private func engineLine(_ scan: EngineScanResult) -> String {

@@ -9,6 +9,7 @@ struct VNHubApp: App {
     @State private var controllers = ControllerInput()
     @State private var curation = LibraryCuration()
     @State private var engineScans: EngineScanStore
+    @State private var compatibility = CompatibilityStore()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -37,8 +38,10 @@ struct VNHubApp: App {
                 .environment(controllers)
                 .environment(curation)
                 .environment(engineScans)
+                .environment(compatibility)
                 .environment(steam.artwork)
                 .task { await games.syncAllSaves() }
+                .task { await compatibility.refresh() }
                 // Learn each visual novel's engine from its manifests, so the library and the
                 // launcher can say what's playable before anything is downloaded.
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {
