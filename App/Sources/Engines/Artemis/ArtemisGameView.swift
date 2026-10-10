@@ -315,6 +315,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         #endif
         if needsStage {
             needsStage = false
+            renderer.prefetch(player.stage.animeFrameImages)
             renderer.render(stage: player.stage, texts: texts, textsVisible: false, into: stageTexture, commandBuffer: buffer)
         }
         renderer.draw(stageTexture, into: drawable.texture, commandBuffer: buffer)
