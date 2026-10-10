@@ -486,11 +486,21 @@ final class GameLibrary {
     /// going to the background, or the game quitting just before Shiori exits.
     /// Set once a game has ended, while its saves go up before the app closes.
     private(set) var endingSession: UInt32?
+    /// Why the last game couldn't start, shown as an alert.
+    var launchFailure: String?
 
     /// The game returned. Put the hub back with a "saving" screen, sync without blocking the
     /// main thread (iOS kills an app whose main thread can't answer), then close.
     private func gameEnded(appID: UInt32, status: Int32) {
         launching = nil
+        // The game never started: nothing to sync, and the app can carry on.
+        if status == RenPyEngine.notStarted || status == RenPyEngine.runtimeNotLoaded {
+            shiori_renpy_restore_hub()
+            launchFailure = RenPyEngine.lastSessionError()
+                ?? (status == RenPyEngine.runtimeNotLoaded ? "Ren'Py's runtime didn't load." : "The game couldn't start.")
+            log.error("Ren'Py didn't start (status \(status)): \(self.launchFailure ?? "", privacy: .public)")
+            return
+        }
         endingSession = appID
         shiori_renpy_restore_hub()
         let background = UIApplication.shared.beginBackgroundTask(withName: "Save sync after game")

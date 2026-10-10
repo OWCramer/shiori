@@ -74,7 +74,14 @@ static BOOL LoadRuntime(const char *name) {
     // shiori_main2.py reaches GL through it (ctypes), to free Ren'Py 7's textures.
     setenv("SHIORI_RUNTIME_LIBRARY", path.fileSystemRepresentation, 1);
     if (!sdl.handle) {
-        NSLog(@"Shiori: couldn't load %s: %s", name, dlerror());
+        const char *reason = dlerror();
+        NSLog(@"Shiori: couldn't load %s: %s", name, reason);
+        // Into the session note (RenPyEngine.launch reads last_error.txt from the cache).
+        const char *cache = getenv("SHIORI_CACHE");
+        if (cache) {
+            NSString *path = [@(cache) stringByAppendingPathComponent:@"last_error.txt"];
+            [[NSString stringWithFormat:@"Couldn't load %s: %s", name, reason ?: "unknown"] writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
         return NO;
     }
     sdl.launcherMain = dlsym(sdl.handle, "launcher_main");

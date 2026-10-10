@@ -186,10 +186,25 @@ extension RenPyEngine {
     /// (`shiori_main.py`, which then runs the game's launcher), Shiori's Ren'Py 7.8.7 for
     /// older games (`shiori_main2.py`, which runs 7.8.7's `renpy.py` on the game's folder).
     /// Either way the bootstrap keeps caches out of the game's `base/`.
+    /// Statuses for a game that never started (CPython untouched, so the app can stay open):
+    /// the runner folder couldn't be made, or the runtime framework didn't load
+    /// (`shiori_renpy_run`'s -2).
+    static let notStarted: Int32 = -3
+    static let runtimeNotLoaded: Int32 = -2
+
+    /// The last session's note (`last-game-session.json`): how it ended, with Ren'Py's error.
+    static func lastSessionError() -> String? {
+        guard let data = try? Data(contentsOf: URL.shioriSupport.appendingPathComponent("last-game-session.json")),
+              let note = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = note["error"] as? String, !error.isEmpty else { return nil }
+        return error
+    }
+
     @MainActor
     static func launch(appID: UInt32, gameFolder: URL, match: EngineMatch, saves: URL, cache: URL) -> Int32 {
         let base = gameFolder.appendingPathComponent("base", isDirectory: true)
         var status: Int32 = 1
+        var setupError = ""
         if let runtime = runtime(for: match) {
             do {
                 let runner = try prepareRunner(runtime, cache: cache, gameBase: base)
@@ -210,6 +225,8 @@ extension RenPyEngine {
                 status = shiori_renpy_run(runtime.framework, runner.path, "main", saves.path)
             } catch {
                 NSLog("Shiori: couldn't prepare the Ren'Py runner: %@", String(describing: error))
+                setupError = "Couldn't prepare the game's runner: \((error as NSError).localizedDescription) (\(String(describing: error)))"
+                status = notStarted
             }
         }
         NSLog("Shiori: Ren'Py exited with status %d", status)
@@ -218,7 +235,7 @@ extension RenPyEngine {
         let note: [String: Any] = [
             "appID": appID, "status": Int(status), "ended": ISO8601DateFormatter().string(from: .now),
             "runtime": runtime(for: match)?.framework ?? "none",
-            "error": (try? String(contentsOf: cache.appendingPathComponent("last_error.txt"), encoding: .utf8)) ?? "",
+            "error": setupError.isEmpty ? (try? String(contentsOf: cache.appendingPathComponent("last_error.txt"), encoding: .utf8)) ?? "" : setupError,
             "exit": (try? String(contentsOf: cache.appendingPathComponent("exit.txt"), encoding: .utf8)) ?? "",
         ]
         if let data = try? JSONSerialization.data(withJSONObject: note, options: [.prettyPrinted, .sortedKeys]) {

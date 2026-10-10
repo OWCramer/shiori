@@ -80,6 +80,11 @@ struct RootView: View {
     var body: some View {
         @Bindable var games = games
         content
+            .alert("Couldn't start the game", isPresented: Binding(get: { games.launchFailure != nil }, set: { if !$0 { games.launchFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(games.launchFailure ?? "")
+            }
             .fullScreenCover(item: $games.artemisSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
                     ArtemisGameView(gameFolder: session.folder, onFirstFrame: firstFrame) { games.artemisSession = nil }
