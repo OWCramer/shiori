@@ -1,0 +1,24 @@
+{
+  "engine": "luca",
+  "name": "Luca System (LucaKit)",
+  "games": [
+    {
+      "appID": 3418570,
+      "name": "Summer Pockets REFLECTION BLUE",
+      "status": "plays",
+      "tested": "2026-10-09",
+      "source": "shiori",
+      "notes": "The game's own title, menus, OPTIONS, Message Log and fonts. Not yet: the table tennis and Islamon minigames, RECORD.",
+      "profile": "reflectionBlue"
+    },
+    {
+      "appID": 2699690,
+      "name": "Harmonia Full HD Edition",
+      "status": "plays",
+      "tested": "2026-10-10",
+      "source": "shiori",
+      "notes": "All nine chapters headless; title, window and menus from its art in the simulator. Not yet: the full-screen narration box, Chapter and Extras.",
+      "profile": "harmonia"
+    }
+  ]
+}

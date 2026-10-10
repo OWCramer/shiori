@@ -1,0 +1,30 @@
+{
+  "engine": "siglus",
+  "name": "SiglusEngine (siglus_rs)",
+  "games": [
+    {
+      "appID": 421660,
+      "name": "Harmonia",
+      "status": "plays",
+      "tested": "2026-10-09",
+      "source": "shiori",
+      "notes": "Voices; saves load after relaunch."
+    },
+    {
+      "appID": 897220,
+      "name": "Summer Pockets",
+      "status": "plays",
+      "tested": "2026-10-09",
+      "source": "shiori",
+      "notes": "English via SceneEN.pck."
+    },
+    {
+      "appID": 623080,
+      "name": "planetarian HD",
+      "status": "boots",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Reaches its English title in the simulator."
+    }
+  ]
+}

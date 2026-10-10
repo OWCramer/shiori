@@ -1,0 +1,22 @@
+{
+  "engine": "artemis",
+  "name": "Artemis (ArtemisKit)",
+  "games": [
+    {
+      "appID": 490890,
+      "name": "Ne no Kami - The Two Princess Knights of Kyoto",
+      "status": "boots",
+      "tested": "2026-10-07",
+      "source": "shiori",
+      "notes": "Logo, title and the prologue's first scene, in the simulator."
+    },
+    {
+      "appID": 386970,
+      "name": "Memory's Dogma CODE:01",
+      "status": "plays",
+      "tested": "2026-10-07",
+      "source": "shiori",
+      "notes": "Title to ending headless, including its timed choices."
+    }
+  ]
+}

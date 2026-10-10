@@ -1,0 +1,124 @@
+{
+  "engine": "kirikiri",
+  "name": "KiriKiri Z (AetherKrkr)",
+  "games": [
+    {
+      "appID": 385800,
+      "name": "NEKOPARA Vol. 0",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "E-mote characters animate, with Shiori's own blinking and physics."
+    },
+    {
+      "appID": 333600,
+      "name": "NEKOPARA Vol. 1",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Older NEKO WORKs archive layout."
+    },
+    {
+      "appID": 420110,
+      "name": "NEKOPARA Vol. 2",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Older NEKO WORKs archive layout."
+    },
+    {
+      "appID": 1406990,
+      "name": "NEKOPARA Vol. 4",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "The Steam release is KiriKiri, not CatSystem2."
+    },
+    {
+      "appID": 899970,
+      "name": "NEKOPARA Extra",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Text starts in Japanese; switch it in the game's Config."
+    },
+    {
+      "appID": 602520,
+      "name": "NEKOPARA Vol. 3",
+      "status": "unsupported",
+      "source": "shiori",
+      "notes": "CatSystem2, which Shiori doesn't run yet."
+    },
+    {
+      "appID": 487430,
+      "name": "KARAKARA",
+      "status": "boots",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "CxDec scheme from GARbro (shared with KARAKARA 2); boots to its title on the Mac harness."
+    },
+    {
+      "appID": 745850,
+      "name": "KARAKARA2",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "CxDec scheme from GARbro."
+    },
+    {
+      "appID": 555640,
+      "name": "Japanese School Life",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Steam Cloud syncs (savedata/)."
+    },
+    {
+      "appID": 1094930,
+      "name": "Ninja Girl and the Mysterious Army of Urban Legend Monsters!",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "PackinOne data packs."
+    },
+    {
+      "appID": 1637370,
+      "name": "Letters From a Rainy Day -Oceans and Lace-",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "GARbro's \"Tsuyuchiru Letter\" scheme. Steam Cloud syncs."
+    },
+    {
+      "appID": 527190,
+      "name": "WORLD END ECONOMiCA episode.03",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": ""
+    },
+    {
+      "appID": 1559760,
+      "name": "Island Diary",
+      "status": "unsupported",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Its CxDec scheme isn't published, and its executable is DRM-wrapped."
+    },
+    {
+      "appID": 1961760,
+      "name": "My Girlfriend's Special Place",
+      "status": "unsupported",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Hx encryption; no keys."
+    },
+    {
+      "appID": 1144400,
+      "name": "Senren＊Banka",
+      "status": "unsupported",
+      "source": "shiori",
+      "notes": "Hx encryption; no keys."
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "engine": "renpy",
+  "name": "Ren'Py",
+  "runtimes": "8.1.3 (Python 3) for Ren'Py 8; 7.8.7 (Python 2) for 6.10–7.x",
+  "games": [
+    {
+      "appID": 451760,
+      "name": "Highway Blossoms",
+      "status": "plays",
+      "tested": "2026-10-07",
+      "source": "shiori",
+      "notes": "Ren'Py 8.1.3. Saves round-trip with the PC through Steam Cloud."
+    },
+    {
+      "appID": 698780,
+      "name": "Doki Doki Literature Club",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "7.8.7 runtime. Name entry works with the on-screen keyboard."
+    },
+    {
+      "appID": 402180,
+      "name": "Sakura Swim Club",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Ren'Py 6.18 on the 7.8.7 runtime."
+    },
+    {
+      "appID": 269250,
+      "name": "WORLD END ECONOMiCA episode.01",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "Default build is a Unity remaster (unsupported); play the renpy_old beta (Ren'Py 6.17.7).",
+      "branch": "renpy_old"
+    },
+    {
+      "appID": 620210,
+      "name": "Fatal Twelve",
+      "status": "plays",
+      "tested": "2026-10-08",
+      "source": "shiori",
+      "notes": "7.8.7 runtime; holds about 0.9 GB over long sessions after the texture-leak fix."
+    }
+  ]
+}

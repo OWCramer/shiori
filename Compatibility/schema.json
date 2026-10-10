@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Shiori compatibility: one engine",
+  "type": "object",
+  "required": [
+    "engine",
+    "name",
+    "games"
+  ],
+  "properties": {
+    "engine": {
+      "enum": [
+        "renpy",
+        "kirikiri",
+        "artemis",
+        "siglus",
+        "luca",
+        "catsystem2",
+        "onscripter"
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "runtimes": {
+      "type": "string"
+    },
+    "games": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "appID",
+          "name",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "appID": {
+            "type": "integer",
+            "description": "Steam app id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "unsupported",
+              "boots",
+              "plays",
+              "complete"
+            ],
+            "description": "unsupported: won't start; boots: reaches its title or first scene; plays: playable start to end, maybe missing extras; complete: everything the PC version has"
+          },
+          "tested": {
+            "type": "string",
+            "description": "date of the last check, YYYY-MM-DD"
+          },
+          "source": {
+            "type": "string",
+            "description": "shiori for the maintainers' own tests, else the reporter's GitHub name"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "branch": {
+            "type": "string",
+            "description": "Steam beta branch to use instead of the default build"
+          },
+          "profile": {
+            "type": "string",
+            "description": "Luca System: the screen profile Shiori uses"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
