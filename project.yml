@@ -168,11 +168,9 @@ targets:
         LSApplicationCategoryType: public.app-category.adventure-games
         ITSAppUsesNonExemptEncryption: false
     entitlements:
+      # No iCloud Documents: Apple TV has no iCloud Drive; saves go through Steam Cloud.
       path: App/TV/ShioriTV.entitlements
-      properties:
-        com.apple.developer.icloud-container-identifiers: ["iCloud.com.owencramer.vnhub"]
-        com.apple.developer.ubiquity-container-identifiers: ["iCloud.com.owencramer.vnhub"]
-        com.apple.developer.icloud-services: ["CloudDocuments"]
+      properties: {}
     dependencies:
       - package: SteamKit
         product: SteamKit
