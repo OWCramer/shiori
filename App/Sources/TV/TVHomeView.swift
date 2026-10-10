@@ -61,10 +61,25 @@ struct TVHomeView: View {
         .environment(\.colorScheme, .dark)
         .fullScreenCover(isPresented: $showingDownloads) { DownloadsView(library: steam.library) }
         .fullScreenCover(isPresented: $showingSettings) { SettingsView() }
+        .onAppear { ControllerInput.tabSwitch = { step in switchTab(step) } }
+        .onDisappear { ControllerInput.tabSwitch = nil }
         .onChange(of: focusedCard) { _, id in
             guard let id, let game = shelf.first(where: { $0.appID == id }) else { return }
             withAnimation(.smooth(duration: 0.35)) { featured = game }
         }
+    }
+
+    /// The shoulder buttons: the previous or next tab, on the library itself (not a game
+    /// page or a cover over it).
+    private func switchTab(_ step: Int) {
+        guard path.isEmpty, !showingDownloads, !showingSettings,
+              games.artemisSession == nil, games.lucaSession == nil, shiori_renpy_is_running() == 0 else { return }
+        let all = LibraryView.Filter.allCases
+        guard let index = all.firstIndex(of: filter) else { return }
+        let next = index + step
+        guard all.indices.contains(next) else { return }
+        withAnimation(.smooth(duration: 0.25)) { filter = all[next] }
+        focusedCard = nil
     }
 
     // MARK: - Top bar
@@ -170,6 +185,9 @@ struct TVHomeView: View {
                 .padding(.vertical, 30)
             }
             .scrollClipDisabled()
+            // A fresh scroll position per tab: a shorter list left scrolled past its end
+            // showed nothing to select.
+            .id(filter)
         }
         .focusSection()
     }

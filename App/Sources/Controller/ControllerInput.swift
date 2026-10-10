@@ -43,6 +43,13 @@ final class ControllerInput {
     /// launcher behind it gets nothing, and a press calls this instead so the game can say so.
     static var unsupportedGame: (@MainActor () -> Void)?
 
+    #if os(tvOS)
+    /// Set while the Apple TV library is on screen: the shoulder buttons switch its tabs
+    /// (-1 left, +1 right). The focus engine has no use for them.
+    static var tabSwitch: (@MainActor (Int) -> Void)?
+    private var shouldersHeld: Set<Int> = []
+    #endif
+
     /// Set while an in-process game that reads the pad itself is on screen (KiriKiri): each
     /// frame's pad state goes to it, and the launcher behind it gets nothing.
     static var gameReceiver: (@MainActor (GCExtendedGamepad) -> Void)?
@@ -136,6 +143,12 @@ final class ControllerInput {
     private func poll() {
         #if os(tvOS)
         if shiori_renpy_is_running() != 0 {
+            // The system keyboard is up (a name entry): the pad types there, so the game is
+            // told every button it was holding is up and hears nothing until it closes.
+            if PressFilter.isEditing {
+                releaseGameInput()
+                return
+            }
             if let pad = controller?.extendedGamepad {
                 forwardToGame(pad)
             } else if let remote = remote?.microGamepad {
@@ -156,8 +169,17 @@ final class ControllerInput {
         }
         #if os(tvOS)
         // Games without pad support (Artemis, Luca) take the controller as UIKit presses on
-        // Apple TV, and the hub is the focus engine's: nothing more to do here.
+        // Apple TV, and the hub is the focus engine's, except for the shoulder buttons,
+        // which switch the library's tabs.
         held = []
+        for (step, button) in [(-1, pad.leftShoulder), (1, pad.rightShoulder)] {
+            if button.isPressed, !shouldersHeld.contains(step) {
+                shouldersHeld.insert(step)
+                Self.tabSwitch?(step)
+            } else if !button.isPressed {
+                shouldersHeld.remove(step)
+            }
+        }
         return
         #endif
         if let notify = Self.unsupportedGame {
@@ -228,6 +250,22 @@ final class ControllerInput {
     }
 
     #if os(tvOS)
+    /// Tells the game every button and stick it last heard as held is released.
+    private func releaseGameInput() {
+        for (button, down) in gameButtons where down {
+            gameButtons[button] = false
+            shiori_renpy_controller_button(Int32(button), 0)
+        }
+        for (button, down) in remoteButtons where down {
+            remoteButtons[button] = false
+            shiori_renpy_controller_button(Int32(button), 0)
+        }
+        for (axis, value) in gameAxes where value != 0 {
+            gameAxes[axis] = 0
+            shiori_renpy_controller_axis(Int32(axis), 0)
+        }
+    }
+
     /// The Siri Remote as a pad for Ren'Py: a click is A (read on, select), Menu is B (the
     /// game menu), Play/Pause is Y (hide the text box), and swipes are the d-pad.
     private func forwardRemoteToGame(_ remote: GCMicroGamepad) {

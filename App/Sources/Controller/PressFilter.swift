@@ -12,6 +12,9 @@ import UIKit
 enum PressFilter {
     private static var installed = false
     private static var editing = 0
+    /// A text field is editing (the system keyboard is up): the pad goes to the keyboard,
+    /// not the game.
+    static var isEditing: Bool { editing > 0 }
 
     static func install() {
         guard !installed else { return }
