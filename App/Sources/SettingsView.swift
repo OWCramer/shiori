@@ -78,7 +78,7 @@ struct SettingsView: View {
                     dismiss()
                 }
             } message: {
-                Text("Downloaded games stay on this device. You'll need to sign in again to download more.")
+                Text("Signs out on all your devices that share this sign-in through iCloud Keychain. Downloaded games stay on this device.")
             }
         }
     }

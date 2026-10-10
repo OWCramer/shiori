@@ -141,7 +141,7 @@ struct SteamGridDB: Sendable {
     }
 }
 
-/// API keys in the Keychain (this device only, readable after first unlock).
+/// API keys in iCloud Keychain, so a key entered on one device works on the others.
 struct APIKeyStore: Sendable {
     static let steamGridDB = APIKeyStore(account: "steamgriddb")
 
@@ -149,29 +149,18 @@ struct APIKeyStore: Sendable {
     private let service = "com.owencramer.vnhub.apikeys"
 
     var value: String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data, let key = String(data: data, encoding: .utf8), !key.isEmpty
+        guard let data = SyncedKeychain.data(account: account, service: service),
+              let key = String(data: data, encoding: .utf8), !key.isEmpty
         else { return nil }
         return key
     }
 
     func set(_ key: String?) {
-        SecItemDelete(baseQuery as CFDictionary)
-        guard let key, !key.isEmpty else { return }
-        var item = baseQuery
-        item[kSecValueData as String] = Data(key.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(item as CFDictionary, nil)
+        SyncedKeychain.set(key.flatMap { $0.isEmpty ? nil : Data($0.utf8) }, account: account, service: service)
     }
 
-    private var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account,
-         kSecUseDataProtectionKeychain as String: true]
+    /// A key saved before keys synced (this device only) becomes a synced one.
+    func migrateToSynced() {
+        if let value { set(value) }
     }
 }

@@ -65,21 +65,28 @@ public protocol SessionStore: Sendable {
     func delete() throws
 }
 
-/// Keeps the session in the Keychain, readable after first unlock and never synced or
-/// migrated to another device.
+/// Keeps the session in the Keychain, readable after first unlock. With `synchronizable`,
+/// it's an iCloud Keychain item, so signing in on one of the person's devices signs in the
+/// others (and signing out signs them all out); otherwise it stays on this device.
 public struct KeychainSessionStore: SessionStore {
     public enum Error: Swift.Error { case keychain(OSStatus) }
 
     public let service: String
+    public let synchronizable: Bool
 
-    public init(service: String) { self.service = service }
+    public init(service: String, synchronizable: Bool = false) {
+        self.service = service
+        self.synchronizable = synchronizable
+    }
 
+    /// Matches the item whether it's synced or not (one saved before syncing was on).
     private var query: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: "steam-session",
             kSecUseDataProtectionKeychain as String: true,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
     }
 
@@ -96,16 +103,24 @@ public struct KeychainSessionStore: SessionStore {
 
     public func save(_ session: StoredSession) throws {
         try delete()
-        var query = query
-        query[kSecValueData as String] = try JSONEncoder().encode(session)
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(query as CFDictionary, nil)
+        var item = query
+        item[kSecValueData as String] = try JSONEncoder().encode(session)
+        item[kSecAttrSynchronizable as String] = synchronizable
+        // A synced item can't be this-device-only.
+        item[kSecAttrAccessible as String] = synchronizable ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess else { throw Error.keychain(status) }
     }
 
     public func delete() throws {
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Error.keychain(status) }
+    }
+
+    /// Re-saves a session stored before syncing was turned on, so it syncs too.
+    public func migrateToSynchronizable() {
+        guard synchronizable, let session = try? load() else { return }
+        try? save(session)
     }
 }
 

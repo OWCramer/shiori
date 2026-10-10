@@ -34,7 +34,9 @@ final class SteamModel {
     private var signInTask: Task<Void, Never>?
 
     init() {
-        let store = KeychainSessionStore(service: "com.owencramer.vnhub.steam")
+        // In iCloud Keychain: signing in on one device signs in the user's others (spec: Sign-in).
+        let store = KeychainSessionStore(service: "com.owencramer.vnhub.steam", synchronizable: true)
+        store.migrateToSynchronizable()
         session = SteamSession(
             configuration: SteamConfiguration(deviceName: Self.deviceName, deviceSeed: Self.deviceSeed),
             store: store
@@ -68,7 +70,13 @@ final class SteamModel {
         }
     }
 
+    /// Set while the stored session is logging on, so a second logon doesn't race it.
+    private var isResuming = false
+
     private func resume() async {
+        guard !isResuming else { return }
+        isResuming = true
+        defer { isResuming = false }
         hasStoredSession = await session.storedAccountName != nil
         SteamLog.write("launch: stored session \(hasStoredSession ? "found" : "none")")
         guard hasStoredSession else { return }
@@ -82,6 +90,16 @@ final class SteamModel {
             connectionError = Self.message(for: error)
             SteamLog.write("resume failed: \(String(describing: error))")
         }
+    }
+
+    /// Signs in with a session another device saved to iCloud Keychain, if one arrived
+    /// while this device was signed out (checked when the app comes to the foreground).
+    func adoptSyncedSession() async {
+        guard !isLoggedOn, !isResuming, state == .signedOut || state == .connectedAnonymously,
+              await session.storedAccountName != nil else { return }
+        SteamLog.write("adopting a sign-in synced from another device")
+        cancelSignIn()
+        await resume()
     }
 
     func signIn(accountName: String, password: String) {

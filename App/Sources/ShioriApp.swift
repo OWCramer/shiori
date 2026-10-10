@@ -18,6 +18,7 @@ struct ShioriApp: App {
         #if os(tvOS)
         PressFilter.install()
         #endif
+        APIKeyStore.steamGridDB.migrateToSynced()
         // Other downloads (covers for the game runtime, SteamGridDB lookups) use URLCache.
         URLCache.shared = URLCache(memoryCapacity: 16 << 20, diskCapacity: 128 << 20)
         // Artwork: Kingfisher keeps decoded, downsampled images in memory and the originals
@@ -70,6 +71,10 @@ struct ShioriApp: App {
             case .inactive where old == .active:
                 shiori_renpy_will_resign_active()
             case .active:
+                // Settings other devices changed through iCloud Keychain.
+                curation.reload()
+                steam.artwork.reload()
+                if old == .background { Task { await steam.adoptSyncedSession() } }
                 if old == .background { shiori_renpy_will_enter_foreground() }
                 #if os(tvOS)
                 if old == .background, steam.isLoggedOn, shiori_renpy_is_running() == 0 { games.restoreClearedGames() }
