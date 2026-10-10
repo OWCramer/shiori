@@ -33,9 +33,12 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     // Text window
     /// MWIN0's shape starts 100 px down, so the window's top edge shows at y 791, as in the
     /// PC game; stretched to the bottom of the screen.
-    private let windowRect = CGRect(x: 0, y: 691, width: 1920, height: 389)
+    private var windowRect: CGRect { profile.window.rect }
     /// The window's teal, measured from the PC game.
-    private var windowTint: SIMD4<Float> { SIMD4<Float>(0.0, 0.745, 0.765, settings.windowAlpha) }
+    private var windowTint: SIMD4<Float> {
+        let c = profile.window.colour
+        return SIMD4<Float>(c.x, c.y, c.z, settings.windowAlpha(base: profile.window.opacity))
+    }
     /// The speaker's name plate (mwin1920_0, white, tinted) and the flapping butterfly that
     /// says a tap reads on (__SYS_MW01_KEY00, 24 frames).
     private let namePlate = UIImageView()
@@ -65,6 +68,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var systemMenu: LucaSystemMenu?
     private var saveScreen: LucaSaveScreen?
     private var textHidden = false
+    /// What this game's executable draws for itself (LucaProfile).
+    private var profile = LucaProfile.plain
     private var optionsScreen: LucaOptionsScreen?
     private var messageLog: LucaMessageLog?
     private var settings = LucaSettings()
@@ -159,30 +164,37 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             let game = try LucaGame(root: gameFolder.appendingPathComponent("base", isDirectory: true),
                                     patch: gameFolder.appendingPathComponent("patch", isDirectory: true))
             self.game = game
+            profile = LucaProfile.detect(game)
+            NSLog("Luca: %@ (%@)", profile.name, game.entryScript)
             // MWIN0 is the window's shape in white; the engine tints it.
-            windowMask = renderer?.textures.texture(Self.windowImageID, game: game)
-            if let plate = game.image(Self.namePlateID).flatMap(Self.cgImage) {
+            if let id = game.imageID(named: "MWIN0") { windowMask = renderer?.textures.texture(id, game: game) }
+            if let plate = picture("mwin1920_0") {
                 namePlate.image = UIImage(cgImage: plate).withRenderingMode(.alwaysTemplate)
             }
-            if let sheet = game.image(Self.pageMarkerID).flatMap(Self.cgImage) {
-                let size = sheet.height
-                pageMarker.animationImages = (0..<(sheet.width / size)).compactMap {
-                    sheet.cropping(to: CGRect(x: $0 * size, y: 0, width: size, height: size)).map { UIImage(cgImage: $0) }
+            if let marker = profile.pageMarker, let sheet = picture(marker.name) {
+                if let size = marker.frame {
+                    pageMarker.animationImages = (0..<(sheet.width / size)).compactMap {
+                        sheet.cropping(to: CGRect(x: $0 * size, y: 0, width: size, height: size)).map { UIImage(cgImage: $0) }
+                    }
+                    pageMarker.animationDuration = 0.8
+                } else {
+                    pageMarker.animationImages = [UIImage(cgImage: sheet)]
                 }
-                pageMarker.animationDuration = 0.8
             }
-            if let buttons = game.image(Self.choiceSheetID).flatMap(Self.cgImage) {
+            if let buttons = profile.choiceSheet.flatMap(picture) {
                 // Four states, 225 px each: blue, gold (highlighted), gold (pressed), grey.
                 choiceImages = (0..<4).compactMap { buttons.cropping(to: CGRect(x: 0, y: $0 * 225, width: buttons.width, height: 225)) }
             }
             try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
             settings = LucaSettings.load(from: saves)
             readLog = LucaReadLog(saves: saves)
-            let bar = LucaWindowBar(sheet: game.imageID(named: "legacy_pt").flatMap { game.image($0) }.flatMap(Self.cgImage))
-            bar.onPick = { [weak self] item in self?.windowBarPicked(item) }
-            bar.isHidden = true
-            overlay.addSubview(bar)
-            windowBar = bar
+            if let sheet = profile.shortcutSheet.flatMap(picture) {
+                let bar = LucaWindowBar(sheet: sheet)
+                bar.onPick = { [weak self] item in self?.windowBarPicked(item) }
+                bar.isHidden = true
+                overlay.addSubview(bar)
+                windowBar = bar
+            }
             applySettings()
             showTitle()
         } catch {
@@ -483,12 +495,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         }
     }
 
-    /// The window's text geometry, in the game's 1920×1080 space, measured from the PC
-    /// game: glyph cells start at x 396 (474 beside a face), the name's at y 791 and the line's
-    /// at y 855, lines 56 apart, wrapping at 1300 px.
-    private static let textSize = 37, lineHeight = 56, textWidth = 1300
+    /// The window's text is the game's size-37 font; where it sits is the profile's window.
+    private static let textSize = 37
     private static let outline: (UInt8, UInt8, UInt8) = (20, 50, 60)
-    private var textLeft: CGFloat { player?.windowFace != nil ? 474 : 396 }
+    private var textLeft: CGFloat { player?.windowFace != nil ? profile.window.textLeftWithFace : profile.window.textLeft }
 
     private func loadFont(_ face: String, _ size: Int) -> (main: LucaFont, patch: LucaFont?)? {
         let key = "\(face) \(size)"
@@ -522,7 +532,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private func textImage(_ set: LucaTypeset, fill: UIColor) -> UIImage? {
         var r: CGFloat = 1, g: CGFloat = 1, b: CGFloat = 1, a: CGFloat = 1
         fill.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let pixels = set.render(fill: (UInt8(r * 255), UInt8(g * 255), UInt8(b * 255)), outline: Self.outline, outlineWidth: 2)
+        let pixels = set.render(fill: (UInt8(r * 255), UInt8(g * 255), UInt8(b * 255)), outline: Self.outline, outlineWidth: profile.window.outline)
         guard let provider = CGDataProvider(data: Data(pixels) as CFData),
               let image = CGImage(width: set.usedWidth, height: set.height, bitsPerComponent: 8, bitsPerPixel: 32,
                                   bytesPerRow: set.usedWidth * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -549,17 +559,18 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         let key = "\(message.speaker ?? "")\u{1}\(message.text)\u{1}\(settings.font)\u{1}\(colour)\u{1}\(left)\u{1}\(s)"
         if key != composedKey {
             composedKey = key
-            let width = Self.textWidth - Int(left - 396)
-            let set = LucaTypeset(message.text, fonts: fonts(for: message.text), width: width, lineHeight: Self.lineHeight)
+            let w = profile.window
+            let width = w.textWidth - Int(left - w.textLeft)
+            let set = LucaTypeset(message.text, fonts: fonts(for: message.text), width: width, lineHeight: w.lineHeight)
             typeset = set
             textView.image = textImage(set, fill: colour)
-            let top = CGFloat(855 - (Self.lineHeight - Self.textSize - 1) / 2)
+            let top = w.textTop - CGFloat((w.lineHeight - Self.textSize - 1) / 2)
             textView.frame = CGRect(x: left * s, y: top * s, width: CGFloat(set.usedWidth) * s, height: CGFloat(set.height) * s)
             textMask.frame = textView.bounds
             if let speaker = message.speaker, !speaker.isEmpty {
-                let name = LucaTypeset(speaker, fonts: fonts(for: speaker), width: 900, lineHeight: Self.lineHeight)
+                let name = LucaTypeset(speaker, fonts: fonts(for: speaker), width: 900, lineHeight: w.lineHeight)
                 nameView.image = textImage(name, fill: .white)
-                nameView.frame = CGRect(x: left * s, y: (top - 64) * s, width: CGFloat(name.usedWidth) * s, height: CGFloat(name.height) * s)
+                nameView.frame = CGRect(x: left * s, y: (top - (w.textTop - w.nameTop)) * s, width: CGFloat(name.usedWidth) * s, height: CGFloat(name.height) * s)
             } else {
                 nameView.image = nil
             }
@@ -579,7 +590,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         let s = stageScale
         guard s > 0 else { return }
         namePlate.frame = CGRect(x: (textLeft - 150) * s, y: 712 * s, width: 496 * s, height: 110 * s)
-        pageMarker.frame = CGRect(x: 1640 * s, y: 996 * s, width: 72 * s, height: 72 * s)
+        let marker = profile.window.pageMarker
+        pageMarker.frame = CGRect(x: marker.minX * s, y: marker.minY * s, width: marker.width * s, height: marker.height * s)
         let bar = LucaWindowBar.frameInStage
         windowBar?.frame = CGRect(x: bar.minX * s, y: bar.minY * s, width: bar.width * s, height: bar.height * s)
         renderText()
@@ -733,7 +745,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         mapBackdrop?.removeFromSuperview()
         mapBackdrop = nil
         guard let choices = player.choices else { return }
-        if player.choicePrompt != nil, let map = player.game.image(Self.mapImageID).flatMap(Self.cgImage) {
+        if player.choicePrompt != nil, let map = profile.mapImage.flatMap(picture) {
             let backdrop = UIImageView(image: UIImage(cgImage: map))
             backdrop.contentMode = .scaleAspectFill
             backdrop.clipsToBounds = true
@@ -823,9 +835,15 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     @objc private func showMenu() {
         guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil, let player, let game else { return }
-        let sheet = game.imageID(named: "systemmenuen").flatMap { game.image($0) }.flatMap(Self.cgImage)
         audio.playSystem("TOGGLE", game: game)
-        let menu = LucaSystemMenu(sheet: sheet) { [weak self] item in
+        // The game's own menu art, or the shared icon strip when the profile names none.
+        let style = profile.systemMenu ?? .icons(sheet: "system_icon_1920_en", background: "system_BG")
+        let layout: LucaSystemMenu.Layout
+        switch style {
+        case .grid(let name): layout = .grid(picture(name))
+        case .icons(let sheet, let background): layout = .icons(picture(sheet), background: background.flatMap(picture))
+        }
+        let menu = LucaSystemMenu(layout: layout) { [weak self] item in
             guard let self else { return }
             self.systemMenu?.removeFromSuperview()
             self.systemMenu = nil
@@ -860,7 +878,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         audio.playSystem("TOGGLE", game: game)
         let log = LucaMessageLog(game: game, lines: player.backlog, typeset: { [weak self] text, width, fill in
             guard let self else { return nil }
-            let set = LucaTypeset(text, fonts: self.fonts(for: text), width: width, lineHeight: Self.lineHeight)
+            let set = LucaTypeset(text, fonts: self.fonts(for: text), width: width, lineHeight: self.profile.window.lineHeight)
             guard !set.placed.isEmpty else { return nil }
             return (CGSize(width: set.usedWidth, height: set.height), { [weak self] in self?.textImage(set, fill: fill) })
         }, onVoice: { [weak self] line in
@@ -924,14 +942,15 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         audio.handle(.stopMusic(fadeFrames: 30), game: game)
         titleView?.removeFromSuperview()
         // The boot sequence (warning and logos) plays once per launch; after that, the title.
-        let title = LucaTitleScreen(game: game, boot: !bootShown, onSound: { [weak self] sound in
+        let onSound: (String) -> Void = { [weak self] sound in
             guard let self, let game = self.game else { return }
             if sound == "music" {
-                self.audio.handle(.music(id: Self.titleMusicID, fadeFrames: 60), game: game)
+                if let music = self.profile.titleMusic { self.audio.handle(.music(id: music, fadeFrames: 60), game: game) }
             } else {
                 self.audio.playSystem(sound, game: game)
             }
-        }, onAction: { [weak self] action in
+        }
+        let onAction: (LucaTitleScreen.Action) -> Void = { [weak self] action in
             guard let self else { return }
             switch action {
             case .start: self.start(state: nil)
@@ -940,7 +959,13 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             case .manual: self.presentManual()
             case .exit: self.leave()
             }
-        })
+        }
+        let title: UIView
+        if case .reflectionBlue = profile.title {
+            title = LucaTitleScreen(game: game, boot: !bootShown, onSound: onSound, onAction: onAction)
+        } else {
+            title = LucaColumnTitleScreen(game: game, profile: profile, boot: !bootShown, onSound: onSound, onAction: onAction)
+        }
         bootShown = true
         title.frame = view.bounds
         title.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -994,7 +1019,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private func presentOptions() {
         guard let game, optionsScreen == nil, messageLog == nil else { return }
         audio.playSystem("TOGGLE", game: game)
-        let screen = LucaOptionsScreen(game: game, settings: settings, onSound: { [weak self] name in
+        let screen = LucaOptionsScreen(game: game, settings: settings, voiceFaces: profile.voiceFaces, onSound: { [weak self] name in
             guard let self, let game = self.game else { return }
             self.audio.playSystem(name, game: game)
         }, onChange: { [weak self] settings in
@@ -1102,7 +1127,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         guard let game else { return }
         let thumbnail = saving ? thumbnail() : nil
         var screen: LucaSaveScreen?
-        screen = LucaSaveScreen(game: game, folder: saves, saving: saving) { [weak self] slot in
+        screen = LucaSaveScreen(game: game, folder: saves, saving: saving, blank: profile.saveBlank, cursor: profile.saveCursor) { [weak self] slot in
             guard let self else { return }
             screen?.removeFromSuperview()
             self.saveScreen = nil
@@ -1124,24 +1149,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         saveScreen = screen
     }
 
-    // MARK: Game art (REFLECTION BLUE ids)
-
-    /// MWIN0 in PARTS.PAK: the text window's shape.
-    static let windowImageID = 64_116
-    /// BG999Ax20, the summer sky of the opening.
-    static let titleBackgroundID = 513
-    /// __SYS_RBLOGO02a in OTHCG.PAK.
-    static let titleLogoID = 25_160
-    /// __SYS_MAP_BG01en in OTHCG.PAK: the island map.
-    static let mapImageID = 25_133
-    /// mwin1920_0 in PARTS.PAK: the name plate.
-    static let namePlateID = 64_123
-    /// __SYS_MW01_KEY00 in PARTS.PAK: the flapping butterfly, 24 frames of 72 px.
-    static let pageMarkerID = 64_004
-    /// __SYS_SEL_BTN02 in OTHCG.PAK: the choice banners.
-    static let choiceSheetID = 25_170
-    /// BGM01 in MUSIC.PAK.
-    static let titleMusicID = 100_001
+    /// The game's picture `name` (nil when it has none).
+    private func picture(_ name: String) -> CGImage? {
+        game?.imageID(named: name).flatMap { game?.image($0) }.flatMap(Self.cgImage)
+    }
 }
 
 /// A choice drawn as the game's banner: blue, gold while pressed, the text centred on it.

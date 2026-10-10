@@ -11,12 +11,59 @@ final class LucaSystemMenu: UIView, UIGestureRecognizerDelegate {
     private let stage = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
     private let onPick: (Item?) -> Void
 
-    init(sheet: CGImage?, onPick: @escaping (Item?) -> Void) {
+    enum Layout {
+        /// REFLECTION BLUE's `systemmenuen`.
+        case grid(CGImage?)
+        /// The Prototype kit's `system_icon_1920_en` (Harmonia): Save, Load, Options, Title,
+        /// Back, Quick Save, Quick Load, Manual, Voice Collection in 270 px cells, plain over
+        /// lit, on `system_BG`.
+        case icons(CGImage?, background: CGImage?)
+    }
+
+    init(layout: Layout, onPick: @escaping (Item?) -> Void) {
         self.onPick = onPick
         super.init(frame: .zero)
         backgroundColor = UIColor(red: 0.0, green: 0.07, blue: 0.2, alpha: 0.72)
         stage.layer.anchorPoint = .zero
         addSubview(stage)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(close))
+        tap.delegate = self
+        addGestureRecognizer(tap)
+        switch layout {
+        case .grid(let sheet): buildGrid(sheet)
+        case .icons(let sheet, let background): buildIcons(sheet, background: background)
+        }
+    }
+
+    private func buildIcons(_ sheet: CGImage?, background: CGImage?) {
+        if let background {
+            backgroundColor = UIColor(white: 0, alpha: 0.35)
+            let view = UIImageView(image: UIImage(cgImage: background))
+            view.frame = stage.bounds
+            view.alpha = 0.92
+            stage.addSubview(view)
+        }
+        // Back closes; Voice Collection has no Shiori screen yet.
+        let cells: [(column: Int, item: Item?)] = [(0, .save), (1, .load), (2, .options), (3, .title),
+                                                    (5, .quickSave), (6, .quickLoad), (7, .manual), (4, nil)]
+        let cell = 270, shown: CGFloat = 230, spacing: CGFloat = 260
+        let perRow = 4
+        for (index, entry) in cells.enumerated() {
+            let row = index / perRow, column = index % perRow
+            let plain = sheet?.cropping(to: CGRect(x: entry.column * cell, y: 0, width: cell, height: cell))
+            let lit = sheet?.cropping(to: CGRect(x: entry.column * cell, y: cell, width: cell, height: cell))
+            let button = LucaIconButton(plain: plain, lit: lit)
+            let left = (1920 - CGFloat(perRow - 1) * spacing - shown) / 2
+            button.frame = CGRect(x: left + CGFloat(column) * spacing, y: row == 0 ? 280 : 580, width: shown, height: shown)
+            let item = entry.item
+            button.addAction(UIAction { [weak self] _ in
+                if let item { self?.onPick(item) } else { self?.close() }
+            }, for: .touchUpInside)
+            stage.addSubview(button)
+        }
+    }
+
+    private func buildGrid(_ sheet: CGImage?) {
         // The sheet's cells are 315 px apart; shown at 260 px, as in the manual's picture.
         let cell = 315, shown: CGFloat = 260
         for item in Item.allCases {
@@ -33,9 +80,6 @@ final class LucaSystemMenu: UIView, UIGestureRecognizerDelegate {
             button.addAction(UIAction { [weak self] _ in self?.onPick(item) }, for: .touchUpInside)
             stage.addSubview(button)
         }
-        let tap = UITapGestureRecognizer(target: self, action: #selector(close))
-        tap.delegate = self
-        addGestureRecognizer(tap)
     }
 
     @available(*, unavailable)

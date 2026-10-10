@@ -21,7 +21,17 @@ final class LucaSaveScreen: UIView, UIGestureRecognizerDelegate {
     static let pages = 15
     private static let autoPage = 16, quickPage = 17
 
-    init(game: LucaGame, folder: URL, saving: Bool, onPick: @escaping (Int?) -> Void) {
+    private let blankNames: [String]
+    private let cursorNames: [String]
+
+    /// `blank` and `cursor`: the slot frame's names to try, as for saving (Load uses the same
+    /// names with "load" for "save").
+    init(game: LucaGame, folder: URL, saving: Bool, blank: [String], cursor: [String], onPick: @escaping (Int?) -> Void) {
+        func forScreen(_ names: [String]) -> [String] {
+            saving ? names : names.map { $0.replacingOccurrences(of: "save", with: "load").replacingOccurrences(of: "SAVE", with: "LOAD") }
+        }
+        blankNames = forScreen(blank)
+        cursorNames = forScreen(cursor)
         self.game = game
         self.folder = folder
         self.saving = saving
@@ -129,8 +139,8 @@ final class LucaSaveScreen: UIView, UIGestureRecognizerDelegate {
             label.transform = number == page ? CGAffineTransform(scaleX: 1.35, y: 1.35) : .identity
         }
         slotLayer.subviews.forEach { $0.removeFromSuperview() }
-        let blank = picture(saving ? "SAVE_BLANK" : "LOAD_BLANK")?.cgImage
-        let cursor = picture(saving ? "save_cursor" : "load_cursor")?.cgImage
+        let blank = blankNames.lazy.compactMap { self.picture($0)?.cgImage }.first
+        let cursor = cursorNames.lazy.compactMap { self.picture($0)?.cgImage }.first
         for (index, slot) in slotsOnPage.enumerated() {
             let column = index % 4, row = index / 4
             let frame = CGRect(x: 150 + CGFloat(column) * 390, y: 170 + CGFloat(row) * 400, width: 328, height: 188)

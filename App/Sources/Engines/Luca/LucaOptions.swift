@@ -42,8 +42,9 @@ struct LucaSettings: Codable, Equatable {
     var lettersPerSecond: Double? { textSpeed >= 0.99 ? nil : 10 * pow(30, textSpeed) }
     /// Seconds Auto waits after a line of `count` letters (and its voice) finishes.
     func autoWait(letters count: Int) -> Double { autoBaseWait * 3 + autoWaitPerLetter * 0.05 * Double(count) }
-    /// The window's opacity: 0.45 at the middle, as the PC game starts.
-    var windowAlpha: Float { Float(0.9 * (1 - windowTransparency)) }
+    /// The window's opacity for a game whose window is `base` opaque at the slider's middle
+    /// (as the PC game starts).
+    func windowAlpha(base: Float) -> Float { min(1, base * Float(2 * (1 - windowTransparency))) }
 
     static func url(in saves: URL) -> URL { saves.appendingPathComponent("luca-settings.json") }
 
@@ -135,7 +136,8 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
     private var tabLights: [UIImageView] = []
     private var tab = Tab.basic
     private let pieces: Pieces
-    /// The voiced characters (English names) and their faces from `VOICE_ICONRB`, in the
+    /// The voiced characters (English names) and their faces (a row of square cells,
+    /// `VOICE_ICONRB` in REFLECTION BLUE), in the
     /// order `_voice_param` lists them.
     private let characters: [(name: String, face: CGImage?)]
     /// Plays a line of the named character's (a tap on a face on the Voice page).
@@ -150,7 +152,7 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
         var back: (plain: CGImage?, lit: CGImage?)
     }
 
-    init(game: LucaGame, settings: LucaSettings, onSound: @escaping (String) -> Void,
+    init(game: LucaGame, settings: LucaSettings, voiceFaces: (name: String, cell: Int)?, onSound: @escaping (String) -> Void,
          onChange: @escaping (LucaSettings) -> Void, onClose: @escaping () -> Void) {
         art = LucaArt(game: game)
         self.settings = settings
@@ -169,11 +171,13 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
             knob: art.piece("options_parts", in: CGRect(x: 960, y: 74, width: 40, height: 52)).map { UIImage(cgImage: $0) },
             back: (icons?.cropping(to: CGRect(x: 4 * 270, y: 0, width: 270, height: 270)),
                    icons?.cropping(to: CGRect(x: 4 * 270, y: 270, width: 270, height: 270))))
-        let faces = art.picture("VOICE_ICONRB")
+        let faceArt = LucaArt(game: game)
+        let faces = voiceFaces.flatMap { faceArt.picture($0.name) }
+        let cell = voiceFaces?.cell ?? 0
         characters = game.voiceCharacters().enumerated().compactMap { index, names in
             // The two "Misc" groups have no name a line can be matched to.
             names.english.hasPrefix("Misc") ? nil
-                : (names.english, faces?.cropping(to: CGRect(x: index * 111, y: 0, width: 111, height: 111)))
+                : (names.english, faces?.cropping(to: CGRect(x: index * cell, y: 0, width: cell, height: cell)))
         }
         super.init(frame: .zero)
         backgroundColor = .black
