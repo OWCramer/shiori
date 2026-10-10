@@ -33,7 +33,7 @@ struct SignInView: View {
         #if os(tvOS)
         // On a TV the QR code is the way in: scan it with the Steam app on a phone. The
         // account form is still a Cancel away.
-        .task { if case .idle = steam.signIn { steam.startQRSignIn() } }
+        .task { if case .idle = steam.signIn, !steam.hasStoredSession, !steam.isLoggedOn { steam.startQRSignIn() } }
         #endif
     }
 

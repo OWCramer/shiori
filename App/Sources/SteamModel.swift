@@ -34,10 +34,14 @@ final class SteamModel {
     private var signInTask: Task<Void, Never>?
 
     init() {
+        let store = KeychainSessionStore(service: "com.owencramer.vnhub.steam")
         session = SteamSession(
             configuration: SteamConfiguration(deviceName: Self.deviceName, deviceSeed: Self.deviceSeed),
-            store: KeychainSessionStore(service: "com.owencramer.vnhub.steam")
+            store: store
         )
+        // Known before the first frame, so a signed-in launch never shows the sign-in
+        // screen (which on Apple TV starts a QR sign-in that would replace the session).
+        hasStoredSession = (try? store.load()) != nil
         Task { await observeState() }
         Task { await resume() }
     }
