@@ -239,6 +239,9 @@ private final class LucaTitleWord: UIControl {
 
     init(normal: CGImage?, lit: CGImage?, glow: CGImage?) {
         super.init(frame: .zero)
+        #if os(iOS)
+        highlightsOnHover()
+        #endif
         normalView.image = normal.map { UIImage(cgImage: $0) }
         litView.image = lit.map { UIImage(cgImage: $0) }
         glowView.image = glow.map { UIImage(cgImage: $0) }

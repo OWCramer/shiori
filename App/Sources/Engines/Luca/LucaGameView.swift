@@ -193,6 +193,11 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         leave.numberOfTouchesRequired = 2
         leave.minimumPressDuration = 0.8
         view.addGestureRecognizer(leave)
+        // A trackpad or mouse: flicks and holds are a finger's, a secondary click opens the
+        // system menu (the PC's right button), scrolling up opens the Message Log (the wheel).
+        for gesture in [flick, history, skip, back, hold] as [UIGestureRecognizer] { gesture.fingersOnly() }
+        view.addSecondaryClick(target: self, action: #selector(showMenu))
+        view.addScroll(target: self, action: #selector(scrolled(_:)))
         #endif
 
         do {
@@ -908,6 +913,23 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         systemMenu = menu
     }
 
+    #if os(iOS)
+    private var scrolledBack = false
+
+    /// Scrolling up (the wheel turned back) opens the Message Log once per gesture.
+    @objc private func scrolled(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began: scrolledBack = false
+        case .changed:
+            if !scrolledBack, recognizer.translation(in: view).y > 40 {
+                scrolledBack = true
+                showBacklog()
+            }
+        default: break
+        }
+    }
+    #endif
+
     @objc private func showBacklog() {
         guard titleView == nil, presentedViewController == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil,
               systemMenu == nil, let player, let game else { return }
@@ -1207,6 +1229,9 @@ private final class LucaChoiceBanner: UIControl {
         self.images = images
         self.action = action
         super.init(frame: .zero)
+        #if os(iOS)
+        highlightsOnHover()
+        #endif
         background.contentMode = .scaleToFill
         background.image = images.first.map { UIImage(cgImage: $0) }
         if images.isEmpty {

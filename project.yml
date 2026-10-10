@@ -68,6 +68,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIFileSharingEnabled: true
+        # iPad trackpads and mice as real pointers: clicks with buttons (right click),
+        # hover and scroll wheels, which SDL (Ren'Py) and the game views read.
+        UIApplicationSupportsIndirectInputEvents: true
         # iOS 26 continued-processing tasks keep a download running in the background.
         BGTaskSchedulerPermittedIdentifiers: ["com.owencramer.vnhub.download.*"]
         UIBackgroundModes: ["processing"]

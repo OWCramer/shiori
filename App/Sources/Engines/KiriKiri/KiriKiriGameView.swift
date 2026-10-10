@@ -80,6 +80,12 @@ final class KiriKiriGameViewController: UIViewController {
         history.cancelsTouchesInView = false
         view.addGestureRecognizer(history)
 
+        #if os(iOS)
+        view.addHover(target: self, action: #selector(hovered(_:)))
+        view.addScroll(target: self, action: #selector(scrolled(_:)))
+        history.fingersOnly()
+        #endif
+
         // The pad drives the game through its keyboard and mouse (see `pad(_:)`).
         ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
     }
@@ -213,11 +219,21 @@ final class KiriKiriGameViewController: UIViewController {
         _ = engine_send_input(engine, &event)
     }
 
+    /// The engine button the current touch presses: 0 left, 1 right (a trackpad's
+    /// secondary click), 2 middle.
+    private var pointerButton: Int32 = 0
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard pointerTouch == nil, let touch = touches.first, (event?.allTouches?.count ?? 1) == 1 else { return }
         pointerTouch = touch
+        pointerButton = 0
+        #if os(iOS)
+        if touch.isPointer, let mask = event?.buttonMask {
+            if mask.contains(.secondary) { pointerButton = 1 } else if mask.contains(.button(3)) { pointerButton = 2 }
+        }
+        #endif
         send(ENGINE_INPUT_EVENT_POINTER_MOVE, at: touch.location(in: view))
-        send(ENGINE_INPUT_EVENT_POINTER_DOWN, at: touch.location(in: view))
+        send(ENGINE_INPUT_EVENT_POINTER_DOWN, at: touch.location(in: view), button: pointerButton)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -228,8 +244,31 @@ final class KiriKiriGameViewController: UIViewController {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = pointerTouch, touches.contains(touch) else { return }
         pointerTouch = nil
-        send(ENGINE_INPUT_EVENT_POINTER_UP, at: touch.location(in: view))
+        send(ENGINE_INPUT_EVENT_POINTER_UP, at: touch.location(in: view), button: pointerButton)
     }
+
+    #if os(iOS)
+    /// A trackpad or mouse over the game with no button down: the engine's mouse move
+    /// (button highlights, KAG's rollovers).
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        guard pointerTouch == nil, recognizer.state == .began || recognizer.state == .changed else { return }
+        send(ENGINE_INPUT_EVENT_POINTER_MOVE, at: recognizer.location(in: view))
+    }
+
+    private var scrollSent: CGFloat = 0
+
+    /// Two-finger trackpad scrolling and mouse wheels: one wheel step per 30 points
+    /// (positive is up, the backlog).
+    @objc private func scrolled(_ recognizer: UIPanGestureRecognizer) {
+        if recognizer.state == .began { scrollSent = 0 }
+        guard recognizer.state == .changed else { return }
+        let travel = recognizer.translation(in: view).y - scrollSent
+        let steps = (travel / 30).rounded(.towardZero)
+        guard steps != 0 else { return }
+        scrollSent += steps * 30
+        send(ENGINE_INPUT_EVENT_POINTER_SCROLL, at: recognizer.location(in: view), deltaY: Double(steps))
+    }
+    #endif
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = pointerTouch, touches.contains(touch) else { return }

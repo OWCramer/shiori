@@ -182,6 +182,9 @@ private final class LucaSlotTile: UIControl {
         self.blank = blank.map { UIImage(cgImage: $0) }
         self.cursor = cursor.map { UIImage(cgImage: $0) }
         super.init(frame: CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + 150))
+        #if os(iOS)
+        highlightsOnHover()
+        #endif
         if let thumbnail, save != nil {
             let shot = UIImageView(image: thumbnail)
             shot.frame = CGRect(x: 8, y: 8, width: frame.width - 16, height: frame.height - 16)

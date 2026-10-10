@@ -211,6 +211,9 @@ private final class LucaSpeakerButton: UIControl {
     init(frames: [UIImage]) {
         self.frames = frames
         super.init(frame: .zero)
+        #if os(iOS)
+        highlightsOnHover()
+        #endif
         icon.image = frames.first
         icon.isUserInteractionEnabled = false
         addSubview(icon)

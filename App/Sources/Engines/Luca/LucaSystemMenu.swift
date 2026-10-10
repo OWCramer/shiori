@@ -119,6 +119,9 @@ final class LucaIconButton: UIControl {
         self.plain = plain.map { UIImage(cgImage: $0) }
         self.lit = lit.map { UIImage(cgImage: $0) }
         super.init(frame: .zero)
+        #if os(iOS)
+        highlightsOnHover()
+        #endif
         imageView.image = self.plain
         imageView.isUserInteractionEnabled = false
         addSubview(imageView)

@@ -219,12 +219,57 @@ def _layer_patches():
     loader.index_archives = index_archives
 
 
+def _pointer_cursor():
+    """With a trackpad or mouse on an iPad, shows the game's own cursor (config.mouse) the
+    way a PC does. iPadOS can't take a picture as its pointer and SDL's iOS backend has no
+    cursor support, so the cursor becomes Ren'Py's software cursor (MouseDisplayable), which
+    also hides the iPad pointer. It goes away again when a finger takes over. A game that
+    already draws its own software cursor is left alone."""
+    import ctypes
+    try:
+        pointer_active = ctypes.CDLL(None).shiori_renpy_pointer_active
+    except Exception:
+        return
+    state = {"on": False, "ours": False}
+
+    def build():
+        mouse = renpy.config.mouse
+        cursor_class = getattr(renpy.store, "MouseDisplayable", None)
+        if not mouse or cursor_class is None:
+            return None
+        default = mouse.get("default") or list(mouse.values())[0]
+        if not default:
+            return None
+        cursor = cursor_class(*default[0])
+        for name, frames in mouse.items():
+            if name != "default" and frames:
+                cursor.add(name, *frames[0])
+        return cursor
+
+    def update():
+        on = bool(pointer_active())
+        if on == state["on"]:
+            return
+        state["on"] = on
+        if renpy.config.mouse_displayable is not None and not state["ours"]:
+            return
+        cursor = build() if on else None
+        if on and cursor is None:
+            return
+        renpy.config.mouse_displayable = cursor
+        state["ours"] = cursor is not None
+        renpy.exports.restart_interaction()
+
+    renpy.config.periodic_callbacks.append(update)
+
+
 _original_import_all = renpy.import_all
 
 
 def _import_all():
     _original_import_all()
     _patch_renpy()
+    _pointer_cursor()
 
 
 renpy.import_all = _import_all

@@ -449,6 +449,9 @@ final class LucaOptionButton: UIControl {
     init(title: String, pieces: LucaOptionsScreen.Pieces) {
         self.pieces = pieces
         super.init(frame: .zero)
+        #if os(iOS)
+        highlightsOnHover()
+        #endif
         box.isUserInteractionEnabled = false
         addSubview(box)
         label.text = title
@@ -599,6 +602,9 @@ private final class LucaBarButton: UIControl {
     init(states: [CGImage?]) {
         self.states = states.map { $0.map { UIImage(cgImage: $0) } }
         super.init(frame: .zero)
+        #if os(iOS)
+        highlightsOnHover()
+        #endif
         imageView.isUserInteractionEnabled = false
         imageView.contentMode = .scaleAspectFit
         addSubview(imageView)

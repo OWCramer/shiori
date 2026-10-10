@@ -113,7 +113,14 @@ static void PressKey(int scancode) {
 /// game as a click, which would advance the dialogue.
 static double FootprintMB(void);
 
-@interface ShioriGestures : NSObject
+/// Whether a trackpad or mouse is driving the game right now: the pointer hovering over it
+/// turns this on, a finger on the screen turns it off. The Python bootstrap reads it to show
+/// the game's own cursor (config.mouse) as Ren'Py's software cursor, which also hides the
+/// iPad pointer. Exported for ctypes.
+static int pointerActive;
+__attribute__((visibility("default"), used)) int shiori_renpy_pointer_active(void) { return pointerActive; }
+
+@interface ShioriGestures : NSObject <UIGestureRecognizerDelegate>
 @end
 
 @implementation ShioriGestures
@@ -135,15 +142,45 @@ static double FootprintMB(void);
 #else
     UITapGestureRecognizer *menu = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openMenu:)];
     menu.numberOfTouchesRequired = 2;
+    // Fingers only: a trackpad's clicks go straight to SDL as mouse buttons (right click
+    // opens the game menu there), and a held click mustn't hide the text box.
+    menu.allowedTouchTypes = @[@(UITouchTypeDirect)];
     menu.delaysTouchesBegan = YES;
     [window addGestureRecognizer:menu];
 
     UILongPressGestureRecognizer *hide = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(hideText:)];
     hide.minimumPressDuration = 0.45; // Just ahead of Ren'Py's own 0.5 s long-press.
+    hide.allowedTouchTypes = @[@(UITouchTypeDirect)];
     hide.delaysTouchesBegan = YES;
     [window addGestureRecognizer:hide];
+
+    UIHoverGestureRecognizer *hover = [[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(hovered:)];
+    hover.delegate = self;
+    [window addGestureRecognizer:hover];
+    // Notices a finger without taking it from the game.
+    UILongPressGestureRecognizer *finger = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(fingerDown:)];
+    finger.minimumPressDuration = 0;
+    finger.cancelsTouchesInView = NO;
+    finger.delaysTouchesEnded = NO;
+    finger.allowedTouchTypes = @[@(UITouchTypeDirect)];
+    finger.delegate = self;
+    [window addGestureRecognizer:finger];
 #endif
 }
+
+#if !TARGET_OS_TV
+- (void)hovered:(UIHoverGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateBegan || recognizer.state == UIGestureRecognizerStateChanged) pointerActive = 1;
+}
+
+- (void)fingerDown:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateBegan) pointerActive = 0;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)a shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
+    return YES;
+}
+#endif
 
 - (void)hideTextPress:(UITapGestureRecognizer *)recognizer {
     if (recognizer.state == UIGestureRecognizerStateRecognized) PressKey(ScancodeH);

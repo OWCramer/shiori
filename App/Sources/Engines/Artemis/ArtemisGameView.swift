@@ -124,13 +124,21 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         tap.require(toFail: menu)
         let back = UISwipeGestureRecognizer(target: self, action: #selector(swipedBack(_:)))
         back.direction = .left
+        back.fingersOnly()
         view.addGestureRecognizer(back)
         let skip = UISwipeGestureRecognizer(target: self, action: #selector(swipedSkip(_:)))
         skip.direction = .right
+        skip.fingersOnly()
         view.addGestureRecognizer(skip)
         let history = UISwipeGestureRecognizer(target: self, action: #selector(showBacklog(_:)))
         history.direction = .down
+        history.fingersOnly()
         view.addGestureRecognizer(history)
+        // A trackpad or mouse plays like the PC: the pointer rolls buttons over, a secondary
+        // click is the right button, and scrolling up (the wheel) opens the backlog.
+        view.addSecondaryClick(target: self, action: #selector(rightClick(_:)))
+        view.addHover(target: self, action: #selector(hovered(_:)))
+        scrollRecognizer = view.addScroll(target: self, action: #selector(scrolled(_:)))
         // Drags (sliders) only start on layers that take them, so swipes still work.
         let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
         drag.delegate = self
@@ -140,6 +148,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         skip.require(toFail: drag)
         let auto = UILongPressGestureRecognizer(target: self, action: #selector(heldForAuto(_:)))
         auto.minimumPressDuration = 1
+        auto.fingersOnly()
         view.addGestureRecognizer(auto)
         let leave = UILongPressGestureRecognizer(target: self, action: #selector(askToLeave(_:)))
         leave.numberOfTouchesRequired = 2
@@ -413,7 +422,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     }
 
     func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-        guard recognizer is UIPanGestureRecognizer, let player else { return true }
+        guard recognizer is UIPanGestureRecognizer, recognizer !== scrollRecognizer, let player else { return true }
         return player.canDrag(at: stagePoint(recognizer))
     }
 
@@ -528,6 +537,31 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         backlogView = nil
         UIView.animate(withDuration: 0.2, animations: { backlog.alpha = 0 }) { _ in backlog.removeFromSuperview() }
     }
+
+    /// The trackpad's scroll recognizer, which isn't a drag (gestureRecognizerShouldBegin).
+    private var scrollRecognizer: UIPanGestureRecognizer?
+    #if os(iOS)
+    private var scrolledBack = false
+
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        guard backlogView == nil, recognizer.state == .began || recognizer.state == .changed else { return }
+        player?.hover(at: stagePoint(recognizer))
+    }
+
+    /// Scrolling up (content moving down, the wheel turned back) opens the backlog once
+    /// per gesture.
+    @objc private func scrolled(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began: scrolledBack = false
+        case .changed:
+            if !scrolledBack, recognizer.translation(in: view).y > 40 {
+                scrolledBack = true
+                presentBacklog()
+            }
+        default: break
+        }
+    }
+    #endif
 
     @objc private func rightClick(_ recognizer: UITapGestureRecognizer) {
         if backlogView != nil { return }

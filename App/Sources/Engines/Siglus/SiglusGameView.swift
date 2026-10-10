@@ -92,6 +92,17 @@ final class SiglusGameViewController: UIViewController {
         leave.minimumPressDuration = 0.8
         leave.delaysTouchesBegan = true
         view.addGestureRecognizer(leave)
+        #if os(iOS)
+        // Fingers only, so a trackpad's clicks aren't held back; the trackpad plays like the
+        // PC's mouse: hover moves it, a secondary click is the right button, scrolling turns
+        // the wheel.
+        for gesture in [menu, history, leave] as [UIGestureRecognizer] { gesture.fingersOnly() }
+        view.addHover(target: self, action: #selector(hovered(_:)))
+        view.addScroll(target: self, action: #selector(scrolled(_:)))
+        let pointer = UIPointerInteraction(delegate: self)
+        view.addInteraction(pointer)
+        pointerInteraction = pointer
+        #endif
 
         // The pad drives the game through its keyboard and mouse (see `pad(_:)`).
         ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
@@ -184,6 +195,15 @@ final class SiglusGameViewController: UIViewController {
             return
         }
         steps += 1
+        #if os(iOS)
+        if pointerHovering {
+            let shown = siglus_ios_has_custom_cursor(handle) != 0
+            if shown != gameCursorShown {
+                gameCursorShown = shown
+                pointerInteraction?.invalidate()
+            }
+        }
+        #endif
         stepsSincePress += 1
         #if DEBUG
         runScriptedTaps(handle)
@@ -241,6 +261,14 @@ final class SiglusGameViewController: UIViewController {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard pointerTouch == nil, let touch = touches.first, (event?.allTouches?.count ?? 1) == 1 else { return }
+        #if os(iOS)
+        if !touch.isPointer { pointerHovering = false }
+        if touch.isPointer, event?.buttonMask.contains(.secondary) == true, let handle {
+            send(phase: 1, at: touch.location(in: view))
+            pressRightButton(handle)
+            return
+        }
+        #endif
         pointerTouch = touch
         stepsSincePress = 0
         send(phase: 0, at: touch.location(in: view))
@@ -276,6 +304,42 @@ final class SiglusGameViewController: UIViewController {
         send(phase: 1, at: recognizer.location(in: view))
         pressRightButton(handle)
     }
+
+    #if os(iOS)
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        guard pointerTouch == nil, recognizer.state == .began || recognizer.state == .changed else { return }
+        pointerHovering = true
+        send(phase: 1, at: recognizer.location(in: view))
+    }
+
+    private var scrollSent: CGFloat = 0
+
+    /// One wheel step per 30 points of two-finger scrolling (positive is up, the backlog).
+    @objc private func scrolled(_ recognizer: UIPanGestureRecognizer) {
+        guard let handle else { return }
+        if recognizer.state == .began { scrollSent = 0 }
+        guard recognizer.state == .changed else { return }
+        let travel = recognizer.translation(in: view).y - scrollSent
+        let steps = (travel / 30).rounded(.towardZero)
+        guard steps != 0 else { return }
+        scrollSent += steps * 30
+        send(phase: 1, at: recognizer.location(in: view))
+        siglus_ios_mouse_wheel(handle, Int32(steps))
+    }
+    #endif
+
+    /// A trackpad or mouse hovered since the last finger: the game's own cursor shows, in
+    /// place of the iPad pointer when the game has one.
+    private var pointerHovering = false {
+        didSet {
+            guard pointerHovering != oldValue, let handle else { return }
+            siglus_ios_set_pointer_mode(handle, pointerHovering ? 1 : 0)
+            pointerInteraction?.invalidate()
+        }
+    }
+    private var pointerInteraction: UIPointerInteraction?
+    /// Whether the game drew its own cursor at the last check (it can change per scene).
+    private var gameCursorShown = false
 
     @objc private func scrollBack(_ recognizer: UISwipeGestureRecognizer) {
         guard let handle else { return }
@@ -480,3 +544,14 @@ struct SiglusGameView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: SiglusGameViewController, context: Context) {}
 }
+
+#if os(iOS)
+extension SiglusGameViewController: UIPointerInteractionDelegate {
+    /// The iPad pointer hides while the game draws its own cursor (Gameexe #MOUSE_CURSOR),
+    /// as the PC build hides Windows's.
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        guard pointerHovering, let handle, siglus_ios_has_custom_cursor(handle) != 0 else { return nil }
+        return .hidden()
+    }
+}
+#endif
