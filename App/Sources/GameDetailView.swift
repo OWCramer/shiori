@@ -20,6 +20,8 @@ struct GameDetailView: View {
     @State private var confirmingRemovePatches = false
     @State private var patchFiles: [PatchStore.PatchFile] = []
     @State private var patchMessage: String?
+    /// An import under way: its file name, how far it has got (0...1), the entry being unpacked.
+    @State private var patchImport: (name: String, fraction: Double, file: String)?
     @State private var overscroll: CGFloat = 0
     @State private var phoneLayout = false
     @State private var choosingArtwork = false
@@ -544,7 +546,7 @@ struct GameDetailView: View {
     private var patchesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             if patchFiles.isEmpty {
-                Text("No patches. Files in this game's patch/game folder replace or add to its game folder, and are picked up the next time you play.")
+                Text("No patches. Files in this game's patch folder replace or add to the game's own files, and are picked up the next time you play.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             ForEach(patchFiles.prefix(20)) { file in
@@ -559,12 +561,20 @@ struct GameDetailView: View {
             if patchFiles.count > 20 {
                 Text("and \(patchFiles.count - 20) more").font(.caption).foregroundStyle(.secondary)
             }
-            if let patchMessage {
+            if let patchImport {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Importing \(patchImport.name)…").font(.subheadline.weight(.medium))
+                    ProgressView(value: patchImport.fraction)
+                    Text(patchImport.file.isEmpty ? "Reading the archive" : (patchImport.file as NSString).lastPathComponent)
+                        .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                }
+            } else if let patchMessage {
                 Text(patchMessage).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
                 Button("Import", systemImage: "square.and.arrow.down") { importingPatch = true }
                     .buttonStyle(.glass)
+                    .disabled(patchImport != nil)
                 if !patchFiles.isEmpty {
                     Button("Remove All", systemImage: "arrow.uturn.backward", role: .destructive) { confirmingRemovePatches = true }
                         .buttonStyle(.glass)
@@ -708,17 +718,40 @@ struct GameDetailView: View {
         patchFiles = PatchStore.list(gameFolder: folder)
     }
 
+    /// Unpacks the patch off the main thread (a multi-gigabyte zip takes a while) and shows
+    /// how far it has got on the Patches card.
     private func importPatch(_ result: Result<URL, Error>) {
-        do {
-            let url = try result.get()
+        let url: URL
+        do { url = try result.get() } catch {
+            patchMessage = "Couldn't import the patch: \(error.localizedDescription)"
+            return
+        }
+        let folder = folder
+        patchImport = (url.lastPathComponent, 0, "")
+        Task.detached(priority: .userInitiated) {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let count = try PatchStore.importItem(at: url, gameFolder: folder)
-            patchMessage = "Imported \(count) file\(count == 1 ? "" : "s") from \(url.lastPathComponent)."
-        } catch {
-            patchMessage = "Couldn't import the patch: \(error.localizedDescription)"
+            var shown = -1.0
+            let outcome: Result<Int, Error> = Result {
+                try PatchStore.importItem(at: url, gameFolder: folder) { written, total, file in
+                    let fraction = total > 0 ? Double(written) / Double(total) : 0
+                    // A few hundred updates at most, not one per megabyte.
+                    guard fraction - shown >= 0.002 || fraction >= 1 else { return }
+                    shown = fraction
+                    Task { @MainActor in patchImport = (url.lastPathComponent, fraction, file) }
+                }
+            }
+            await MainActor.run {
+                patchImport = nil
+                switch outcome {
+                case let .success(count):
+                    patchMessage = "Imported \(count) file\(count == 1 ? "" : "s") from \(url.lastPathComponent)."
+                case let .failure(error):
+                    patchMessage = "Couldn't import the patch: \(error.localizedDescription)"
+                }
+                reloadPatches()
+            }
         }
-        reloadPatches()
     }
 
     /// The Files app opens folders in our Documents through the shareddocuments scheme.

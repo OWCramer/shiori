@@ -53,7 +53,7 @@ enum PatchStore {
     /// the game's own folder. Existing patch files are replaced.
     /// Returns the number of files imported.
     @discardableResult
-    static func importItem(at source: URL, gameFolder: URL) throws -> Int {
+    static func importItem(at source: URL, gameFolder: URL, progress: ZipExtractor.Progress? = nil) throws -> Int {
         let fm = FileManager.default
         let staging = fm.temporaryDirectory.appendingPathComponent("patch-import-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
@@ -64,7 +64,7 @@ enum PatchStore {
         if isDirectory.boolValue {
             try fm.copyItem(at: source, to: staging.appendingPathComponent(source.lastPathComponent))
         } else if source.pathExtension.lowercased() == "zip" {
-            try ZipExtractor.extract(source, to: staging)
+            try ZipExtractor.extract(source, to: staging, progress: progress)
         } else {
             // A single loose file, such as an .rpa: it belongs in game/.
             try fm.createDirectory(at: staging.appendingPathComponent("game"), withIntermediateDirectories: true)
@@ -108,8 +108,10 @@ enum PatchStore {
             if (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
                 count += try merge(item, into: target)
             } else {
+                // The staging folder is Shiori's own, so its files move into place rather than
+                // being written a second time (a 5 GB patch would need 10 GB free otherwise).
                 if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
-                try fm.copyItem(at: item, to: target)
+                try fm.moveItem(at: item, to: target)
                 count += 1
             }
         }

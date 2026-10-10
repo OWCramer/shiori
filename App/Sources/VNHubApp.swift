@@ -191,12 +191,25 @@ enum DebugAutomation {
            let gameName = steam.library.first(where: { $0.appID == appID })?.name
         {
             done.insert("import")
-            let source = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-            do {
-                let count = try PatchStore.importItem(at: source, gameFolder: games.folder(appID: appID, name: gameName))
-                NSLog("VN Hub: imported %d patch files from %@", count, name)
-            } catch {
-                NSLog("VN Hub: patch import failed: %@", String(describing: error))
+            // Documents first (where the Files app puts things), else tmp/.
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let source = [documents, FileManager.default.temporaryDirectory].map { $0.appendingPathComponent(name) }
+                .first { FileManager.default.fileExists(atPath: $0.path) } ?? documents.appendingPathComponent(name)
+            let folder = games.folder(appID: appID, name: gameName)
+            // Off the main thread with progress, as the game page imports.
+            Task.detached {
+                var shown = -1.0
+                do {
+                    let count = try PatchStore.importItem(at: source, gameFolder: folder) { written, total, file in
+                        let fraction = total > 0 ? Double(written) / Double(total) : 0
+                        guard fraction - shown >= 0.05 || fraction >= 1 else { return }
+                        shown = fraction
+                        NSLog("VN Hub: importing %@: %.0f%% (%@)", name, fraction * 100, file)
+                    }
+                    NSLog("VN Hub: imported %d patch files from %@", count, name)
+                } catch {
+                    NSLog("VN Hub: patch import failed: %@", String(describing: error))
+                }
             }
         }
         // `-VNHubSteamCloudPull <appid>` pulls that game's Steam Cloud saves once signed in.

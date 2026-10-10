@@ -33,13 +33,18 @@ enum ZipExtractor {
         var isDirectory: Bool { path.hasSuffix("/") }
     }
 
+    /// How far an extraction has got: bytes written of the total, and the file being written.
+    typealias Progress = (_ written: UInt64, _ total: UInt64, _ file: String) -> Void
+
     /// Extracts every entry under `destination`. Returns the number of files written.
     @discardableResult
-    static func extract(_ archive: URL, to destination: URL) throws -> Int {
+    static func extract(_ archive: URL, to destination: URL, progress: Progress? = nil) throws -> Int {
         let data = try Data(contentsOf: archive, options: .alwaysMapped)
         let entries = try centralDirectory(data)
         let fm = FileManager.default
         var written = 0
+        let total = entries.reduce(UInt64(0)) { $0 + $1.uncompressedSize }
+        var done: UInt64 = 0
         for entry in entries {
             let target = try safeURL(entry.path, under: destination)
             if entry.isDirectory {
@@ -50,7 +55,10 @@ enum ZipExtractor {
             if entry.path.hasPrefix("__MACOSX/") || (entry.path as NSString).lastPathComponent == ".DS_Store" { continue }
             guard entry.flags & 1 == 0 else { throw Error.encrypted }
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try write(entry, from: data, to: target)
+            let base = done
+            try write(entry, from: data, to: target) { progress?(base + $0, total, entry.path) }
+            done += entry.uncompressedSize
+            progress?(done, total, entry.path)
             written += 1
         }
         return written
@@ -117,7 +125,8 @@ enum ZipExtractor {
         return entries
     }
 
-    private static func write(_ entry: Entry, from data: Data, to url: URL) throws {
+    /// Writes one entry, reporting the bytes written so far every few megabytes.
+    private static func write(_ entry: Entry, from data: Data, to url: URL, progress: (UInt64) -> Void) throws {
         let local = Int(entry.localHeaderOffset)
         guard try data.le32(local) == 0x0403_4B50 else { throw Error.corrupt }
         let start = local + 30 + Int(try data.le16(local + 26)) + Int(try data.le16(local + 28))
@@ -129,16 +138,23 @@ enum ZipExtractor {
 
         switch entry.method {
         case 0:
-            try handle.write(contentsOf: payload)
+            let step = 8 << 20
+            var offset = 0
+            while offset < payload.count {
+                let end = min(offset + step, payload.count)
+                try handle.write(contentsOf: payload[(payload.startIndex + offset) ..< (payload.startIndex + end)])
+                offset = end
+                progress(UInt64(offset))
+            }
         case 8:
-            try inflate(payload, into: handle)
+            try inflate(payload, into: handle, progress: progress)
         default:
             throw Error.unsupportedMethod(entry.method)
         }
     }
 
     /// Streams raw DEFLATE (Compression's ZLIB) into the file, 1 MiB at a time.
-    private static func inflate(_ input: Data, into handle: FileHandle) throws {
+    private static func inflate(_ input: Data, into handle: FileHandle, progress: (UInt64) -> Void) throws {
         guard !input.isEmpty else { return }
         let bufferSize = 1 << 20
         let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
@@ -150,6 +166,7 @@ enum ZipExtractor {
         }
         defer { compression_stream_destroy(streamPointer) }
 
+        var total: UInt64 = 0
         try input.withUnsafeBytes { (source: UnsafeRawBufferPointer) in
             streamPointer.pointee.src_ptr = source.bindMemory(to: UInt8.self).baseAddress!
             streamPointer.pointee.src_size = source.count
@@ -158,7 +175,11 @@ enum ZipExtractor {
                 streamPointer.pointee.dst_size = bufferSize
                 let status = compression_stream_process(streamPointer, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
                 let produced = bufferSize - streamPointer.pointee.dst_size
-                if produced > 0 { try handle.write(contentsOf: Data(bytes: destination, count: produced)) }
+                if produced > 0 {
+                    try handle.write(contentsOf: Data(bytes: destination, count: produced))
+                    total += UInt64(produced)
+                    progress(total)
+                }
                 switch status {
                 case COMPRESSION_STATUS_END: return
                 case COMPRESSION_STATUS_OK: continue
