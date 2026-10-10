@@ -1,6 +1,6 @@
 # Shiori compatibility
 
-Which Steam visual novels play in [Shiori](https://github.com/OWCramer), the iOS and iPadOS app that downloads the PC games you own and runs them with native engine runtimes.
+Which Steam visual novels play in Shiori, the iOS and iPadOS app that downloads the PC games you own and runs them with native engine runtimes.
 
 One file per engine in `engines/`, one entry per game, keyed by its Steam app id. Shiori reads these files to show a game's status on its page.
 
