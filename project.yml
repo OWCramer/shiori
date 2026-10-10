@@ -146,8 +146,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/Shiori-Bridging-Header.h
   # Apple TV (Phase 15): the same app on tvOS, sharing the code. Engines whose native
-  # frameworks aren't built for tvOS yet (Ren'Py, KiriKiri, Siglus, libvpx) are left out or
-  # stand in (App/TV); Artemis and Luca play.
+  # frameworks aren't built for tvOS yet (Ren'Py, KiriKiri, Siglus) are left out or stand in
+  # (App/TV); Artemis and Luca play.
   ShioriTV:
     type: application
     platform: tvOS
@@ -181,6 +181,9 @@ targets:
       - package: Kingfisher
       - package: LucaKit
         product: LucaKit
+      # libvpx with tvOS slices (Scripts/luca/build-ios-vpx.sh): Luca movies and effects.
+      - framework: Vendor/ShioriVPX.xcframework
+        embed: false
       - sdk: AVFoundation.framework
       - sdk: GameController.framework
     settings:
