@@ -164,16 +164,18 @@ final class GameLibrary {
         startDownload(appID: game.appID, name: game.name)
     }
 
-    /// The Steam branch the game downloads from: "public" unless a beta was picked.
+    /// The Steam branch of the game's files when it's installed, else the one it downloads
+    /// from: "public" unless a beta was picked (on any of the user's devices; SyncedPreferences).
     func branch(for appID: UInt32) -> String {
-        UserDefaults.standard.string(forKey: "steamBranch.\(appID)") ?? "public"
+        if case let .installed(record) = statuses[appID] { return record.branch ?? "public" }
+        return SyncedPreferences.branch(appID: appID) ?? "public"
     }
 
     /// Picks the Steam branch (a public beta, or "public"). An installed or partly downloaded
     /// game is downloaded again from that branch; `saves/` and `patch/` stay.
     func setBranch(_ branch: String, for appID: UInt32, name: String) {
         guard branch != self.branch(for: appID) else { return }
-        UserDefaults.standard.set(branch == "public" ? nil : branch, forKey: "steamBranch.\(appID)")
+        SyncedPreferences.setBranch(branch, appID: appID)
         guard statuses[appID] != nil, statuses[appID] != .notInstalled else { return }
         log.notice("Switching \(appID) to branch \(branch, privacy: .public)")
         tasks[appID]?.cancel()

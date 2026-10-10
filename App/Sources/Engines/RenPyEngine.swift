@@ -179,12 +179,14 @@ extension RenPyEngine {
     /// Whether a game runs with Ren'Py's phone screens ("small", "touch", "mobile"
     /// variants). Off by default: these are PC builds, and most never designed phone
     /// screens, so Ren'Py would fall back to its template's leftovers.
+    @MainActor
     static func usesPhoneLayout(appID: UInt32) -> Bool {
-        UserDefaults.standard.bool(forKey: "renpyPhoneLayout.\(appID)")
+        SyncedPreferences.phoneLayout(appID: appID)
     }
 
+    @MainActor
     static func setPhoneLayout(_ enabled: Bool, appID: UInt32) {
-        UserDefaults.standard.set(enabled, forKey: "renpyPhoneLayout.\(appID)")
+        SyncedPreferences.setPhoneLayout(enabled, appID: appID)
     }
 
     /// Runs the game in this process until it quits and returns Ren'Py's exit status. CPython
