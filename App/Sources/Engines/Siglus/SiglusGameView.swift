@@ -196,6 +196,11 @@ final class SiglusGameViewController: UIViewController {
         }
         steps += 1
         #if os(iOS)
+        if enginePointerMode != pointerHovering {
+            enginePointerMode = pointerHovering
+            siglus_ios_set_pointer_mode(handle, pointerHovering ? 1 : 0)
+            PointerLog.write("siglus pointer mode \(pointerHovering), game cursor \(siglus_ios_has_custom_cursor(handle))")
+        }
         if pointerHovering {
             let shown = siglus_ios_has_custom_cursor(handle) != 0
             if shown != gameCursorShown {
@@ -262,7 +267,9 @@ final class SiglusGameViewController: UIViewController {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard pointerTouch == nil, let touch = touches.first, (event?.allTouches?.count ?? 1) == 1 else { return }
         #if os(iOS)
-        if !touch.isPointer { pointerHovering = false }
+        // A trackpad's click turns pointer mode on too (hover may not have come first).
+        pointerHovering = touch.isPointer
+        PointerLog.write("siglus touch \(touch.type.rawValue) buttons \(event?.buttonMask.rawValue ?? 0)")
         if touch.isPointer, event?.buttonMask.contains(.secondary) == true, let handle {
             send(phase: 1, at: touch.location(in: view))
             pressRightButton(handle)
@@ -307,6 +314,7 @@ final class SiglusGameViewController: UIViewController {
 
     #if os(iOS)
     @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        if recognizer.state == .began { PointerLog.write("siglus hover began") }
         guard pointerTouch == nil, recognizer.state == .began || recognizer.state == .changed else { return }
         pointerHovering = true
         send(phase: 1, at: recognizer.location(in: view))
@@ -331,12 +339,11 @@ final class SiglusGameViewController: UIViewController {
     /// A trackpad or mouse hovered since the last finger: the game's own cursor shows, in
     /// place of the iPad pointer when the game has one.
     private var pointerHovering = false {
-        didSet {
-            guard pointerHovering != oldValue, let handle else { return }
-            siglus_ios_set_pointer_mode(handle, pointerHovering ? 1 : 0)
-            pointerInteraction?.invalidate()
-        }
+        didSet { if pointerHovering != oldValue { pointerInteraction?.invalidate() } }
     }
+    /// What the engine was last told (each step syncs it: the pointer can arrive while the
+    /// engine is still starting, before there's an engine to tell).
+    private var enginePointerMode = false
     private var pointerInteraction: UIPointerInteraction?
     /// Whether the game drew its own cursor at the last check (it can change per scene).
     private var gameCursorShown = false
@@ -550,7 +557,11 @@ extension SiglusGameViewController: UIPointerInteractionDelegate {
     /// The iPad pointer hides while the game draws its own cursor (Gameexe #MOUSE_CURSOR),
     /// as the PC build hides Windows's.
     func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
-        guard pointerHovering, let handle, siglus_ios_has_custom_cursor(handle) != 0 else { return nil }
+        guard pointerHovering, let handle, siglus_ios_has_custom_cursor(handle) != 0 else {
+            PointerLog.write("siglus pointer style: system")
+            return nil
+        }
+        PointerLog.write("siglus pointer style: hidden (the game draws its cursor)")
         return .hidden()
     }
 }

@@ -66,6 +66,24 @@ private final class HoverHighlighter: NSObject {
     }
 }
 
+/// Debug builds: pointer events to Caches/pointer-log.txt, readable from a device's app
+/// container, for checking trackpad support on hardware the simulator can't stand in for.
+enum PointerLog {
+    static func write(_ line: String) {
+        #if DEBUG
+        let url = URL.cachesDirectory.appendingPathComponent("pointer-log.txt")
+        let data = Data("\(ISO8601DateFormatter().string(from: .now)) \(line)\n".utf8)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            if (try? handle.seekToEnd()) ?? 0 > 200_000 { try? handle.truncate(atOffset: 0) }
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url)
+        }
+        #endif
+    }
+}
+
 extension UITouch {
     /// A click from a trackpad or mouse rather than a finger.
     var isPointer: Bool { type == .indirectPointer }
