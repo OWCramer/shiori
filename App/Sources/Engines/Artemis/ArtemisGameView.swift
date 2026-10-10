@@ -1,6 +1,7 @@
 import ArtemisKit
 import AVFoundation
 import GameController
+import Metal
 import SwiftUI
 import UIKit
 
@@ -10,7 +11,7 @@ private extension UIFont {
     }
 }
 
-/// Plays an Artemis game with ArtemisKit: the stage mirrored into Core Animation layers,
+/// Plays an Artemis game with ArtemisKit: the stage drawn with Metal (`ArtemisMetalRenderer`),
 /// letterboxed to the screen, taps in stage coordinates. Unlike Ren'Py this runs in our own
 /// code, so leaving returns to the library instead of closing the app.
 final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, UIGestureRecognizerDelegate {
@@ -19,13 +20,18 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     /// Lifts the launch cover; called once, after the first frame the display link draws.
     private var onFirstFrame: (() -> Void)?
     private var player: ArtemisPlayer?
+    /// The letterboxed stage, in stage pixels (taps convert through it); the Metal layer fills it.
     private let stageLayer = CALayer()
-    private let messageLayer = CALayer()
-    private var layers: [String: CALayer] = [:]
-    private var images: [String: ObjectIdentifier] = [:]
-    private var messageRevisions: [String: Int] = [:]
-    private var messageSublayers: [String: CALayer] = [:]
-    private var revealCounts: [String: Int] = [:]
+    private let metalLayer = CAMetalLayer()
+    private let renderer = ArtemisMetalRenderer()
+    /// The rendered stage without the text above it, kept between frames: the screen only
+    /// changes at a flip, a tween or a video frame, and text types over it every frame.
+    private var stageTexture: MTLTexture?
+    /// The outgoing frame while a transition dissolves it.
+    private var oldTexture: MTLTexture?
+    private var transition: (start: CFTimeInterval, duration: CFTimeInterval, rule: CGImage?, vague: Double)?
+    private var lastTextState = ""
+    private var needsStage = true
     private var lastPresentation = -1
     private var lastTweenRevision = -1
     private var reportedFailure = false
@@ -62,9 +68,13 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         stageLayer.masksToBounds = true
         stageLayer.backgroundColor = UIColor.black.cgColor
         stageLayer.anchorPoint = .zero
-        messageLayer.anchorPoint = .zero
         view.layer.addSublayer(stageLayer)
-        stageLayer.addSublayer(messageLayer)
+        metalLayer.device = renderer?.device
+        metalLayer.pixelFormat = ArtemisMetalRenderer.pixelFormat
+        metalLayer.framebufferOnly = false
+        metalLayer.isOpaque = true
+        metalLayer.anchorPoint = .zero
+        stageLayer.addSublayer(metalLayer)
 
         // Gestures from the game's own mobile controls: tap reads on, two-finger tap opens
         // the system menu (right-click), swipe left backs out or hides the text, swipe right
@@ -122,7 +132,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 }
             }
             stageLayer.bounds = CGRect(x: 0, y: 0, width: player.stage.width, height: player.stage.height)
-            messageLayer.frame = stageLayer.bounds
+            metalLayer.frame = stageLayer.bounds
             try player.start()
         } catch {
             NSLog("Artemis: couldn't start: %@", String(describing: error))
@@ -190,7 +200,16 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         videoLayer?.frame = view.bounds
         softwareVideoLayer?.frame = view.bounds
         CATransaction.commit()
-        messageRevisions.removeAll() // redraw text at the new scale
+        // Draw at the screen's pixels: textures and text at the new size.
+        let pixels = scale * (view.window?.screen.scale ?? 2)
+        let width = Int((player.stage.width * pixels).rounded()), height = Int((player.stage.height * pixels).rounded())
+        if metalLayer.drawableSize != CGSize(width: width, height: height) || stageTexture == nil {
+            metalLayer.drawableSize = CGSize(width: width, height: height)
+            stageTexture = renderer?.makeTarget(width: width, height: height)
+            oldTexture = renderer?.makeTarget(width: width, height: height)
+            needsStage = true
+            lastTextState = ""
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -222,233 +241,84 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
             present(alert, animated: true)
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         if player.stage.presentationCount != lastPresentation {
             lastPresentation = player.stage.presentationCount
-            if let transition = player.stage.lastTransition, transition.duration > 0 {
-                if transition.type == "2", let rule = transition.rule, let ruleImage = player.stage.image(rule),
-                   let mask = ArtemisRuleTransition(rule: ruleImage, vague: transition.vague) {
-                    startRuleTransition(mask, duration: transition.duration / 1000, player: player)
-                } else {
-                    let fade = CATransition()
-                    fade.type = .fade
-                    fade.duration = transition.duration / 1000
-                    stageLayer.add(fade, forKey: "artemis.trans")
+            if let last = player.stage.lastTransition, last.duration > 0, !player.skipMode {
+                // Keep the outgoing frame to dissolve: plainly, or through a rule image.
+                let rule = last.type == "2" ? last.rule.flatMap { player.stage.image($0) } : nil
+                transition = (CACurrentMediaTime(), max(0.01, last.duration / 1000), rule, last.vague)
+                if let renderer, let stageTexture, let oldTexture, let buffer = renderer.queue.makeCommandBuffer() {
+                    renderer.copy(stageTexture, to: oldTexture, commandBuffer: buffer)
+                    buffer.commit()
                 }
             }
-            sync(player.stage.root, into: stageLayer, full: true)
-        } else if player.stage.tweenRevision != lastTweenRevision || player.stage.videoRevision != lastVideoRevision {
-            // Tweens and video layers animate the visible screen, including layers no flip
-            // has shown yet.
-            sync(player.stage.root, into: stageLayer, full: false)
+            needsStage = true
+        } else if player.stage.tweenRevision != lastTweenRevision || player.stage.videoRevision != lastVideoRevision
+                    || player.stage.shadersActive {
+            // Tweens, video layers and animated shaders change the visible screen, including
+            // layers no flip has shown yet.
+            needsStage = true
         }
         lastTweenRevision = player.stage.tweenRevision
         lastVideoRevision = player.stage.videoRevision
         stepSoftwareVideo()
-        syncMessages(player)
-        stepRuleTransition()
-        CATransaction.commit()
+        draw(player)
     }
 
-    // MARK: Rule transitions
+    // MARK: Drawing
 
-    private var ruleOverlay: CALayer?
-    private var ruleMask: ArtemisRuleTransition?
-    private var ruleStart: CFTimeInterval = 0
-    private var ruleDuration: CFTimeInterval = 0
-
-    /// Freezes the outgoing frame on top, to be dissolved through the rule mask while the
-    /// new frame shows underneath.
-    private func startRuleTransition(_ mask: ArtemisRuleTransition, duration: CFTimeInterval, player: ArtemisPlayer) {
-        ruleOverlay?.removeFromSuperlayer()
-        let size = CGSize(width: player.stage.width, height: player.stage.height)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let snapshot = UIGraphicsImageRenderer(size: size, format: format).image { context in
-            for layer in stageLayer.sublayers ?? [] where layer !== messageLayer && layer !== ruleOverlay {
-                context.cgContext.saveGState()
-                layer.render(in: context.cgContext)
-                context.cgContext.restoreGState()
-            }
+    /// Renders the frame when something on screen changed: the stage (when it did) into its
+    /// texture, then on the drawable the stage, a transition's outgoing frame, and the text.
+    private func draw(_ player: ArtemisPlayer) {
+        guard let renderer, let stageTexture, let oldTexture else { return }
+        let pixels = Double(stageTexture.width) / player.stage.width
+        let texts = player.metalTexts(scale: pixels)
+        // Text in the tree (layered) redraws the stage; the rest only the top.
+        let textState = texts.map { "\($0.id):\(ObjectIdentifier($0.image).hashValue):\($0.reveal?.count ?? -1):\($0.reveal?.last.map { "\($0)" } ?? "")" }
+            .joined(separator: "|") + "|\(player.messageTextVisible)"
+        let layeredState = texts.filter(\.layered).map { "\($0.id):\(ObjectIdentifier($0.image).hashValue):\($0.reveal?.last.map { "\($0)" } ?? "")" }.joined()
+        if layeredState != lastLayeredState {
+            lastLayeredState = layeredState
+            needsStage = true
         }
-        let overlay = CALayer()
-        overlay.frame = CGRect(origin: .zero, size: size)
-        overlay.contents = snapshot.cgImage
-        let maskLayer = CALayer()
-        maskLayer.frame = overlay.bounds
-        overlay.mask = maskLayer
-        stageLayer.insertSublayer(overlay, below: messageLayer)
-        ruleOverlay = overlay
-        ruleMask = mask
-        ruleStart = CACurrentMediaTime()
-        ruleDuration = max(0.01, duration)
-        stepRuleTransition()
-    }
-
-    private func stepRuleTransition() {
-        guard let overlay = ruleOverlay, let mask = ruleMask else { return }
-        let progress = (CACurrentMediaTime() - ruleStart) / ruleDuration
-        var transitionWaitEnded = true
-        if case .time = player?.wait { transitionWaitEnded = false }
-        // Done, skipped by a tap (the trans wait ended early), or skip mode.
-        if progress >= 1 || transitionWaitEnded || player?.skipMode == true {
-            overlay.removeFromSuperlayer()
-            ruleOverlay = nil
-            ruleMask = nil
-            return
-        }
-        overlay.mask?.contents = mask.oldFrameMask(progress: progress)
-        // Keep it above layers synced since, under the text.
-        if overlay.superlayer != nil, stageLayer.sublayers?.last(where: { $0 !== messageLayer }) !== overlay {
-            stageLayer.insertSublayer(overlay, below: messageLayer)
-        }
-    }
-
-    /// Images cut to a clip that reaches past them, transparent beyond the picture.
-    private var paddedImages: [String: CGImage] = [:]
-
-    private func paddedImage(_ image: CGImage, clip: CGRect) -> CGImage? {
-        let key = "\(ObjectIdentifier(image))|\(clip)"
-        if let cached = paddedImages[key] { return cached }
-        let width = max(1, Int(clip.width.rounded())), height = max(1, Int(clip.height.rounded()))
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        // Core Graphics is bottom-left: the clip's top-left corner sits at the canvas's top.
-        context.draw(image, in: CGRect(x: -clip.minX, y: clip.maxY - CGFloat(image.height),
-                                       width: CGFloat(image.width), height: CGFloat(image.height)))
-        guard let result = context.makeImage() else { return nil }
-        if paddedImages.count > 64 { paddedImages.removeAll() }
-        paddedImages[key] = result
-        return result
-    }
-
-    /// Mirrors `node`'s children into `parent`'s sublayers (message text stays on top).
-    private func sync(_ node: ArtemisLayer, into parent: CALayer, full: Bool) {
-        var keep: [CALayer] = []
-        for child in node.children {
-            let caLayer = layers[child.id] ?? {
-                let layer = CALayer()
-                layer.anchorPoint = .zero
-                layers[child.id] = layer
-                return layer
-            }()
-            apply(child, to: caLayer)
-            if var image = child.displayImage {
-                // A clip reaching past the image (NUKITASHI's CONFIG button: a 190 px picture
-                // with a 301 px clip) shows nothing there, as the engine does; contentsRect
-                // would stretch the edge pixels instead, so that part is drawn into its own image.
-                var clip = child.clip
-                if let area = clip, image.width > 0, image.height > 0,
-                   !CGRect(x: 0, y: 0, width: image.width, height: image.height).contains(area.integral) {
-                    image = paddedImage(image, clip: area) ?? image
-                    clip = nil
-                }
-                if images[child.id] != ObjectIdentifier(image) {
-                    caLayer.contents = image
-                    images[child.id] = ObjectIdentifier(image)
-                }
-                // clip: the shown part of the image, in unit coordinates.
-                if let clip, image.width > 0, image.height > 0 {
-                    caLayer.contentsRect = CGRect(x: clip.minX / Double(image.width), y: clip.minY / Double(image.height),
-                                                  width: clip.width / Double(image.width), height: clip.height / Double(image.height))
-                } else {
-                    caLayer.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-                }
-            } else if images[child.id] != nil {
-                caLayer.contents = nil
-                images[child.id] = nil
-            }
-            switch child.blendMode {
-            case "add": caLayer.compositingFilter = "linearDodgeBlendMode"
-            case "screen": caLayer.compositingFilter = "screenBlendMode"
-            case "multiply": caLayer.compositingFilter = "multiplyBlendMode"
-            default: caLayer.compositingFilter = nil
-            }
-            if let color = child.color {
-                caLayer.backgroundColor = CGColor(red: Double((color >> 16) & 0xFF) / 255, green: Double((color >> 8) & 0xFF) / 255,
-                                                  blue: Double(color & 0xFF) / 255, alpha: Double((color >> 24) & 0xFF) / 255)
+        var progress: Double?
+        if let transition {
+            let value = (CACurrentMediaTime() - transition.start) / transition.duration
+            var waitEnded = true
+            if case .time = player.wait { waitEnded = false }
+            // Done, cut short by a tap (the trans wait ended early), or skip mode.
+            if value >= 1 || waitEnded || player.skipMode {
+                self.transition = nil
             } else {
-                caLayer.backgroundColor = nil
+                progress = value
             }
-            // A layered message layer's text lives inside its stand-in layer.
-            if let id = child.messageLayer, let text = messageSublayer(id), text.superlayer !== caLayer {
-                caLayer.addSublayer(text)
-            }
-            sync(child, into: caLayer, full: full)
-            keep.append(caLayer)
         }
-        // Order and prune.
-        let current = parent.sublayers ?? []
-        let textLayers = Set(messageSublayers.values.map(ObjectIdentifier.init))
-        for layer in current where layer !== messageLayer && layer !== ruleOverlay && !keep.contains(where: { $0 === layer })
-            && layer !== videoLayer && !textLayers.contains(ObjectIdentifier(layer)) {
-            layer.removeFromSuperlayer()
-            if let key = layers.first(where: { $0.value === layer })?.key { forget(key) }
+        guard needsStage || textState != lastTextState || progress != nil || transitionJustEnded(progress) else { return }
+        lastTextState = textState
+        guard let drawable = metalLayer.nextDrawable(), let buffer = renderer.queue.makeCommandBuffer() else { return }
+        if needsStage {
+            needsStage = false
+            renderer.render(stage: player.stage, texts: texts, textsVisible: false, into: stageTexture, commandBuffer: buffer)
         }
-        for (index, layer) in keep.enumerated() where (parent.sublayers?.firstIndex(of: layer)) != index {
-            parent.insertSublayer(layer, at: UInt32(index))
+        renderer.draw(stageTexture, into: drawable.texture, commandBuffer: buffer)
+        if let progress, let transition {
+            renderer.dissolve(old: oldTexture, over: drawable.texture, progress: progress, rule: transition.rule,
+                              vague: transition.vague, commandBuffer: buffer)
         }
-        if parent === stageLayer { stageLayer.addSublayer(messageLayer) }
+        if player.messageTextVisible {
+            renderer.renderTexts(texts, stageSize: CGSize(width: player.stage.width, height: player.stage.height),
+                                 into: drawable.texture, commandBuffer: buffer)
+        }
+        buffer.present(drawable)
+        buffer.commit()
     }
+    private var lastLayeredState = ""
+    private var hadTransition = false
 
-    private func forget(_ id: String) {
-        for key in layers.keys where key == id || key.hasPrefix(id + ".") {
-            layers[key] = nil
-            images[key] = nil
-        }
-    }
-
-    private func apply(_ layer: ArtemisLayer, to caLayer: CALayer) {
-        caLayer.bounds = CGRect(x: 0, y: 0, width: layer.width, height: layer.height)
-        caLayer.anchorPoint = .zero
-        caLayer.position = .zero
-        caLayer.setAffineTransform(layer.transform)
-        caLayer.opacity = Float(layer.alpha / 255)
-        caLayer.isHidden = !layer.visible
-    }
-
-    /// The text layer for a message layer, made on first use (above the stage layers).
-    private func messageSublayer(_ id: String) -> CALayer? {
-        if let sublayer = messageSublayers[id] { return sublayer }
-        let sublayer = CALayer()
-        sublayer.frame = messageLayer.bounds
-        messageLayer.addSublayer(sublayer)
-        messageSublayers[id] = sublayer
-        return sublayer
-    }
-
-    private func syncMessages(_ player: ArtemisPlayer) {
-        let scale = Double(stageLayer.affineTransform().a) * Double(view.window?.screen.scale ?? 2)
-        for (id, layer) in player.messages.layers where messageRevisions[id] != layer.revision {
-            messageRevisions[id] = layer.revision
-            guard let sublayer = messageSublayer(id) else { continue }
-            // Back above the layers when it stops being layered.
-            if !layer.layered, sublayer.superlayer !== messageLayer { messageLayer.addSublayer(sublayer) }
-            sublayer.contents = layer.text.isEmpty || layer.pageHidden ? nil
-                : player.textRenderer.image(for: layer, stageWidth: player.stage.width, stageHeight: player.stage.height, scale: scale)
-            revealCounts[id] = -1
-        }
-        // Typewriter: reveal the drawn text through a mask that grows over its glyphs.
-        for (id, layer) in player.messages.layers {
-            guard let sublayer = messageSublayers[id] else { continue }
-            let count = Int(layer.revealed)
-            guard revealCounts[id] != count || (count >= layer.text.count && sublayer.mask != nil) else { continue }
-            revealCounts[id] = count
-            if count >= layer.text.count {
-                sublayer.mask = nil
-                continue
-            }
-            let mask = (sublayer.mask as? CAShapeLayer) ?? CAShapeLayer()
-            mask.frame = sublayer.bounds
-            let path = CGMutablePath()
-            for rect in player.textRenderer.revealRects(for: layer, count: count) { path.addRect(rect) }
-            mask.path = path
-            sublayer.mask = mask
-        }
-        // Text shows only while its window does (hidden with the message layers' parent, 80).
-        messageLayer.isHidden = player.stage.layer("80").map { !$0.visible } ?? false
+    /// One more frame once a transition ends, to clear its last step.
+    private func transitionJustEnded(_ progress: Double?) -> Bool {
+        defer { hadTransition = progress != nil }
+        return hadTransition && progress == nil
     }
 
     // MARK: Input
