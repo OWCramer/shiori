@@ -17,6 +17,7 @@ final class KiriKiriGameViewController: UIViewController {
     private var onFirstFrame: (() -> Void)?
     private var engine: engine_handle_t?
     private var displayLink: CAMetalDisplayLink?
+    private var ticking = false
     private var lastTick: CFTimeInterval = 0
     /// Present the current frame on the next tick even if it isn't new (the layer was resized).
     private var needsPresent = true
@@ -142,6 +143,11 @@ final class KiriKiriGameViewController: UIViewController {
 
     private func tick(drawable: CAMetalDrawable) {
         guard let engine, !leaving else { return }
+        // A question the engine asks waits on a nested run loop inside engine_tick (patch
+        // 0028), where this callback keeps firing: don't enter the engine twice.
+        guard !ticking else { return }
+        ticking = true
+        defer { ticking = false }
         let now = CACurrentMediaTime()
         let interval = (now - lastTick) * 1000
         let elapsed = UInt32(max(1, min(100, interval)))
