@@ -126,14 +126,29 @@ struct RootView: View {
             }
     }
 
+    /// `-ShioriPreviewLibrary` (debug): the library from its on-disk cache without signing in,
+    /// to look at the screens in a simulator with no Steam account.
+    private static var previewLibrary: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "ShioriPreviewLibrary")
+        #else
+        false
+        #endif
+    }
+
     @ViewBuilder private var content: some View {
-        if steam.isLoggedOn || steam.hasStoredSession {
+        if steam.isLoggedOn || steam.hasStoredSession || Self.previewLibrary {
+            #if os(tvOS)
+            // Apple TV has its own library (design A, Phase 15), the same for remote and pad.
+            TVHomeView()
+            #else
             // With a controller in hand the library becomes a console-style launcher.
             if controllers.isActive {
                 LauncherView()
             } else {
                 LibraryView()
             }
+            #endif
         } else {
             SignInView()
         }
