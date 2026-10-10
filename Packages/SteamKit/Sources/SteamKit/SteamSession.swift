@@ -20,6 +20,9 @@ public actor SteamSession {
 
     /// True while the user is signed in; drives automatic reconnect.
     private var staysLoggedOn = false
+    /// Why the stored token was last forgotten (Steam's answer to a logon with it), so the
+    /// app can say more than "not signed in".
+    public private(set) var tokenRejection: String?
     private var heartbeatTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
 
@@ -318,6 +321,7 @@ public actor SteamSession {
             let steamID = try await sendLogon(logon, as: .individual(accountID: 0), on: connection)
             state = .loggedOn(accountName: stored.accountName, steamID: steamID)
         } catch let SteamError.logonFailed(result) where Self.meansBadToken(result) {
+            tokenRejection = "Steam refused the saved sign-in (\(result))"
             staysLoggedOn = false
             await disconnect()
             try? store.delete()

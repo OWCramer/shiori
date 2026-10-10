@@ -57,6 +57,8 @@ final class SteamModel {
             let wasLoggedOn = isLoggedOn
             self.state = state
             if isLoggedOn { connectionError = nil }
+            if state == .signedOut, let rejection = await session.tokenRejection { connectionError = rejection }
+            SteamLog.write("state \(state)" + (connectionError.map { " (\($0))" } ?? ""))
             hasStoredSession = await session.storedAccountName != nil
             if isLoggedOn, !wasLoggedOn { await loadLibrary() }
         }
@@ -64,14 +66,17 @@ final class SteamModel {
 
     private func resume() async {
         hasStoredSession = await session.storedAccountName != nil
+        SteamLog.write("launch: stored session \(hasStoredSession ? "found" : "none")")
         guard hasStoredSession else { return }
         do {
             try await session.resume()
         } catch SteamError.sessionExpired {
             resumeError = SteamError.sessionExpired.description
+            SteamLog.write("resume: session expired (\(await session.tokenRejection ?? "?"))")
         } catch {
             // Offline or Steam unreachable: SteamSession keeps retrying in the background.
             connectionError = Self.message(for: error)
+            SteamLog.write("resume failed: \(String(describing: error))")
         }
     }
 
@@ -118,12 +123,14 @@ final class SteamModel {
                         signIn = .steamGuard(prompt, codeError: nil, isSubmittingCode: false)
                     case .signedIn:
                         signIn = .idle
+                        SteamLog.write("signed in; stored session \(await session.storedAccountName != nil ? "saved" : "MISSING")")
                     }
                 }
             } catch is CancellationError {
                 signIn = .idle
             } catch {
                 signIn = .failed(Self.message(for: error))
+                SteamLog.write("sign-in failed: \(String(describing: error))")
             }
         }
     }
@@ -187,5 +194,22 @@ final class SteamModel {
         let seed = UUID().uuidString
         UserDefaults.standard.set(seed, forKey: key)
         return seed
+    }
+}
+
+/// A short record of the Steam connection (state changes, sign-in and logon failures; never
+/// tokens) in Caches/steam-log.txt, readable from a device's app container.
+enum SteamLog {
+    static func write(_ line: String) {
+        let url = URL.cachesDirectory.appendingPathComponent("steam-log.txt")
+        let stamp = ISO8601DateFormatter().string(from: .now)
+        let data = Data("\(stamp) \(line)\n".utf8)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            if (try? handle.seekToEnd()) ?? 0 > 200_000 { try? handle.truncate(atOffset: 0) }
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url)
+        }
     }
 }
