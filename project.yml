@@ -145,8 +145,61 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/Shiori-Bridging-Header.h
+  # Apple TV (Phase 15): the same app on tvOS, sharing the code. Engines whose native
+  # frameworks aren't built for tvOS yet (Ren'Py, KiriKiri, Siglus, libvpx) are left out or
+  # stand in (App/TV); Artemis and Luca play.
+  ShioriTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: App/Sources
+        excludes: ["Engines/KiriKiri/**", "Engines/Siglus/**"]
+      - path: App/Resources
+        excludes: ["KiriKiriSchemes/**", "SiglusFonts/**", "Assets.xcassets/**"]
+      - App/TV
+    info:
+      path: App/TV/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        GCSupportsGameMode: true
+        GCSupportsControllerUserInteraction: true
+        LSApplicationCategoryType: public.app-category.adventure-games
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: App/TV/ShioriTV.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers: ["iCloud.com.owencramer.vnhub"]
+        com.apple.developer.ubiquity-container-identifiers: ["iCloud.com.owencramer.vnhub"]
+        com.apple.developer.icloud-services: ["CloudDocuments"]
+    dependencies:
+      - package: SteamKit
+        product: SteamKit
+      - package: ArtemisKit
+        product: ArtemisKit
+      - package: Kingfisher
+      - package: LucaKit
+        product: LucaKit
+      - sdk: AVFoundation.framework
+      - sdk: GameController.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.owencramer.vnhub
+        PRODUCT_NAME: Shiori
+        TARGETED_DEVICE_FAMILY: "3"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Shiori
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/Shiori-Bridging-Header.h
 schemes:
   Shiori:
     build:
       targets:
         Shiori: all
+  ShioriTV:
+    build:
+      targets:
+        ShioriTV: all

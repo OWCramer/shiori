@@ -3,7 +3,9 @@ import SwiftUI
 
 @main
 struct ShioriApp: App {
+    #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #endif
     @State private var steam: SteamModel
     @State private var games: GameLibrary
     @State private var controllers = ControllerInput()
@@ -84,18 +86,22 @@ struct RootView: View {
                         .ignoresSafeArea()
                 }
             }
+            #if !os(tvOS)
+            // Siglus and KiriKiri aren't built for Apple TV yet (Phase 15).
             .fullScreenCover(item: $games.siglusSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
                     SiglusGameView(gameFolder: session.folder, onFirstFrame: firstFrame) { games.siglusSession = nil }
                         .ignoresSafeArea()
                 }
             }
+            #endif
             .fullScreenCover(item: $games.lucaSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
                     LucaGameView(gameFolder: session.folder, onFirstFrame: firstFrame) { games.lucaSession = nil }
                         .ignoresSafeArea()
                 }
             }
+            #if !os(tvOS)
             .fullScreenCover(item: $games.kirikiriSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
                     KiriKiriGameView(gameFolder: session.folder, appID: session.appID, onFirstFrame: firstFrame) {
@@ -104,6 +110,7 @@ struct RootView: View {
                     .ignoresSafeArea()
                 }
             }
+            #endif
             .overlay {
                 if let appID = games.endingSession {
                     SessionEndingView(game: steam.library.first { $0.appID == appID })

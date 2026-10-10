@@ -89,7 +89,7 @@ struct LibraryView: View {
                         Image(systemName: games.isDownloading ? "arrow.down.circle.fill" : "arrow.down.circle")
                             .symbolEffect(.pulse, isActive: games.isDownloading)
                     }
-                    .badge(games.downloadItems.count)
+                    .countBadge(games.downloadItems.count)
                     .accessibilityLabel("Downloads")
                     Button { showingSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Settings")
@@ -256,7 +256,7 @@ struct ConnectionStatus: View {
                     .symbolEffect(.pulse, isActive: isReconnecting)
             }
             .accessibilityLabel(isReconnecting ? "Reconnecting to Steam" : "Offline")
-            .popover(isPresented: $explaining) {
+            .infoPopover(isPresented: $explaining) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(isReconnecting ? "Reconnecting to Steam…" : "Can't reach Steam").font(.headline)
                     Text("Downloaded games still play. Downloads and Steam Cloud saves wait until Steam is back.")
@@ -311,9 +311,9 @@ struct AddVisualNovelView: View {
                     ContentUnavailableView.search(text: query)
                 }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Your Steam games")
+            .alwaysSearchable(text: $query, prompt: "Your Steam games")
             .navigationTitle("Add to Visual Novels")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }

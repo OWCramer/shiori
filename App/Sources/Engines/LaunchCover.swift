@@ -80,7 +80,7 @@ struct CoveredGame<Game: View>: View {
             lift()
         }
         .persistentSystemOverlays(.hidden)
-        .statusBarHidden()
+        .hiddenStatusBar()
     }
 
     private func lift() {

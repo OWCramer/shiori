@@ -50,7 +50,12 @@ final class GameLibrary {
     private(set) var activeDownload: UInt32?
     private(set) var queue: [UInt32] = []
     /// Keeps the active download running while Shiori is in the background.
+    #if os(iOS)
     private var backgroundTask: BGContinuedProcessingTask?
+    #else
+    /// Apple TV has no continued-processing tasks: downloads pause in the background.
+    private var backgroundTask: AnyObject?
+    #endif
     private static let backgroundTaskPrefix = "com.owencramer.vnhub.download"
     /// Downloads paused because the app went to the background, to restart on return.
     private var resumeOnForeground: [UInt32: String] = [:]
@@ -787,6 +792,7 @@ final class GameLibrary {
 
     // MARK: - Background continuation
 
+    #if os(iOS)
     /// Identifiers iOS accepted a launch handler for; submitting without one throws an
     /// exception, and registering one twice kills the app.
     private var registeredTaskIdentifiers: Set<String> = []
@@ -853,6 +859,11 @@ final class GameLibrary {
         backgroundTask = nil
         task.setTaskCompleted(success: success)
     }
+    #else
+    private func beginBackgroundTask(appID: UInt32, name: String) {}
+    private func updateBackgroundTask(_ progress: DownloadProgress) {}
+    private func endBackgroundTask(success: Bool) {}
+    #endif
 
     // MARK: - App lifecycle
 

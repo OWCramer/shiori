@@ -1,0 +1,14 @@
+<!-- size 1920 720 -->
+<rect width="2320" height="720" fill="url(#bg)"/>
+<use href="#waves" transform="translate(0 -304)"/>
+<use href="#waves" transform="translate(896 -304)"/>
+<g transform="translate(960 380) rotate(-5) scale(0.62) translate(-512 -510)">
+<use href="#cardShadow"/>
+<use href="#card"/>
+</g>
+<use href="#blossom" transform="translate(1220 520) scale(0.42)"/>
+<use href="#blossom" transform="translate(700 170) scale(0.3)"/>
+<use href="#petal" fill="#F7CCD9" transform="translate(560 240) rotate(-40) scale(0.4)"/>
+<use href="#petal" fill="#F7CCD9" transform="translate(1600 160) rotate(130) scale(0.36)"/>
+<use href="#petal" fill="#F7CCD9" transform="translate(1760 560) rotate(60) scale(0.3)"/>
+<use href="#petal" fill="#F7CCD9" transform="translate(320 560) rotate(160) scale(0.32)"/>

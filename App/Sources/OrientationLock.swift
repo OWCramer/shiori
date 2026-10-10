@@ -1,3 +1,4 @@
+#if os(iOS)
 import UIKit
 
 /// The orientations the app allows: any in the library, landscape while a game is open. iOS
@@ -21,3 +22,4 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         OrientationLock.mask
     }
 }
+#endif

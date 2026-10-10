@@ -58,9 +58,24 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    #if os(tvOS)
+    private var pointer: RemotePointer?
+
+    @objc private func playPausePressed(_ recognizer: UITapGestureRecognizer) {
+        if backlogView != nil { return }
+        guard let player else { return }
+        player.setAutoMode(!player.autoMode)
+    }
+
+    @objc private func playPauseHeld(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        if backlogView != nil { closeBacklog() } else { presentBacklog() }
+    }
+    #else
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    #endif
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -81,6 +96,28 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         // skips, holding for a second toggles auto mode. A two-finger hold leaves the game.
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         view.addGestureRecognizer(tap)
+        #if os(tvOS)
+        // The Siri Remote: the touch surface moves a pointer and a click lands at it; Menu is
+        // the right-click (held, it leaves the game); Play/Pause toggles auto (held, the
+        // backlog).
+        pointer = RemotePointer(in: view)
+        let menuHold = UILongPressGestureRecognizer(target: self, action: #selector(askToLeave(_:)))
+        menuHold.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
+        menuHold.minimumPressDuration = 0.8
+        view.addGestureRecognizer(menuHold)
+        let menuPress = UITapGestureRecognizer(target: self, action: #selector(rightClick(_:)))
+        menuPress.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
+        menuPress.require(toFail: menuHold)
+        view.addGestureRecognizer(menuPress)
+        let playHold = UILongPressGestureRecognizer(target: self, action: #selector(playPauseHeld(_:)))
+        playHold.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+        playHold.minimumPressDuration = 0.8
+        view.addGestureRecognizer(playHold)
+        let playPress = UITapGestureRecognizer(target: self, action: #selector(playPausePressed(_:)))
+        playPress.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+        playPress.require(toFail: playHold)
+        view.addGestureRecognizer(playPress)
+        #else
         let menu = UITapGestureRecognizer(target: self, action: #selector(rightClick(_:)))
         menu.numberOfTouchesRequired = 2
         view.addGestureRecognizer(menu)
@@ -108,6 +145,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         leave.numberOfTouchesRequired = 2
         leave.minimumPressDuration = 0.8
         view.addGestureRecognizer(leave)
+        #endif
 
         do {
             let base = gameFolder.appendingPathComponent("base", isDirectory: true)
@@ -179,12 +217,16 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if os(iOS)
         requestOrientations(.landscape)
+        #endif
     }
 
+    #if os(iOS)
     private func requestOrientations(_ mask: UIInterfaceOrientationMask) {
         OrientationLock.set(mask, in: view.window?.windowScene)
     }
+    #endif
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -348,7 +390,11 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             videoFinished()
             return
         }
+        #if os(tvOS)
+        let point = pointer?.location ?? recognizer.location(in: view)
+        #else
         let point = recognizer.location(in: view)
+        #endif
         let stagePoint = stageLayer.convert(point, from: view.layer)
         if player?.traceWaits == true { NSLog("Artemis: tap at stage %.0f,%.0f", stagePoint.x, stagePoint.y) }
         player?.tap(at: stagePoint)
@@ -399,7 +445,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         label.font = .preferredFont(forTextStyle: .subheadline)
         label.textColor = .white
         label.textAlignment = .center
-        let pill = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
+        let pill = UIVisualEffectView(effect: UIBlurEffect(style: Self.noticeBlur))
         pill.layer.cornerRadius = 18
         pill.clipsToBounds = true
         pill.contentView.addSubview(label)
@@ -443,7 +489,9 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         let text = UITextView(frame: container.bounds.insetBy(dx: max(24, view.safeAreaInsets.left), dy: 20))
         text.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         text.backgroundColor = .clear
+        #if os(iOS)
         text.isEditable = false
+        #endif
         text.isSelectable = false
         let body = NSMutableAttributedString()
         let paragraph = NSMutableParagraphStyle()
@@ -524,7 +572,9 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         displayLink = nil
         audio.stopAll()
         ControllerInput.unsupportedGame = nil
+        #if os(iOS)
         requestOrientations(.all)
+        #endif
         onExit()
     }
 
@@ -549,6 +599,13 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         UIApplication.shared.open(url)
     }
 
+    #if os(tvOS)
+    private static let noticeBlur = UIBlurEffect.Style.dark
+    /// Apple TV has neither haptics nor a pasteboard.
+    func vibrate() {}
+    func copyToClipboard(_ text: String) {}
+    #else
+    private static let noticeBlur = UIBlurEffect.Style.systemThinMaterialDark
     func vibrate() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
@@ -556,6 +613,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     func copyToClipboard(_ text: String) {
         UIPasteboard.general.string = text
     }
+    #endif
 
     func playVideo(_ source: ArtemisVideoSource, finished: @escaping () -> Void) -> Bool {
         switch source.fileExtension {

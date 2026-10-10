@@ -72,7 +72,7 @@ struct GameDetailView: View {
         .environment(\.colorScheme, .dark)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationTitle(game.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .toolbar { toolbarContent }
         .sheet(isPresented: $browsingArchives) {
             ArchiveBrowserView(gameFolder: folder)
@@ -97,7 +97,10 @@ struct GameDetailView: View {
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
         .onChange(of: status) { reloadPatches() }
+        #if os(iOS)
+        // Apple TV has no document picker or Files app; patches come another way (Phase 15).
         .fileImporter(isPresented: $importingPatch, allowedContentTypes: [.zip, .folder, .item]) { importPatch($0) }
+        #endif
         .confirmationDialog("Remove all patches?", isPresented: $confirmingRemovePatches, titleVisibility: .visible) {
             Button("Remove \(patchFiles.count) patch files", role: .destructive) {
                 try? PatchStore.removeAll(gameFolder: folder)
@@ -242,8 +245,10 @@ struct GameDetailView: View {
                 Button("Browse Archives", systemImage: "archivebox") { browsingArchives = true }
             }
             Button("Verify Files", systemImage: "checkmark.shield") { games.verify(appID: appID) }
+            #if os(iOS)
             Button("Import Patch…", systemImage: "square.and.arrow.down") { importingPatch = true }
             Button("Open Folder in Files", systemImage: "folder") { openInFiles() }
+            #endif
             if !patchFiles.isEmpty {
                 Button("Remove All Patches", systemImage: "arrow.uturn.backward") { confirmingRemovePatches = true }
             }
@@ -572,9 +577,11 @@ struct GameDetailView: View {
                 Text(patchMessage).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
+                #if os(iOS)
                 Button("Import", systemImage: "square.and.arrow.down") { importingPatch = true }
                     .buttonStyle(.glass)
                     .disabled(patchImport != nil)
+                #endif
                 if !patchFiles.isEmpty {
                     Button("Remove All", systemImage: "arrow.uturn.backward", role: .destructive) { confirmingRemovePatches = true }
                         .buttonStyle(.glass)

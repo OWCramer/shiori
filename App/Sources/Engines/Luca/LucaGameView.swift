@@ -103,9 +103,22 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    #if os(tvOS)
+    @objc private func playPausePressed() {
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil,
+              optionsScreen == nil, messageLog == nil, player?.choices == nil else { return }
+        windowBarPicked(.auto)
+    }
+
+    @objc private func playPauseHeld(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        showBacklog()
+    }
+    #else
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    #endif
 
     private var saves: URL { gameFolder.appendingPathComponent("saves", isDirectory: true) }
 
@@ -134,6 +147,27 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
         tap.delegate = self
         view.addGestureRecognizer(tap)
+        #if os(tvOS)
+        // The Siri Remote: the game's screens are buttons the focus engine moves between, a
+        // click reads on; Menu opens the system menu (held, it leaves the game); Play/Pause
+        // toggles Auto (held, the Message Log).
+        let menuHold = UILongPressGestureRecognizer(target: self, action: #selector(askToLeave(_:)))
+        menuHold.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
+        menuHold.minimumPressDuration = 0.8
+        view.addGestureRecognizer(menuHold)
+        let menuPress = UITapGestureRecognizer(target: self, action: #selector(showMenu))
+        menuPress.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
+        menuPress.require(toFail: menuHold)
+        view.addGestureRecognizer(menuPress)
+        let playHold = UILongPressGestureRecognizer(target: self, action: #selector(playPauseHeld(_:)))
+        playHold.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+        playHold.minimumPressDuration = 0.8
+        view.addGestureRecognizer(playHold)
+        let playPress = UITapGestureRecognizer(target: self, action: #selector(playPausePressed))
+        playPress.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+        playPress.require(toFail: playHold)
+        view.addGestureRecognizer(playPress)
+        #else
         let menu = UITapGestureRecognizer(target: self, action: #selector(showMenu))
         menu.numberOfTouchesRequired = 2
         view.addGestureRecognizer(menu)
@@ -159,6 +193,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         leave.numberOfTouchesRequired = 2
         leave.minimumPressDuration = 0.8
         view.addGestureRecognizer(leave)
+        #endif
 
         do {
             let game = try LucaGame(root: gameFolder.appendingPathComponent("base", isDirectory: true),
@@ -214,7 +249,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if os(iOS)
         OrientationLock.set(.landscape, in: view.window?.windowScene)
+        #endif
     }
 
     override func viewDidLayoutSubviews() {
@@ -928,7 +965,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         displayLink?.invalidate()
         displayLink = nil
         audio.stopAll()
+        #if os(iOS)
         OrientationLock.set(.all, in: view.window?.windowScene)
+        #endif
         onExit()
     }
 

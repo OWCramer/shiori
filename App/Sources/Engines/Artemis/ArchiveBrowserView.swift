@@ -51,7 +51,7 @@ struct ArchiveBrowserView: View {
                 }
             }
             .navigationTitle("Archives")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task { await load() }
         }
@@ -90,7 +90,7 @@ private struct ArchiveFilePreview: View {
                 ScrollView {
                     Text(text)
                         .font(.caption.monospaced())
-                        .textSelection(.enabled)
+                        .selectableText()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
                 }
@@ -101,7 +101,7 @@ private struct ArchiveFilePreview: View {
             }
         }
         .navigationTitle((file.path as NSString).lastPathComponent)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .task { await load() }
     }
 

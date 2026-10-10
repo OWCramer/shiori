@@ -55,3 +55,49 @@ for (body, name, opaque) in [("tv-1-back", "back", true), ("tv-2-card", "card", 
         try render(body, width: w, height: h, opaque: opaque, to: export.appendingPathComponent("tvos/\(name)-\(w)x\(h).png"))
     }
 }
+
+// The Apple TV asset catalog (App/TV/Assets.xcassets): the layered app icon (front, middle,
+// back image stacks at 400×240 @1x/@2x and 1280×768 for the App Store) and the top shelf.
+let catalog = URL(fileURLWithPath: "App/TV/Assets.xcassets")
+let brand = catalog.appendingPathComponent("App Icon & Top Shelf Image.brandassets")
+func writeJSON(_ object: Any, to folder: URL) throws {
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    try data.write(to: folder.appendingPathComponent("Contents.json"))
+}
+let info: [String: Any] = ["author": "xcode", "version": 1]
+try? FileManager.default.removeItem(at: catalog)
+try writeJSON(["info": info], to: catalog)
+try writeJSON(["info": info, "assets": [
+    ["filename": "App Icon - App Store.imagestack", "idiom": "tv", "role": "primary-app-icon", "size": "1280x768"],
+    ["filename": "App Icon.imagestack", "idiom": "tv", "role": "primary-app-icon", "size": "400x240"],
+    ["filename": "Top Shelf Image Wide.imageset", "idiom": "tv", "role": "top-shelf-image-wide", "size": "2320x720"],
+    ["filename": "Top Shelf Image.imageset", "idiom": "tv", "role": "top-shelf-image", "size": "1920x720"],
+]], to: brand)
+let layers = [("Front", "tv-3-blossoms", false), ("Middle", "tv-2-card", false), ("Back", "tv-1-back", true)]
+for (stack, scales) in [("App Icon - App Store", [(1280, 768, "1x")]), ("App Icon", [(400, 240, "1x"), (800, 480, "2x")])] {
+    let folder = brand.appendingPathComponent("\(stack).imagestack")
+    try writeJSON(["info": info, "layers": layers.map { ["filename": "\($0.0).imagestacklayer"] }], to: folder)
+    for (name, body, opaque) in layers {
+        let layer = folder.appendingPathComponent("\(name).imagestacklayer")
+        try writeJSON(["info": info], to: layer)
+        let set = layer.appendingPathComponent("Content.imageset")
+        var images: [[String: Any]] = []
+        for (w, h, scale) in scales {
+            let file = "\(name.lowercased())-\(w)x\(h).png"
+            try render(body, width: w, height: h, opaque: opaque, to: set.appendingPathComponent(file))
+            images.append(["filename": file, "idiom": "tv", "scale": scale])
+        }
+        try writeJSON(["info": info, "images": images], to: set)
+    }
+}
+for (set, body, w, h) in [("Top Shelf Image Wide", "topshelf-wide", 2320, 720), ("Top Shelf Image", "topshelf", 1920, 720)] {
+    let folder = brand.appendingPathComponent("\(set).imageset")
+    var images: [[String: Any]] = []
+    for (scale, factor) in [("1x", 1), ("2x", 2)] {
+        let file = "topshelf-\(w * factor)x\(h * factor).png"
+        try render(body, width: w * factor, height: h * factor, opaque: true, to: folder.appendingPathComponent(file))
+        images.append(["filename": file, "idiom": "tv", "scale": scale])
+    }
+    try writeJSON(["info": info, "images": images], to: folder)
+}

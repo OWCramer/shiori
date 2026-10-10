@@ -1,3 +1,4 @@
+#if canImport(CVPX)
 import CVPX
 import Foundation
 import LucaKit
@@ -135,3 +136,32 @@ final class LucaVideoDecoder: @unchecked Sendable {
         }
     }
 }
+#else
+import Foundation
+import LucaKit
+import Metal
+
+/// Apple TV: libvpx isn't built for tvOS yet, so VP9 movies and animated effects don't
+/// start (the player shows the scene without them).
+final class LucaVideoDecoder: @unchecked Sendable {
+    struct Frame {
+        var time: Double
+        var y: MTLTexture
+        var u: MTLTexture
+        var v: MTLTexture
+        var bt709: Bool
+        var fullRange: Bool
+    }
+
+    let width = 0
+    let height = 0
+    let duration = 0.0
+    let loops = false
+
+    init?(webm: WebM, device: MTLDevice, loops: Bool = false) { return nil }
+
+    func frame(at time: Double) -> Frame? { nil }
+
+    var finished: Bool { true }
+}
+#endif

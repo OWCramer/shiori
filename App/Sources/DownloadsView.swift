@@ -26,7 +26,7 @@ struct DownloadsView: View {
                 }
             }
             .navigationTitle("Downloads")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }

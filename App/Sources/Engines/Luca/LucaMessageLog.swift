@@ -67,7 +67,7 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
         hold.minimumPressDuration = 0.6
         scroll.addGestureRecognizer(hold)
         let twoFinger = UITapGestureRecognizer(target: self, action: #selector(close))
-        twoFinger.numberOfTouchesRequired = 2
+        twoFinger.requireSecondaryClick()
         addGestureRecognizer(twoFinger)
         tap.require(toFail: twoFinger)
     }

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SteamKit",
-    platforms: [.iOS(.v18), .macOS(.v15)],
+    platforms: [.iOS(.v18), .macOS(.v15), .tvOS(.v18)],
     products: [
         .library(name: "SteamKit", targets: ["SteamKit"]),
         .executable(name: "steamkit-cli", targets: ["steamkit-cli"]),

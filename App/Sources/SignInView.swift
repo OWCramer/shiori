@@ -30,6 +30,11 @@ struct SignInView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
+        #if os(tvOS)
+        // On a TV the QR code is the way in: scan it with the Steam app on a phone. The
+        // account form is still a Cancel away.
+        .task { if case .idle = steam.signIn { steam.startQRSignIn() } }
+        #endif
     }
 
     @ViewBuilder private var content: some View {

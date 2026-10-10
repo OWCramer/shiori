@@ -34,7 +34,7 @@ struct ArtworkPickerView: View {
                 content
             }
             .navigationTitle("Artwork")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }

@@ -22,7 +22,9 @@ final class LucaManualViewController: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    #if os(iOS)
     override var prefersStatusBarHidden: Bool { true }
+    #endif
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -35,7 +37,7 @@ final class LucaManualViewController: UIViewController {
         stage.addSubview(pageView)
         view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
         let close = UITapGestureRecognizer(target: self, action: #selector(closeManual))
-        close.numberOfTouchesRequired = 2
+        close.requireSecondaryClick()
         view.addGestureRecognizer(close)
         let next = UISwipeGestureRecognizer(target: self, action: #selector(nextPage))
         next.direction = .left

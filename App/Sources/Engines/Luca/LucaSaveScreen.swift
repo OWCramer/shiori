@@ -51,7 +51,7 @@ final class LucaSaveScreen: UIView, UIGestureRecognizerDelegate {
         stage.addSubview(slotLayer)
         buildPageColumn()
         let close = UITapGestureRecognizer(target: self, action: #selector(closeScreen))
-        close.numberOfTouchesRequired = 2
+        close.requireSecondaryClick()
         close.delegate = self
         addGestureRecognizer(close)
         let down = UISwipeGestureRecognizer(target: self, action: #selector(closeScreen))
