@@ -1,0 +1,5 @@
+<!-- size 1280 768 -->
+<g transform="translate(640 384) rotate(-4) scale(0.8) translate(-512 -510)">
+<use href="#cardShadow"/>
+<use href="#card"/>
+</g>

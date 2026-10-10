@@ -1,0 +1,3 @@
+<!-- size 1024 1024 -->
+<use href="#cardShadow" transform="rotate(-7 512 512)"/>
+<g transform="rotate(-7 512 512)"><use href="#card"/></g>

@@ -1,0 +1,3 @@
+<!-- size 1024 1024 -->
+<rect width="1024" height="1024" fill="url(#bg)"/>
+<use href="#waves"/>

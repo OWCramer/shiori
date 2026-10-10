@@ -1,0 +1,4 @@
+<!-- size 1280 768 -->
+<rect width="1280" height="768" fill="url(#bg)"/>
+<use href="#waves" transform="translate(0 -256)"/>
+<use href="#waves" transform="translate(256 0)"/>

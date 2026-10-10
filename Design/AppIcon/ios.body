@@ -1,0 +1,7 @@
+<!-- size 1024 1024 -->
+<rect width="1024" height="1024" fill="url(#bg)"/>
+<use href="#waves"/>
+<use href="#cardShadow" transform="rotate(-7 512 512)"/>
+<g transform="rotate(-7 512 512)"><use href="#card"/></g>
+<use href="#petal" fill="#F7CCD9" transform="translate(822 780) rotate(150) scale(0.42)"/>
+<use href="#petal" fill="#F7CCD9" transform="translate(188 300) rotate(-40) scale(0.34)"/>

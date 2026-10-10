@@ -1,0 +1,28 @@
+<defs>
+<radialGradient id="bg" cx="0.5" cy="0.4" r="0.75"><stop offset="0" stop-color="#4A151C"/><stop offset="1" stop-color="#1C070B"/></radialGradient>
+<path id="petal" d="M0,0 C-34,-30 -46,-86 -24,-118 C-14,-130 -6,-124 0,-112 C6,-124 14,-130 24,-118 C46,-86 34,-30 0,0 Z"/>
+<g id="blossom">
+<use href="#petal" fill="#FBE0E8" stroke="#EBAFC3" stroke-width="4"/>
+<use href="#petal" fill="#FBE0E8" stroke="#EBAFC3" stroke-width="4" transform="rotate(72)"/>
+<use href="#petal" fill="#FBE0E8" stroke="#EBAFC3" stroke-width="4" transform="rotate(144)"/>
+<use href="#petal" fill="#FBE0E8" stroke="#EBAFC3" stroke-width="4" transform="rotate(216)"/>
+<use href="#petal" fill="#FBE0E8" stroke="#EBAFC3" stroke-width="4" transform="rotate(288)"/>
+<circle r="20" fill="#D9557A"/>
+</g>
+<g id="waves" fill="none" stroke="#D9A44E" stroke-opacity="0.13" stroke-width="6">
+<circle cx="0" cy="1024" r="120"/><circle cx="0" cy="1024" r="180"/><circle cx="0" cy="1024" r="240"/>
+<circle cx="1024" cy="0" r="120"/><circle cx="1024" cy="0" r="180"/><circle cx="1024" cy="0" r="240"/>
+</g>
+<rect id="cardShadow" x="272" y="120" width="480" height="780" rx="30" fill="#000000" fill-opacity="0.35" transform="translate(12 18)"/>
+<g id="card">
+<rect x="272" y="120" width="480" height="780" rx="30" fill="#F2E4C6"/>
+<rect x="300" y="148" width="424" height="724" rx="14" fill="#C7322A"/>
+<circle cx="512" cy="360" r="140" fill="#F7EBCB"/>
+<path d="M300 560 C 380 520 460 540 540 500 S 680 430 724 440" fill="none" stroke="#2B1814" stroke-width="18" stroke-linecap="round"/>
+<path d="M470 528 C 492 492 522 472 562 462" fill="none" stroke="#2B1814" stroke-width="10" stroke-linecap="round"/>
+<use href="#blossom" transform="translate(410 534) scale(0.42)"/>
+<use href="#blossom" transform="translate(566 470) scale(0.38)"/>
+<use href="#blossom" transform="translate(684 440) scale(0.34)"/>
+<path d="M300 730 Q 400 650 512 706 Q 620 762 724 694 V858 Q 724 872 710 872 H314 Q 300 872 300 858 Z" fill="#17101A"/>
+</g>
+</defs>
