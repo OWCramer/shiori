@@ -49,7 +49,8 @@ enum PatchStore {
 
     /// Imports a zip or folder into `patch/`. If it contains a `game/` folder (at its top
     /// level, or inside a single wrapper folder) that structure is kept; otherwise its
-    /// contents are treated as files for `game/`. Existing patch files are replaced.
+    /// contents are treated as files for `game/` when `base/` has one (Ren'Py), else for
+    /// the game's own folder. Existing patch files are replaced.
     /// Returns the number of files imported.
     @discardableResult
     static func importItem(at source: URL, gameFolder: URL) throws -> Int {
@@ -73,7 +74,10 @@ enum PatchStore {
         let root = contentRoot(of: staging)
         let patch = patchFolder(gameFolder)
         let hasGame = (try? fm.contentsOfDirectory(atPath: root.path))?.contains { $0.lowercased() == "game" } ?? false
-        let destination = hasGame ? patch : patch.appendingPathComponent("game", isDirectory: true)
+        // Only Ren'Py keeps its files in `game/`; other engines' patches mirror `base/` itself.
+        let base = gameFolder.appendingPathComponent("base", isDirectory: true)
+        let baseHasGame = (try? fm.contentsOfDirectory(atPath: base.path))?.contains { $0.lowercased() == "game" } ?? true
+        let destination = hasGame || !baseHasGame ? patch : patch.appendingPathComponent("game", isDirectory: true)
         return try merge(root, into: destination)
     }
 

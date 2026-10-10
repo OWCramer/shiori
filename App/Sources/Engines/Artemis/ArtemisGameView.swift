@@ -109,6 +109,10 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 if !message.hasPrefix("debug:") && !message.hasPrefix("lua:") { NSLog("Artemis: %@", message) }
             }
             self.player = player
+            #if DEBUG
+            // `-VNHubArtemisTrace YES` logs every wait the script stops at.
+            player.traceWaits = UserDefaults.standard.bool(forKey: "VNHubArtemisTrace")
+            #endif
             // The game's master volumes (0...1000), followed live (config sliders).
             audio.masterVolume = { @MainActor [weak player] id in
                 guard let player else { return 1 }
@@ -430,6 +434,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
         let point = recognizer.location(in: view)
         let stagePoint = stageLayer.convert(point, from: view.layer)
+        if player?.traceWaits == true { NSLog("Artemis: tap at stage %.0f,%.0f", stagePoint.x, stagePoint.y) }
         player?.tap(at: stagePoint)
     }
 
