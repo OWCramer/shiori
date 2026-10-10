@@ -5,7 +5,7 @@ import Kingfisher
 import SwiftUI
 
 /// Loads remote artwork into whatever frame it's given, trying each URL in turn, through
-/// Kingfisher's shared memory and disk cache (configured in `VNHubApp`).
+/// Kingfisher's shared memory and disk cache (configured in `ShioriApp`).
 ///
 /// Size-neutral on purpose: a bare `.resizable().scaledToFill()` image reports an ideal
 /// size from the artwork's proportions, which can widen every ancestor. Rendering into

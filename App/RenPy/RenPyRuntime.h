@@ -9,22 +9,22 @@
 /// `gameFolder` holds `base/` (Python home: `base/lib/python3.9`) and the launcher script
 /// `base/<launcherName>.py`. Saves are written to `saveDirectory`.
 /// Returns Python's exit status, or a negative value if the runtime couldn't be loaded.
-int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *launcherName, const char *saveDirectory);
+int shiori_renpy_run(const char *runtime, const char *gameFolder, const char *launcherName, const char *saveDirectory);
 
 /// Forward app lifecycle changes to SDL while a game runs (SwiftUI owns the app delegate,
 /// so SDL's own delegate never sees them).
-void vnhub_renpy_will_resign_active(void);
-void vnhub_renpy_did_enter_background(void);
-void vnhub_renpy_will_enter_foreground(void);
-void vnhub_renpy_did_become_active(void);
+void shiori_renpy_will_resign_active(void);
+void shiori_renpy_did_enter_background(void);
+void shiori_renpy_will_enter_foreground(void);
+void shiori_renpy_did_become_active(void);
 
 /// After a game has ended: hide its window and show the hub's windows again.
-void vnhub_renpy_restore_hub(void);
+void shiori_renpy_restore_hub(void);
 
 /// Controller input for the running game, as SDL game-controller events
 /// (SDL_GameControllerButton / SDL_GameControllerAxis numbering).
-void vnhub_renpy_controller_button(int button, int down);
-void vnhub_renpy_controller_axis(int axis, int value);
+void shiori_renpy_controller_button(int button, int down);
+void shiori_renpy_controller_axis(int axis, int value);
 
-/// True while `vnhub_renpy_run` is executing.
-int vnhub_renpy_is_running(void);
+/// True while `shiori_renpy_run` is executing.
+int shiori_renpy_is_running(void);

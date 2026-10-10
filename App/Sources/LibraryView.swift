@@ -72,9 +72,9 @@ struct LibraryView: View {
             .navigationTitle("Library")
             .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
             #if DEBUG
-            // `-VNHubOpenGame <appid>` opens that game's screen once the library loads.
+            // `-ShioriOpenGame <appid>` opens that game's screen once the library loads.
             .task(id: steam.library.count) {
-                let appID = UserDefaults.standard.integer(forKey: "VNHubOpenGame")
+                let appID = UserDefaults.standard.integer(forKey: "ShioriOpenGame")
                 if path.isEmpty, let game = steam.library.first(where: { $0.appID == appID }) { path = [game] }
             }
             #endif

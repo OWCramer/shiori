@@ -1,4 +1,4 @@
-name: VNHub
+name: Shiori
 options:
   bundleIdPrefix: com.owencramer
   deploymentTarget:
@@ -26,7 +26,7 @@ packages:
   LucaKit:
     path: Packages/LucaKit
 targets:
-  VNHub:
+  Shiori:
     type: application
     platform: iOS
     sources:
@@ -48,9 +48,9 @@ targets:
       # Ren'Py's own StoreKit 1 helper, kept as shipped in renios.
       - path: App/RenPy/IAPHelper.m
         compilerFlags: ["-Wno-deprecated-declarations"]
-      - path: App/RenPy/vnhub_main.py
+      - path: App/RenPy/shiori_main.py
         buildPhase: resources
-      - path: App/RenPy/vnhub_main2.py
+      - path: App/RenPy/shiori_main2.py
         buildPhase: resources
       # Ren'Py 7.8.7's engine code and Python 2.7 library (Scripts/build-renpy-runtimes.sh).
       - path: Vendor/RenPy7Base
@@ -74,7 +74,7 @@ targets:
         LSApplicationCategoryType: public.app-category.adventure-games
     # iCloud Documents container that mirrors each game's saves/ (SaveSync).
     entitlements:
-      path: App/VNHub.entitlements
+      path: App/Shiori.entitlements
       properties:
         com.apple.developer.icloud-container-identifiers: ["iCloud.com.owencramer.vnhub"]
         com.apple.developer.ubiquity-container-identifiers: ["iCloud.com.owencramer.vnhub"]
@@ -132,7 +132,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.owencramer.vnhub
-        PRODUCT_NAME: VN Hub
+        PRODUCT_NAME: Shiori
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Shiori
@@ -141,9 +141,9 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/VNHub-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/Shiori-Bridging-Header.h
 schemes:
-  VNHub:
+  Shiori:
     build:
       targets:
-        VNHub: all
+        Shiori: all

@@ -20,7 +20,7 @@ static int running = 0;
 typedef struct SDL_Window SDL_Window;
 
 /// The loaded runtime framework (RenPy8 or RenPy7). Each one bundles CPython, Ren'Py's
-/// compiled modules and SDL2, so only one can be in a process; VN Hub exits after a game.
+/// compiled modules and SDL2, so only one can be in a process; Shiori exits after a game.
 static struct {
     void *handle;
     // From librenpython (renpy-build runtime/librenpython{2,3}.c). Finds the Python home at
@@ -71,10 +71,10 @@ static BOOL LoadRuntime(const char *name) {
     if (sdl.handle) return YES;
     NSString *path = [NSString stringWithFormat:@"%@/%s.framework/%s", NSBundle.mainBundle.privateFrameworksPath, name, name];
     sdl.handle = dlopen(path.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
-    // vnhub_main2.py reaches GL through it (ctypes), to free Ren'Py 7's textures.
-    setenv("VNHUB_RUNTIME_LIBRARY", path.fileSystemRepresentation, 1);
+    // shiori_main2.py reaches GL through it (ctypes), to free Ren'Py 7's textures.
+    setenv("SHIORI_RUNTIME_LIBRARY", path.fileSystemRepresentation, 1);
     if (!sdl.handle) {
-        NSLog(@"VN Hub: couldn't load %s: %s", name, dlerror());
+        NSLog(@"Shiori: couldn't load %s: %s", name, dlerror());
         return NO;
     }
     sdl.launcherMain = dlsym(sdl.handle, "launcher_main");
@@ -106,15 +106,15 @@ static void PressKey(int scancode) {
 /// game as a click, which would advance the dialogue.
 static double FootprintMB(void);
 
-@interface VNHubGestures : NSObject
+@interface ShioriGestures : NSObject
 @end
 
-@implementation VNHubGestures
+@implementation ShioriGestures
 
 + (instancetype)shared {
-    static VNHubGestures *shared;
+    static ShioriGestures *shared;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ shared = [VNHubGestures new]; });
+    dispatch_once(&once, ^{ shared = [ShioriGestures new]; });
     return shared;
 }
 
@@ -147,11 +147,11 @@ static double FootprintMB(void);
 @end
 
 #if DEBUG
-/// Replays input from the `VNHUB_INPUT` environment variable: `;`-separated steps of
+/// Replays input from the `SHIORI_INPUT` environment variable: `;`-separated steps of
 /// `<seconds>:<x>,<y>` (tap at window points), `<seconds>:esc`, `:enter` or `:h`,
 /// timed from game start. Simulator testing only.
 static void ScheduleScriptedInput(void) {
-    const char *script = getenv("VNHUB_INPUT");
+    const char *script = getenv("SHIORI_INPUT");
     if (!script) return;
     NSArray<NSString *> *steps = [@(script) componentsSeparatedByString:@";"];
     for (NSString *step in steps) {
@@ -162,12 +162,12 @@ static void ScheduleScriptedInput(void) {
         // Run-loop timers, not the main queue: while Ren'Py runs, SDL turns the run loop
         // itself, and main-queue blocks stop being serviced after the first.
         NSTimer *timer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *t) {
-            NSLog(@"VN Hub input: %@", action);
+            NSLog(@"Shiori input: %@", action);
             if ([action hasPrefix:@"pad"]) {
                 int button = [action substringFromIndex:3].intValue;
-                vnhub_renpy_controller_button(button, 1);
+                shiori_renpy_controller_button(button, 1);
                 NSTimer *release = [NSTimer timerWithTimeInterval:0.08 repeats:NO block:^(NSTimer *r) {
-                    vnhub_renpy_controller_button(button, 0);
+                    shiori_renpy_controller_button(button, 0);
                 }];
                 [NSRunLoop.mainRunLoop addTimer:release forMode:NSRunLoopCommonModes];
                 return;
@@ -211,7 +211,7 @@ static double FootprintMB(void) {
 /// no crash report and no Python error. Record who: the native stack (image + offset per
 /// frame, to symbolicate with atos) goes to <cache>/native-exit.txt.
 static void TraceNativeExit(void) {
-    const char *cache = getenv("VNHUB_CACHE");
+    const char *cache = getenv("SHIORI_CACHE");
     if (!cache) return;
     char path[1024];
     snprintf(path, sizeof path, "%s/native-exit.txt", cache);
@@ -255,13 +255,13 @@ static void TraceExitsWhilePlaying(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         atexit(TraceNativeExit);
-        const char *cache = getenv("VNHUB_CACHE");
+        const char *cache = getenv("SHIORI_CACHE");
         if (cache) snprintf(signalPath, sizeof signalPath, "%s/signals.txt", cache);
         int signals[] = {SIGPIPE, SIGTERM, SIGHUP, SIGINT, SIGQUIT, SIGUSR1, SIGUSR2, SIGALRM, SIGXCPU, SIGXFSZ, SIGSYS};
         for (size_t i = 0; i < sizeof signals / sizeof *signals; i++) signal(signals[i], TraceSignal);
     });
     char path[1024];
-    const char *cache = getenv("VNHUB_CACHE");
+    const char *cache = getenv("SHIORI_CACHE");
     if (cache) {
         snprintf(path, sizeof path, "%s/native-exit.txt", cache);
         unlink(path);
@@ -316,17 +316,17 @@ static void LimitKeyboardSlide(void) {
 /// Asks iOS for a steady 60 Hz while a game runs. Ren'Py paces itself and presents through
 /// ANGLE without a display link, so a 120 Hz iPhone ran its screen at 48 Hz, and Ren'Py's
 /// 60 fps frames alternated between 16.7 and 20.8 ms (KiriKiri's view had the same problem).
-@interface VNHubFramePacer : NSObject
+@interface ShioriFramePacer : NSObject
 @end
 
-@implementation VNHubFramePacer
+@implementation ShioriFramePacer
 - (void)tick:(CADisplayLink *)link {}
 @end
 
 static void RequestSteadyFrameRate(void) {
     static CADisplayLink *link;
     if (link) return;
-    link = [CADisplayLink displayLinkWithTarget:[VNHubFramePacer new] selector:@selector(tick:)];
+    link = [CADisplayLink displayLinkWithTarget:[ShioriFramePacer new] selector:@selector(tick:)];
     link.preferredFrameRateRange = CAFrameRateRangeMake(60, 60, 60);
     [link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
@@ -386,10 +386,10 @@ static void FilterMultiFingerTouches(void) {
 static UIWindowScene *ActiveWindowScene(void);
 
 /// Landscape, no status bar or home indicator, like the game that follows.
-@interface VNHubCoverController : UIViewController
+@interface ShioriCoverController : UIViewController
 @end
 
-@implementation VNHubCoverController
+@implementation ShioriCoverController
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 - (BOOL)prefersStatusBarHidden { return YES; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
@@ -412,7 +412,7 @@ static void DismissCover(void) {
 }
 
 /// The game's banner art, logo and a spinner, from the moment Play hands over until Ren'Py
-/// draws its first real frame. Paths come from VNHUB_COVER_HERO / _LOGO (Swift fetches
+/// draws its first real frame. Paths come from SHIORI_COVER_HERO / _LOGO (Swift fetches
 /// them while saves sync); without them, the game's name on black.
 static void ShowCover(void) {
     UIWindowScene *scene = ActiveWindowScene();
@@ -421,12 +421,12 @@ static void ShowCover(void) {
     window.windowLevel = UIWindowLevelNormal + 10;
     window.userInteractionEnabled = NO;
     window.backgroundColor = UIColor.blackColor;
-    VNHubCoverController *controller = [VNHubCoverController new];
+    ShioriCoverController *controller = [ShioriCoverController new];
     window.rootViewController = controller;
     UIView *root = controller.view;
     root.backgroundColor = UIColor.blackColor;
 
-    const char *heroPath = getenv("VNHUB_COVER_HERO");
+    const char *heroPath = getenv("SHIORI_COVER_HERO");
     UIImage *hero = heroPath ? [UIImage imageWithContentsOfFile:@(heroPath)] : nil;
     if (hero) {
         UIImageView *art = [[UIImageView alloc] initWithImage:hero];
@@ -438,7 +438,7 @@ static void ShowCover(void) {
         [root addSubview:art];
     }
 
-    const char *logoPath = getenv("VNHUB_COVER_LOGO");
+    const char *logoPath = getenv("SHIORI_COVER_LOGO");
     UIImage *logo = logoPath ? [UIImage imageWithContentsOfFile:@(logoPath)] : nil;
     UIView *mark;
     if (logo) {
@@ -451,7 +451,7 @@ static void ShowCover(void) {
         mark = logoView;
     } else {
         UILabel *title = [UILabel new];
-        const char *name = getenv("VNHUB_COVER_TITLE");
+        const char *name = getenv("SHIORI_COVER_TITLE");
         title.text = name ? @(name) : @"";
         title.font = [UIFont systemFontOfSize:34 weight:UIFontWeightHeavy];
         title.textColor = UIColor.whiteColor;
@@ -574,7 +574,7 @@ static void RecordFramePerf(double interval, double swap) {
         swapSum += swaps[i];
         if (intervals[i] > 17.5) slow++;
     }
-    const char *cache = getenv("VNHUB_CACHE");
+    const char *cache = getenv("SHIORI_CACHE");
     if (cache) {
         char path[1024];
         snprintf(path, sizeof path, "%s/perf.txt", cache);
@@ -661,7 +661,7 @@ static void AttachSDLWindowsToScene(void) {
             UIWindow *window = scene
                 ? ((id (*)(id, SEL, UIWindowScene *))sceneInit)(self, @selector(initWithWindowScene:), scene)
                 : ((id (*)(id, SEL, CGRect))frameInit)(self, @selector(initWithFrame:), frame);
-            [[VNHubGestures shared] attachToWindow:window];
+            [[ShioriGestures shared] attachToWindow:window];
             gameWindow = window;
             // Once SDL has shown it, keep the hub's own window from showing through.
             dispatch_async(dispatch_get_main_queue(), ^{ HideHubWindows(); });
@@ -712,7 +712,7 @@ static void FitGameViews(void) {
     UIView *container = root.superview ?: window;
     if (root && !CGRectEqualToRect(root.frame, container.bounds)) {
 #if DEBUG
-        NSLog(@"VN Hub layout: resizing %@ from %@ to %@", NSStringFromClass(root.class),
+        NSLog(@"Shiori layout: resizing %@ from %@ to %@", NSStringFromClass(root.class),
               NSStringFromCGRect(root.frame), NSStringFromCGRect(container.bounds));
 #endif
         root.frame = container.bounds;
@@ -736,7 +736,7 @@ static void RestoreGameLayout(void) {
     }
 }
 
-int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *launcherName, const char *saveDirectory) {
+int shiori_renpy_run(const char *runtime, const char *gameFolder, const char *launcherName, const char *saveDirectory) {
     if (running) return -1;
     if (!LoadRuntime(runtime)) return -2;
     running = 1;
@@ -774,17 +774,17 @@ int vnhub_renpy_run(const char *runtime, const char *gameFolder, const char *lau
     return status;
 }
 
-int vnhub_renpy_is_running(void) { return running; }
+int shiori_renpy_is_running(void) { return running; }
 
-void vnhub_renpy_controller_button(int button, int down) {
+void shiori_renpy_controller_button(int button, int down) {
     if (running && sdl.controllerButton) sdl.controllerButton(button, down);
 }
 
-void vnhub_renpy_controller_axis(int axis, int value) {
+void shiori_renpy_controller_axis(int axis, int value) {
     if (running && sdl.controllerAxis) sdl.controllerAxis(axis, value);
 }
 
-void vnhub_renpy_restore_hub(void) {
+void shiori_renpy_restore_hub(void) {
     UIWindow *game = gameWindow;
     UIWindowScene *scene = game.windowScene ?: ActiveWindowScene();
     game.hidden = YES;
@@ -798,7 +798,7 @@ void vnhub_renpy_restore_hub(void) {
     }
 }
 
-void vnhub_renpy_will_resign_active(void) { if (running && sdl.willResignActive) sdl.willResignActive(); }
-void vnhub_renpy_did_enter_background(void) { if (running && sdl.didEnterBackground) sdl.didEnterBackground(); }
-void vnhub_renpy_will_enter_foreground(void) { if (running && sdl.willEnterForeground) sdl.willEnterForeground(); }
-void vnhub_renpy_did_become_active(void) { if (running && sdl.didBecomeActive) sdl.didBecomeActive(); }
+void shiori_renpy_will_resign_active(void) { if (running && sdl.willResignActive) sdl.willResignActive(); }
+void shiori_renpy_did_enter_background(void) { if (running && sdl.didEnterBackground) sdl.didEnterBackground(); }
+void shiori_renpy_will_enter_foreground(void) { if (running && sdl.willEnterForeground) sdl.willEnterForeground(); }
+void shiori_renpy_did_become_active(void) { if (running && sdl.didBecomeActive) sdl.didBecomeActive(); }

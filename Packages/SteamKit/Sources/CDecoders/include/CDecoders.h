@@ -6,6 +6,6 @@
 
 /// Decodes a raw LZMA stream with 5-byte `props` into `dest`.
 /// Returns the number of bytes written, or -1 on corrupt input.
-long vnhub_lzma_decode(unsigned char *dest, size_t dest_len,
+long shiori_lzma_decode(unsigned char *dest, size_t dest_len,
                        const unsigned char *src, size_t src_len,
                        const unsigned char *props);

@@ -13,7 +13,7 @@ import Foundation
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 let session = SteamSession(
-    configuration: SteamConfiguration(deviceName: "VN Hub CLI", deviceSeed: "steamkit-cli"),
+    configuration: SteamConfiguration(deviceName: "Shiori CLI", deviceSeed: "steamkit-cli"),
     store: InMemorySessionStore()
 )
 

@@ -5,7 +5,7 @@ static void *lzma_alloc(ISzAllocPtr p, size_t size) { (void)p; return malloc(siz
 static void lzma_free(ISzAllocPtr p, void *address) { (void)p; free(address); }
 static const ISzAlloc lzma_allocator = { lzma_alloc, lzma_free };
 
-long vnhub_lzma_decode(unsigned char *dest, size_t dest_len,
+long shiori_lzma_decode(unsigned char *dest, size_t dest_len,
                        const unsigned char *src, size_t src_len,
                        const unsigned char *props) {
     SizeT out_len = dest_len;

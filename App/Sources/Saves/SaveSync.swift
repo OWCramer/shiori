@@ -48,11 +48,11 @@ enum SaveSync {
     /// round differently and iCloud preserves seconds, not nanoseconds.
     static let tolerance: TimeInterval = 2
 
-    /// `<iCloud container>/Saves`, or a test folder from `-VNHubSaveSyncRoot` in debug builds.
+    /// `<iCloud container>/Saves`, or a test folder from `-ShioriSaveSyncRoot` in debug builds.
     /// Can block while iCloud sets the container up, so call it off the main thread.
     static func remoteRoot() -> URL? {
         #if DEBUG
-        if let path = UserDefaults.standard.string(forKey: "VNHubSaveSyncRoot") {
+        if let path = UserDefaults.standard.string(forKey: "ShioriSaveSyncRoot") {
             return URL(fileURLWithPath: path, isDirectory: true)
         }
         #endif
@@ -184,7 +184,7 @@ enum SaveSync {
     private static func replace(_ destination: URL, with source: URL, modified: Date) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let temporary = destination.deletingLastPathComponent().appendingPathComponent(".\(destination.lastPathComponent).vnhub-tmp")
+        let temporary = destination.deletingLastPathComponent().appendingPathComponent(".\(destination.lastPathComponent).shiori-tmp")
         try? fm.removeItem(at: temporary)
         try fm.copyItem(at: source, to: temporary)
         try fm.setAttributes([.modificationDate: modified], ofItemAtPath: temporary.path)

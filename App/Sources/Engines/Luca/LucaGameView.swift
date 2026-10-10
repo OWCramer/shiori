@@ -87,10 +87,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private var readMode = ReadMode.normal
     private var lineDoneAt: CFTimeInterval?
     #if DEBUG
-    /// `-VNHubLucaAuto N`: reads on through N lines by itself (first choice picked), and
-    /// `-VNHubLucaNewGame YES` starts a new game from the title, for unattended runs;
-    /// `-VNHubLucaAutoStopAtChoice YES` stops at the first choice instead.
-    private var autoLines = UserDefaults.standard.integer(forKey: "VNHubLucaAuto")
+    /// `-ShioriLucaAuto N`: reads on through N lines by itself (first choice picked), and
+    /// `-ShioriLucaNewGame YES` starts a new game from the title, for unattended runs;
+    /// `-ShioriLucaAutoStopAtChoice YES` stops at the first choice instead.
+    private var autoLines = UserDefaults.standard.integer(forKey: "ShioriLucaAuto")
     #endif
 
     init(gameFolder: URL, onFirstFrame: @escaping () -> Void = {}, onExit: @escaping () -> Void) {
@@ -288,7 +288,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         advanceByMode(player)
         #if DEBUG
         if autoLines > 0, player.transition == nil {
-            if player.choices != nil, UserDefaults.standard.bool(forKey: "VNHubLucaAutoStopAtChoice") {
+            if player.choices != nil, UserDefaults.standard.bool(forKey: "ShioriLucaAutoStopAtChoice") {
                 autoLines = 0
             } else if player.choices != nil {
                 player.choose(0)
@@ -972,8 +972,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         view.addSubview(title)
         titleView = title
         #if DEBUG
-        if UserDefaults.standard.bool(forKey: "VNHubLucaNewGame") {
-            UserDefaults.standard.removeObject(forKey: "VNHubLucaNewGame")
+        if UserDefaults.standard.bool(forKey: "ShioriLucaNewGame") {
+            UserDefaults.standard.removeObject(forKey: "ShioriLucaNewGame")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.start(state: nil) }
         }
         #endif

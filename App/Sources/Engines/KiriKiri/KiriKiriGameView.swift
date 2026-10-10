@@ -437,8 +437,8 @@ struct KiriKiriGameView: UIViewControllerRepresentable {
 
 #if DEBUG
 /// Debug launch options for reproducing a scene on the Mac ("Designed for iPad"):
-/// - `VNHubKiriKiriTaps`: "seconds:x,y ..." clicks in game pixels at engine times;
-/// - `VNHubKiriKiriDumpFrames`: "fromSecond-toSecond" saves every new frame in that window
+/// - `ShioriKiriKiriTaps`: "seconds:x,y ..." clicks in game pixels at engine times;
+/// - `ShioriKiriKiriDumpFrames`: "fromSecond-toSecond" saves every new frame in that window
 ///   to Caches/KiriKiri/frames as PPM, named by engine milliseconds.
 @MainActor
 private final class KiriKiriDebugAutomation {
@@ -449,11 +449,11 @@ private final class KiriKiriDebugAutomation {
 
     init() {
         let defaults = UserDefaults.standard
-        taps = (defaults.string(forKey: "VNHubKiriKiriTaps") ?? "").split(separator: " ").compactMap { item in
+        taps = (defaults.string(forKey: "ShioriKiriKiriTaps") ?? "").split(separator: " ").compactMap { item in
             let parts = item.split(whereSeparator: { $0 == ":" || $0 == "," }).compactMap { Double($0) }
             return parts.count == 3 ? (UInt64(parts[0] * 1000), parts[1], parts[2]) : nil
         }
-        let window = (defaults.string(forKey: "VNHubKiriKiriDumpFrames") ?? "").split(separator: "-").compactMap { Double($0) }
+        let window = (defaults.string(forKey: "ShioriKiriKiriDumpFrames") ?? "").split(separator: "-").compactMap { Double($0) }
         dumpWindow = window.count == 2 ? UInt64(window[0] * 1000)...UInt64(window[1] * 1000) : nil
         folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("KiriKiri/frames", isDirectory: true)

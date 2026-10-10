@@ -23,7 +23,7 @@ protocol VNEngine {
 enum EngineDetection {
     static let engines: [any VNEngine.Type] = [RenPyEngine.self]
 
-    /// Engines VN Hub can't run yet, recognised by their files so the library can say
+    /// Engines Shiori can't run yet, recognised by their files so the library can say
     /// "not playable yet: Artemis" instead of nothing. First match wins.
     struct Signature: Sendable {
         var id: String

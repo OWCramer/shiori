@@ -1,11 +1,11 @@
-# VN Hub's entry point for Ren'Py games. Ren'Py's iOS launcher runs this as main.py from a
+# Shiori's entry point for Ren'Py games. Ren'Py's iOS launcher runs this as main.py from a
 # runner folder (Library/Caches/RenPy/<game>/runner/base/, whose lib/ links to the game's
 # lib/), so it can set things up before handing over to the game's own launcher script.
 #
 # It keeps the game's base/ folder byte-identical to what Steam delivered, so verify stays
-# meaningful: Python bytecode and Ren'Py's cache/ files are written under VNHUB_CACHE.
+# meaningful: Python bytecode and Ren'Py's cache/ files are written under SHIORI_CACHE.
 #
-# It also layers the game's patch/game/ folder (VNHUB_PATCH_GAME) over base/game/: loose
+# It also layers the game's patch/game/ folder (SHIORI_PATCH_GAME) over base/game/: loose
 # files and scripts there shadow the game's own, and archives (.rpa) in either folder are
 # ordered as if they all sat in one game/ folder, as they would on PC.
 
@@ -13,10 +13,10 @@ import os
 import sys
 import runpy
 
-GAME_BASE = os.environ["VNHUB_GAME_BASE"]
-LAUNCHER = os.environ["VNHUB_LAUNCHER"]
-CACHE = os.environ["VNHUB_CACHE"]
-PATCH_GAME = os.environ.get("VNHUB_PATCH_GAME", "")
+GAME_BASE = os.environ["SHIORI_GAME_BASE"]
+LAUNCHER = os.environ["SHIORI_LAUNCHER"]
+CACHE = os.environ["SHIORI_CACHE"]
+PATCH_GAME = os.environ.get("SHIORI_PATCH_GAME", "")
 
 
 # --- Session record ------------------------------------------------------------------
@@ -213,7 +213,7 @@ def _layer_patches():
             ordered[0] = True
             names = sorted(set(renpy.config.archives), reverse=True)
             renpy.config.archives[:] = names
-            print("VN Hub: patch layer active, archives:", names)
+            print("Shiori: patch layer active, archives:", names)
         return original_index_archives()
 
     loader.index_archives = index_archives
@@ -242,7 +242,7 @@ except SystemExit as e:
 except BaseException:
     _record_exit("exception")
     # Ren'Py reports its own errors on screen; this catches anything that escapes it,
-    # for VN Hub to show after the next launch.
+    # for Shiori to show after the next launch.
     import traceback
     with open(os.path.join(CACHE, "last_error.txt"), "w") as f:
         traceback.print_exc(file=f)

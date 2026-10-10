@@ -81,7 +81,7 @@ enum DepotChunk {
         let written = output.withUnsafeMutableBytes { out in
             stream.withUnsafeBytes { input in
                 props.withUnsafeBytes { p in
-                    vnhub_lzma_decode(
+                    shiori_lzma_decode(
                         out.bindMemory(to: UInt8.self).baseAddress, size,
                         input.bindMemory(to: UInt8.self).baseAddress, stream.count,
                         p.bindMemory(to: UInt8.self).baseAddress

@@ -137,7 +137,7 @@ extension SteamSession {
 // MARK: - Uploads and the app-session handshake
 //
 // These write to the account's Steam Cloud, the same store the PC client syncs from.
-// VN Hub only calls them once uploads are switched on, and backs up each remote file
+// Shiori only calls them once uploads are switched on, and backs up each remote file
 // before replacing it.
 
 /// Another device's Steam session for an app, reported at launch.

@@ -35,11 +35,11 @@ final class SiglusGameViewController: UIViewController {
     /// button once a step, so a press and release in one step is no click).
     private var rightButtonDown = false
     #if DEBUG
-    /// `-VNHubSiglusTaps "seconds:x,y ..."`: clicks in the game's logical pixels at times since
+    /// `-ShioriSiglusTaps "seconds:x,y ..."`: clicks in the game's logical pixels at times since
     /// the engine started (`seconds:rclick` for a right-click, `seconds:wheel±n` for wheel steps),
     /// for unattended simulator runs.
     private lazy var scriptedTaps: [(at: Double, x: Double, y: Double, right: Bool, wheel: Int32)] =
-        (UserDefaults.standard.string(forKey: "VNHubSiglusTaps") ?? "").split(separator: " ").compactMap { item in
+        (UserDefaults.standard.string(forKey: "ShioriSiglusTaps") ?? "").split(separator: " ").compactMap { item in
             let parts = item.split(separator: ":")
             guard parts.count == 2, let at = Double(parts[0]) else { return nil }
             if parts[1] == "rclick" { return (at, 0, 0, true, 0) }

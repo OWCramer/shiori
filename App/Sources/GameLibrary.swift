@@ -49,7 +49,7 @@ final class GameLibrary {
     /// The game downloading now, and the ones waiting behind it.
     private(set) var activeDownload: UInt32?
     private(set) var queue: [UInt32] = []
-    /// Keeps the active download running while VN Hub is in the background.
+    /// Keeps the active download running while Shiori is in the background.
     private var backgroundTask: BGContinuedProcessingTask?
     private static let backgroundTaskPrefix = "com.owencramer.vnhub.download"
     /// Downloads paused because the app went to the background, to restart on return.
@@ -395,7 +395,7 @@ final class GameLibrary {
         await syncSaves(appID: appID, direction: .both)
     }
 
-    /// For the moment a game quits, just before VN Hub exits: upload to Steam Cloud and
+    /// For the moment a game quits, just before Shiori exits: upload to Steam Cloud and
     /// tell Steam the session is over, waiting up to `timeout` for it.
     private func finishSteamCloudSession(appID: UInt32) async {
         guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID],
@@ -478,7 +478,7 @@ final class GameLibrary {
     }
 
     /// Synchronous push for the running game, when there's no time for a task: the app
-    /// going to the background, or the game quitting just before VN Hub exits.
+    /// going to the background, or the game quitting just before Shiori exits.
     /// Set once a game has ended, while its saves go up before the app closes.
     private(set) var endingSession: UInt32?
 
@@ -487,7 +487,7 @@ final class GameLibrary {
     private func gameEnded(appID: UInt32, status: Int32) {
         launching = nil
         endingSession = appID
-        vnhub_renpy_restore_hub()
+        shiori_renpy_restore_hub()
         let background = UIApplication.shared.beginBackgroundTask(withName: "Save sync after game")
         Task {
             await withTaskGroup(of: Void.self) { group in
@@ -658,10 +658,10 @@ final class GameLibrary {
             await syncSaves(appID: appID, direction: .pull)
             launching = (appID, .starting)
             let (heroFile, logoFile) = await cover
-            for (name, file) in [("VNHUB_COVER_HERO", heroFile), ("VNHUB_COVER_LOGO", logoFile)] {
+            for (name, file) in [("SHIORI_COVER_HERO", heroFile), ("SHIORI_COVER_LOGO", logoFile)] {
                 if let file { setenv(name, file.path, 1) } else { unsetenv(name) }
             }
-            setenv("VNHUB_COVER_TITLE", record.name, 1)
+            setenv("SHIORI_COVER_TITLE", record.name, 1)
             log.notice("Launching \(appID) with Ren'Py \(engine.version ?? "?", privacy: .public)")
             // Start from a run-loop block, not the main dispatch queue: the game runs inside
             // this call for as long as it plays, and SDL's nested run loop can only drain the

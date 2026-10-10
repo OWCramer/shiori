@@ -7,7 +7,7 @@ import SteamKit
 ///
 /// Which cloud files are saves comes from the app's PICS `ufs` rules. For Ren'Py the PC
 /// build keeps saves in `game/saves` (and mirrors them to `%APPDATA%/RenPy/<game>`), and
-/// VN Hub runs the game with `--savedir <game>/saves`, so both map onto `saves/`. KiriKiri PC
+/// Shiori runs the game with `--savedir <game>/saves`, so both map onto `saves/`. KiriKiri PC
 /// builds keep saves in `savedata/` beside the exe, which Shiori points at `saves/`
 /// (AETHERKIRI_DATA_PATH).
 enum SteamCloudSync {
@@ -19,7 +19,7 @@ enum SteamCloudSync {
         var newerLocally: [String] = []
         /// Local copies replaced by newer cloud ones, kept in `saves/conflicts`.
         var backedUp: [String] = []
-        /// Cloud files outside the save rules VN Hub knows how to place.
+        /// Cloud files outside the save rules Shiori knows how to place.
         var unmapped: [String] = []
 
         var summary: String {
@@ -115,7 +115,7 @@ enum SteamCloudSync {
         }
     }
 
-    /// Where remote copies are saved before VN Hub replaces them.
+    /// Where remote copies are saved before Shiori replaces them.
     static func backupsDirectory(appID: UInt32) -> URL {
         URL.applicationSupportDirectory.appendingPathComponent("SteamCloudBackups/\(appID)", isDirectory: true)
     }

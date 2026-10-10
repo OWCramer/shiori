@@ -110,8 +110,8 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             }
             self.player = player
             #if DEBUG
-            // `-VNHubArtemisTrace YES` logs every wait the script stops at.
-            player.traceWaits = UserDefaults.standard.bool(forKey: "VNHubArtemisTrace")
+            // `-ShioriArtemisTrace YES` logs every wait the script stops at.
+            player.traceWaits = UserDefaults.standard.bool(forKey: "ShioriArtemisTrace")
             #endif
             // The game's master volumes (0...1000), followed live (config sliders).
             audio.masterVolume = { @MainActor [weak player] id in
@@ -140,8 +140,8 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
         startTime = CACurrentMediaTime()
         #if DEBUG
-        // `-VNHubArtemisTaps "25:1135,151;30:640,300"`: taps at stage points, seconds from start.
-        for step in (UserDefaults.standard.string(forKey: "VNHubArtemisTaps") ?? "").split(separator: ";") {
+        // `-ShioriArtemisTaps "25:1135,151;30:640,300"`: taps at stage points, seconds from start.
+        for step in (UserDefaults.standard.string(forKey: "ShioriArtemisTaps") ?? "").split(separator: ";") {
             let parts = step.split(separator: ":")
             if parts.count == 2, parts[1] == "B", let delay = Double(parts[0]) {
                 let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
@@ -305,6 +305,25 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
     }
 
+    /// Images cut to a clip that reaches past them, transparent beyond the picture.
+    private var paddedImages: [String: CGImage] = [:]
+
+    private func paddedImage(_ image: CGImage, clip: CGRect) -> CGImage? {
+        let key = "\(ObjectIdentifier(image))|\(clip)"
+        if let cached = paddedImages[key] { return cached }
+        let width = max(1, Int(clip.width.rounded())), height = max(1, Int(clip.height.rounded()))
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        // Core Graphics is bottom-left: the clip's top-left corner sits at the canvas's top.
+        context.draw(image, in: CGRect(x: -clip.minX, y: clip.maxY - CGFloat(image.height),
+                                       width: CGFloat(image.width), height: CGFloat(image.height)))
+        guard let result = context.makeImage() else { return nil }
+        if paddedImages.count > 64 { paddedImages.removeAll() }
+        paddedImages[key] = result
+        return result
+    }
+
     /// Mirrors `node`'s children into `parent`'s sublayers (message text stays on top).
     private func sync(_ node: ArtemisLayer, into parent: CALayer, full: Bool) {
         var keep: [CALayer] = []
@@ -316,13 +335,22 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 return layer
             }()
             apply(child, to: caLayer)
-            if let image = child.displayImage {
+            if var image = child.displayImage {
+                // A clip reaching past the image (NUKITASHI's CONFIG button: a 190 px picture
+                // with a 301 px clip) shows nothing there, as the engine does; contentsRect
+                // would stretch the edge pixels instead, so that part is drawn into its own image.
+                var clip = child.clip
+                if let area = clip, image.width > 0, image.height > 0,
+                   !CGRect(x: 0, y: 0, width: image.width, height: image.height).contains(area.integral) {
+                    image = paddedImage(image, clip: area) ?? image
+                    clip = nil
+                }
                 if images[child.id] != ObjectIdentifier(image) {
                     caLayer.contents = image
                     images[child.id] = ObjectIdentifier(image)
                 }
                 // clip: the shown part of the image, in unit coordinates.
-                if let clip = child.clip, image.width > 0, image.height > 0 {
+                if let clip, image.width > 0, image.height > 0 {
                     caLayer.contentsRect = CGRect(x: clip.minX / Double(image.width), y: clip.minY / Double(image.height),
                                                   width: clip.width / Double(image.width), height: clip.height / Double(image.height))
                 } else {

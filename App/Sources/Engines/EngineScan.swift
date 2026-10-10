@@ -23,7 +23,7 @@ struct BranchScan: Codable, Equatable, Sendable {
     var installSize: UInt64
 }
 
-/// Whether VN Hub can play a game, as far as its engine goes.
+/// Whether Shiori can play a game, as far as its engine goes.
 enum Playability: Equatable {
     case playable
     /// Ren'Py, but a version this build's runtime can't run.

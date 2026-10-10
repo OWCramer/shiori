@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds VN Hub's Ren'Py runtimes as dynamic frameworks, from Ren'Py's prebuilt iOS
+# Builds Shiori's Ren'Py runtimes as dynamic frameworks, from Ren'Py's prebuilt iOS
 # static libraries (renios):
 #
 #   Vendor/RenPy8.xcframework  Ren'Py 8.1.3, CPython 3.9  (Highway Blossoms' version)
@@ -8,7 +8,7 @@
 #                               with the app because Ren'Py 7 games run on it
 #
 # Both runtimes contain CPython, SDL2 and ffmpeg with the same symbol names, so they
-# can't be linked into one executable. Each becomes its own framework, and VN Hub loads
+# can't be linked into one executable. Each becomes its own framework, and Shiori loads
 # only the one a game needs (one game per process). Vendor/ is gitignored. Safe to re-run.
 set -eu
 cd "$(dirname "$0")/.."
@@ -43,7 +43,8 @@ fi
 MGL=Vendor/renios/MetalANGLE.xcframework
 SYSTEM_FRAMEWORKS="UIKit Foundation AVFoundation AVKit AudioToolbox CoreAudio CoreGraphics CoreMotion CoreServices
   CoreHaptics CoreMedia CoreVideo GameController ImageIO Metal OpenGLES QuartzCore Security StoreKit VideoToolbox MobileCoreServices"
-# Symbols VN Hub looks up with dlsym; listed so the linker keeps them.
+# Symbols Shiori looks up with dlsym; listed so the linker keeps them. They keep the
+# vnhub_ prefix of the frameworks already built (Vendor/RenPy*.xcframework).
 EXPORTS="launcher_main SDL_SetMainReady SDL_OnApplicationWillResignActive SDL_OnApplicationDidEnterBackground
   SDL_OnApplicationWillEnterForeground SDL_OnApplicationDidBecomeActive SDL_GL_GetCurrentWindow
   vnhub_sdl_send_key vnhub_sdl_send_mouse_motion vnhub_sdl_send_mouse_button vnhub_sdl_watch_input vnhub_sdl_has_keyboard_focus vnhub_sdl_controller_button vnhub_sdl_controller_axis"

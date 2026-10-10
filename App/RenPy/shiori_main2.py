@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
-# VN Hub's entry point for Ren'Py 6.99 / 7.x games (Python 2). Ren'Py's iOS launcher runs
+# Shiori's entry point for Ren'Py 6.99 / 7.x games (Python 2). Ren'Py's iOS launcher runs
 # this as main.py from a runner folder (Library/Caches/RenPy/<game>/runner/base/) whose
-# lib/, renpy/ and renpy.py link to Ren'Py 7.8.7 bundled with VN Hub. The game's own
+# lib/, renpy/ and renpy.py link to Ren'Py 7.8.7 bundled with Shiori. The game's own
 # game/ folder is used as is; its bundled renpy/ is not, since older 7.x engine code can't
 # run on 7.8.7's compiled modules (Ren'Py 7.8 runs games made with older 7.x and 6.99).
 #
-# Like vnhub_main.py for Ren'Py 8, it keeps the game's base/ folder byte-identical to what
-# Steam delivered (caches and logs go to VNHUB_CACHE) and layers patch/game over game/.
+# Like shiori_main.py for Ren'Py 8, it keeps the game's base/ folder byte-identical to what
+# Steam delivered (caches and logs go to SHIORI_CACHE) and layers patch/game over game/.
 from __future__ import print_function
 
 import os
 import sys
 
-GAME_BASE = os.environ["VNHUB_GAME_BASE"]
-CACHE = os.environ["VNHUB_CACHE"]
-PATCH_GAME = os.environ.get("VNHUB_PATCH_GAME", "")
+GAME_BASE = os.environ["SHIORI_GAME_BASE"]
+CACHE = os.environ["SHIORI_CACHE"]
+PATCH_GAME = os.environ.get("SHIORI_PATCH_GAME", "")
 
 
 # --- Session record ------------------------------------------------------------------
@@ -139,7 +139,7 @@ def _stub_steam_api():
     class CDLL(real_cdll):
         def __new__(cls, name, *args, **kwargs):
             if name and "steam_api" in os.path.basename(str(name)).lower():
-                print("VN Hub: stand-in for", name)
+                print("Shiori: stand-in for", name)
                 return SteamStub(name)
             return real_cdll.__new__(cls)
 
@@ -283,7 +283,7 @@ def _patch_renpy():
         import ctypes
         import renpy.gl2.gl2texture as gl2texture
 
-        runtime = ctypes.CDLL(os.environ["VNHUB_RUNTIME_LIBRARY"])
+        runtime = ctypes.CDLL(os.environ["SHIORI_RUNTIME_LIBRARY"])
         get_proc = runtime.SDL_GL_GetProcAddress
         get_proc.restype = ctypes.c_void_p
         get_proc.argtypes = [ctypes.c_char_p]
@@ -375,7 +375,7 @@ def _patch_renpy():
                 ordered[0] = True
                 names = sorted(set(renpy.config.archives), reverse=True)
                 renpy.config.archives[:] = names
-                print("VN Hub: patch layer active, archives:", names)
+                print("Shiori: patch layer active, archives:", names)
             return original_index_archives()
 
         loader.index_archives = index_archives

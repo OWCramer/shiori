@@ -85,8 +85,8 @@ struct GameDetailView: View {
             reloadPatches()
             phoneLayout = RenPyEngine.usesPhoneLayout(appID: appID)
             #if DEBUG
-            // `-VNHubBrowseArchives YES` (with -VNHubOpenGame) opens the archive browser.
-            if UserDefaults.standard.bool(forKey: "VNHubBrowseArchives") { browsingArchives = true }
+            // `-ShioriBrowseArchives YES` (with -ShioriOpenGame) opens the archive browser.
+            if UserDefaults.standard.bool(forKey: "ShioriBrowseArchives") { browsingArchives = true }
             #endif
         }
         .task(id: steam.isLoggedOn) {

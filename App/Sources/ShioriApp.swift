@@ -2,7 +2,7 @@ import Kingfisher
 import SwiftUI
 
 @main
-struct VNHubApp: App {
+struct ShioriApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var steam: SteamModel
     @State private var games: GameLibrary
@@ -55,14 +55,14 @@ struct VNHubApp: App {
         .onChange(of: scenePhase) { old, phase in
             switch phase {
             case .background:
-                vnhub_renpy_did_enter_background()
-                if vnhub_renpy_is_running() != 0 { games.pushRunningGameSaves() }
+                shiori_renpy_did_enter_background()
+                if shiori_renpy_is_running() != 0 { games.pushRunningGameSaves() }
                 games.didEnterBackground()
             case .inactive where old == .active:
-                vnhub_renpy_will_resign_active()
+                shiori_renpy_will_resign_active()
             case .active:
-                if old == .background { vnhub_renpy_will_enter_foreground() }
-                vnhub_renpy_did_become_active()
+                if old == .background { shiori_renpy_will_enter_foreground() }
+                shiori_renpy_did_become_active()
                 games.willEnterForeground()
             default: break
             }
@@ -157,37 +157,37 @@ struct SessionEndingView: View {
 }
 
 #if DEBUG
-/// Simulator test hooks, driven by launch arguments (`simctl launch … -VNHubAutoDownload 451760`).
-/// `-VNHubAutoDownload <appid>` starts or resumes that download once the library loads;
-/// `-VNHubAutoVerify <appid>` verifies an installed game; `-VNHubAutoPlay <appid>` starts it.
+/// Simulator test hooks, driven by launch arguments (`simctl launch … -ShioriAutoDownload 451760`).
+/// `-ShioriAutoDownload <appid>` starts or resumes that download once the library loads;
+/// `-ShioriAutoVerify <appid>` verifies an installed game; `-ShioriAutoPlay <appid>` starts it.
 @MainActor
 enum DebugAutomation {
     private static var done: Set<String> = []
 
     static func run(steam: SteamModel, games: GameLibrary) {
         let defaults = UserDefaults.standard
-        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoDownload")), appID != 0, steam.isLoggedOn,
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriAutoDownload")), appID != 0, steam.isLoggedOn,
            !done.contains("download"), let app = steam.library.first(where: { $0.appID == appID })
         {
             done.insert("download")
             games.download(app)
         }
-        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoPlay")), appID != 0, !done.contains("play") {
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriAutoPlay")), appID != 0, !done.contains("play") {
             done.insert("play")
-            // `-VNHubInput "<s>:<x>,<y>;<s>:esc;…"` replays taps and keys into the game.
-            if let input = defaults.string(forKey: "VNHubInput") { setenv("VNHUB_INPUT", input, 1) }
+            // `-ShioriInput "<s>:<x>,<y>;<s>:esc;…"` replays taps and keys into the game.
+            if let input = defaults.string(forKey: "ShioriInput") { setenv("SHIORI_INPUT", input, 1) }
             games.play(appID: appID)
         }
-        // `-VNHubKiriKiriGame <folder in Documents>` opens a KiriKiri game folder (one holding
+        // `-ShioriKiriKiriGame <folder in Documents>` opens a KiriKiri game folder (one holding
         // base/) without Steam: for running the engine on a Mac (Designed for iPad).
-        if let name = defaults.string(forKey: "VNHubKiriKiriGame"), !done.contains("kirikiri") {
+        if let name = defaults.string(forKey: "ShioriKiriKiriGame"), !done.contains("kirikiri") {
             done.insert("kirikiri")
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             games.kirikiriSession = .init(appID: 0, folder: documents.appendingPathComponent(name, isDirectory: true))
         }
-        // `-VNHubImportPatch <file in tmp/> -VNHubPatchGame <appid>` imports a patch.
-        if let name = defaults.string(forKey: "VNHubImportPatch"), !done.contains("import"),
-           let appID = UInt32(exactly: defaults.integer(forKey: "VNHubPatchGame")), appID != 0,
+        // `-ShioriImportPatch <file in tmp/> -ShioriPatchGame <appid>` imports a patch.
+        if let name = defaults.string(forKey: "ShioriImportPatch"), !done.contains("import"),
+           let appID = UInt32(exactly: defaults.integer(forKey: "ShioriPatchGame")), appID != 0,
            let gameName = steam.library.first(where: { $0.appID == appID })?.name
         {
             done.insert("import")
@@ -204,64 +204,64 @@ enum DebugAutomation {
                         let fraction = total > 0 ? Double(written) / Double(total) : 0
                         guard fraction - shown >= 0.05 || fraction >= 1 else { return }
                         shown = fraction
-                        NSLog("VN Hub: importing %@: %.0f%% (%@)", name, fraction * 100, file)
+                        NSLog("Shiori: importing %@: %.0f%% (%@)", name, fraction * 100, file)
                     }
-                    NSLog("VN Hub: imported %d patch files from %@", count, name)
+                    NSLog("Shiori: imported %d patch files from %@", count, name)
                 } catch {
-                    NSLog("VN Hub: patch import failed: %@", String(describing: error))
+                    NSLog("Shiori: patch import failed: %@", String(describing: error))
                 }
             }
         }
-        // `-VNHubSteamCloudPull <appid>` pulls that game's Steam Cloud saves once signed in.
-        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubSteamCloudPull")), appID != 0,
+        // `-ShioriSteamCloudPull <appid>` pulls that game's Steam Cloud saves once signed in.
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriSteamCloudPull")), appID != 0,
            steam.isLoggedOn, !done.contains("cloud")
         {
             done.insert("cloud")
             Task { await games.pullSteamCloud(appID: appID) }
         }
-        // `-VNHubPreviewFiles <appid>` writes the game's depot file list (from manifests only,
+        // `-ShioriPreviewFiles <appid>` writes the game's depot file list (from manifests only,
         // nothing downloaded) to tmp/preview-<appid>.txt.
-        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubPreviewFiles")), appID != 0,
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriPreviewFiles")), appID != 0,
            steam.isLoggedOn, !done.contains("preview")
         {
             done.insert("preview")
             Task {
                 do {
-                    // `-VNHubPreviewBranch <name>` reads a beta branch instead of the default.
-                    let preview = try await steam.session.preview(appID: appID, branch: defaults.string(forKey: "VNHubPreviewBranch") ?? "public")
+                    // `-ShioriPreviewBranch <name>` reads a beta branch instead of the default.
+                    let preview = try await steam.session.preview(appID: appID, branch: defaults.string(forKey: "ShioriPreviewBranch") ?? "public")
                     let url = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(appID).txt")
                     try preview.paths.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
-                    NSLog("VN Hub preview: %d paths for %u at %@", preview.paths.count, appID, url.path)
-                    // `-VNHubPreviewFetch <path>` also fetches one small file (≤ 40 MB).
-                    if let path = defaults.string(forKey: "VNHubPreviewFetch"),
+                    NSLog("Shiori preview: %d paths for %u at %@", preview.paths.count, appID, url.path)
+                    // `-ShioriPreviewFetch <path>` also fetches one small file (≤ 40 MB).
+                    if let path = defaults.string(forKey: "ShioriPreviewFetch"),
                        let data = try await preview.contents(of: path, maxSize: 40 << 20)
                     {
                         let file = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(appID)-" + (path as NSString).lastPathComponent)
                         try data.write(to: file)
-                        NSLog("VN Hub preview: fetched %@ (%d bytes)", path, data.count)
+                        NSLog("Shiori preview: fetched %@ (%d bytes)", path, data.count)
                     }
                 } catch {
-                    NSLog("VN Hub preview failed: %@", String(describing: error))
+                    NSLog("Shiori preview failed: %@", String(describing: error))
                 }
             }
         }
-        // `-VNHubSteamCloudList <appid>,<appid>…` logs those games' Steam Cloud file names (read only).
-        if let list = defaults.string(forKey: "VNHubSteamCloudList"), steam.isLoggedOn, !done.contains("cloudlist") {
+        // `-ShioriSteamCloudList <appid>,<appid>…` logs those games' Steam Cloud file names (read only).
+        if let list = defaults.string(forKey: "ShioriSteamCloudList"), steam.isLoggedOn, !done.contains("cloudlist") {
             done.insert("cloudlist")
             Task {
                 for appID in list.split(separator: ",").compactMap({ UInt32($0) }) {
                     do {
                         let (_, files) = try await steam.session.cloudFiles(appID: appID)
                         let names = files.filter { !$0.isDeleted }.map { "\($0.path) (\($0.size))" }
-                        NSLog("VN Hub cloud list %u: %d files: %@", appID, names.count, names.joined(separator: " | "))
+                        NSLog("Shiori cloud list %u: %d files: %@", appID, names.count, names.joined(separator: " | "))
                     } catch {
-                        NSLog("VN Hub cloud list %u failed: %@", appID, String(describing: error))
+                        NSLog("Shiori cloud list %u failed: %@", appID, String(describing: error))
                     }
                 }
             }
         }
-        // `-VNHubSteamCloudDryRun <appid>` logs what an upload would send, without writing.
-        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubSteamCloudDryRun")), appID != 0,
+        // `-ShioriSteamCloudDryRun <appid>` logs what an upload would send, without writing.
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriSteamCloudDryRun")), appID != 0,
            steam.isLoggedOn, !done.contains("dryrun"), let game = steam.library.first(where: { $0.appID == appID })
         {
             done.insert("dryrun")
@@ -269,14 +269,14 @@ enum DebugAutomation {
             Task {
                 do {
                     let result = try await SteamCloudSync.push(session: steam.session, appID: appID, saves: saves, dryRun: true)
-                    NSLog("VN Hub dry run: would upload %@; would back up remote copies of %@",
+                    NSLog("Shiori dry run: would upload %@; would back up remote copies of %@",
                           result.uploaded.joined(separator: ", "), result.failed.joined(separator: ", "))
                 } catch {
-                    NSLog("VN Hub dry run failed: %@", String(describing: error))
+                    NSLog("Shiori dry run failed: %@", String(describing: error))
                 }
             }
         }
-        if let appID = UInt32(exactly: defaults.integer(forKey: "VNHubAutoVerify")), appID != 0, !done.contains("verify") {
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriAutoVerify")), appID != 0, !done.contains("verify") {
             done.insert("verify")
             games.verify(appID: appID)
         }

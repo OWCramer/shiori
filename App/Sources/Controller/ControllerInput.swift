@@ -22,10 +22,10 @@ final class ControllerInput {
     private(set) var isConnected = false
     /// Product name of the active controller, for display.
     private(set) var controllerName: String?
-    /// Forced on with `-VNHubControllerMode` (debug) so the launcher can be tested without hardware.
+    /// Forced on with `-ShioriControllerMode` (debug) so the launcher can be tested without hardware.
     private(set) var isForced = false
 
-    /// `-VNHubControllerMode NO` (debug) ignores controllers, e.g. the simulator's virtual one.
+    /// `-ShioriControllerMode NO` (debug) ignores controllers, e.g. the simulator's virtual one.
     private(set) var isSuppressed = false
 
     var isActive: Bool { isForced || (isConnected && !isSuppressed) }
@@ -53,10 +53,10 @@ final class ControllerInput {
 
     init() {
         #if DEBUG
-        isForced = UserDefaults.standard.bool(forKey: "VNHubControllerMode")
-        isSuppressed = UserDefaults.standard.object(forKey: "VNHubControllerMode") != nil && !isForced
-        // `-VNHubPadInput "3:right;4:a"` replays pad presses (seconds from launch).
-        for step in (UserDefaults.standard.string(forKey: "VNHubPadInput") ?? "").split(separator: ";") {
+        isForced = UserDefaults.standard.bool(forKey: "ShioriControllerMode")
+        isSuppressed = UserDefaults.standard.object(forKey: "ShioriControllerMode") != nil && !isForced
+        // `-ShioriPadInput "3:right;4:a"` replays pad presses (seconds from launch).
+        for step in (UserDefaults.standard.string(forKey: "ShioriPadInput") ?? "").split(separator: ";") {
             let parts = step.split(separator: ":")
             guard parts.count == 2, let delay = Double(parts[0]), let action = PadAction(rawValue: String(parts[1])) else { continue }
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -114,7 +114,7 @@ final class ControllerInput {
 
     private func poll() {
         guard let pad = controller?.extendedGamepad else { return }
-        if vnhub_renpy_is_running() != 0 {
+        if shiori_renpy_is_running() != 0 {
             forwardToGame(pad)
             return
         }
@@ -175,7 +175,7 @@ final class ControllerInput {
         ]
         for (button, down) in buttons where gameButtons[button, default: false] != down {
             gameButtons[button] = down
-            vnhub_renpy_controller_button(Int32(button), down ? 1 : 0)
+            shiori_renpy_controller_button(Int32(button), down ? 1 : 0)
         }
         func stick(_ value: Float) -> Int { Int((max(-1, min(1, value)) * 32767).rounded()) }
         // SDL's Y axes point down; GameController's point up. Triggers run 0...32767.
@@ -186,7 +186,7 @@ final class ControllerInput {
         ]
         for (axis, value) in axes where abs(gameAxes[axis, default: 0] - value) > 512 || (value == 0 && gameAxes[axis, default: 0] != 0) {
             gameAxes[axis] = value
-            vnhub_renpy_controller_axis(Int32(axis), Int32(value))
+            shiori_renpy_controller_axis(Int32(axis), Int32(value))
         }
     }
 

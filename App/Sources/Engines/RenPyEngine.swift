@@ -102,7 +102,7 @@ enum RenPyEngine: VNEngine {
 
 // MARK: - Runtime
 
-/// A Ren'Py runtime VN Hub ships (Scripts/build-renpy-runtimes.sh): one per Python.
+/// A Ren'Py runtime Shiori ships (Scripts/build-renpy-runtimes.sh): one per Python.
 struct RenPyRuntime: Equatable, Sendable {
     /// Framework name in the app bundle.
     let framework: String
@@ -157,7 +157,7 @@ extension RenPyEngine {
             return "This game uses Ren'Py \(version), which Shiori can't run."
         }
         // Ren'Py 7.8 loads compiled scripts back to the 6.1x generation, given the default
-        // vnhub_main2.py adds for the Translate statement's `alternate` slot (6.17 and 6.18
+        // shiori_main2.py adds for the Translate statement's `alternate` slot (6.17 and 6.18
         // games play: WORLD END ECONOMiCA episode.01's renpy_old beta, Sakura Swim Club).
         // Older formats aren't known to work.
         if major == 6, let minor = version.split(separator: ".").dropFirst().first.flatMap({ Int($0) }), minor < 10 {
@@ -181,10 +181,10 @@ extension RenPyEngine {
     /// can't be restarted cleanly in-process, so the app closes after the game (GameLibrary
     /// syncs saves first); playing again means reopening Shiori.
     ///
-    /// Ren'Py's launcher is pointed at a runner folder whose `base/main.py` is VN Hub's
+    /// Ren'Py's launcher is pointed at a runner folder whose `base/main.py` is Shiori's
     /// bootstrap and whose `base/lib` is the Python library: the game's own for Ren'Py 8
-    /// (`vnhub_main.py`, which then runs the game's launcher), VN Hub's Ren'Py 7.8.7 for
-    /// older games (`vnhub_main2.py`, which runs 7.8.7's `renpy.py` on the game's folder).
+    /// (`shiori_main.py`, which then runs the game's launcher), Shiori's Ren'Py 7.8.7 for
+    /// older games (`shiori_main2.py`, which runs 7.8.7's `renpy.py` on the game's folder).
     /// Either way the bootstrap keeps caches out of the game's `base/`.
     @MainActor
     static func launch(appID: UInt32, gameFolder: URL, match: EngineMatch, saves: URL, cache: URL) -> Int32 {
@@ -193,9 +193,9 @@ extension RenPyEngine {
         if let runtime = runtime(for: match) {
             do {
                 let runner = try prepareRunner(runtime, cache: cache, gameBase: base)
-                setenv("VNHUB_GAME_BASE", base.path, 1)
-                setenv("VNHUB_LAUNCHER", match.details["launcher"] ?? "main.py", 1)
-                setenv("VNHUB_CACHE", cache.path, 1)
+                setenv("SHIORI_GAME_BASE", base.path, 1)
+                setenv("SHIORI_LAUNCHER", match.details["launcher"] ?? "main.py", 1)
+                setenv("SHIORI_CACHE", cache.path, 1)
                 if usesPhoneLayout(appID: appID) {
                     unsetenv("RENPY_VARIANT")
                 } else {
@@ -205,14 +205,14 @@ extension RenPyEngine {
                 // SDL drops controller input whenever it thinks no window has keyboard focus,
                 // which its iOS backend doesn't always record for our scene-attached window.
                 setenv("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1", 1)
-                setenv("VNHUB_PATCH_GAME", gameFolder.appendingPathComponent("patch/game", isDirectory: true).path, 1)
-                NSLog("VN Hub: running Ren'Py %@ game on %@", match.version ?? "?", runtime.framework)
-                status = vnhub_renpy_run(runtime.framework, runner.path, "main", saves.path)
+                setenv("SHIORI_PATCH_GAME", gameFolder.appendingPathComponent("patch/game", isDirectory: true).path, 1)
+                NSLog("Shiori: running Ren'Py %@ game on %@", match.version ?? "?", runtime.framework)
+                status = shiori_renpy_run(runtime.framework, runner.path, "main", saves.path)
             } catch {
-                NSLog("VN Hub: couldn't prepare the Ren'Py runner: %@", String(describing: error))
+                NSLog("Shiori: couldn't prepare the Ren'Py runner: %@", String(describing: error))
             }
         }
-        NSLog("VN Hub: Ren'Py exited with status %d", status)
+        NSLog("Shiori: Ren'Py exited with status %d", status)
         // A game quitting closes the app (v1), which can look like a crash; keep a note of
         // how the last session ended, with Ren'Py's own error if there was one.
         let note: [String: Any] = [
@@ -236,10 +236,10 @@ extension RenPyEngine {
         try fm.createDirectory(at: runnerBase, withIntermediateDirectories: true)
         let bootstrapName: String
         if runtime.usesGameEngine {
-            bootstrapName = "vnhub_main"
+            bootstrapName = "shiori_main"
             try fm.createSymbolicLink(at: runnerBase.appendingPathComponent("lib"), withDestinationURL: gameBase.appendingPathComponent("lib"))
         } else {
-            bootstrapName = "vnhub_main2"
+            bootstrapName = "shiori_main2"
             guard let engine = Bundle.main.url(forResource: "RenPy7Base", withExtension: nil) else {
                 throw CocoaError(.fileNoSuchFile)
             }
