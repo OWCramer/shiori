@@ -84,6 +84,25 @@ public struct DepotInstall: Sendable {
         return components.reduce(root) { $0.appendingPathComponent(String($1)) }
     }
 
+    /// How many of a finished install's files are missing or the wrong size, by stat alone
+    /// (no hashing), so a check is cheap enough to run at every launch. Nil when there's no
+    /// finished install with its manifests to compare against. Downloading again re-fetches
+    /// exactly those files.
+    public func missingFileCount() -> Int? {
+        guard let depots = installedDepots else { return nil }
+        let fm = FileManager.default
+        var missing = 0
+        for depot in depots {
+            guard let manifest = loadManifest(depot) else { return nil }
+            for file in manifest.files where !file.isDirectory && !file.isSymlink {
+                guard let url = try? fileURL(for: file.name) else { continue }
+                let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value
+                if size != file.size { missing += 1 }
+            }
+        }
+        return missing
+    }
+
     /// Deletes the bookkeeping (not the game files).
     public func removeState() throws {
         if FileManager.default.fileExists(atPath: stateDirectory.path) {

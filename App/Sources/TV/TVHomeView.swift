@@ -345,6 +345,9 @@ enum TVGameText {
     }
 
     static func statusLine(_ game: LibraryGame, games: GameLibrary) -> String {
+        if games.restoring.contains(game.appID), case let .downloading(progress) = games.status(for: game.appID) {
+            return "Restoring files tvOS cleared · \(progress.fraction.formatted(.percent.precision(.fractionLength(0))))"
+        }
         switch games.status(for: game.appID) {
         case let .installed(record):
             if let phase = games.launchPhase(for: game.appID) { return phase.label }

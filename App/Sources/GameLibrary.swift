@@ -143,9 +143,16 @@ final class GameLibrary {
                 try? Self.encoder.encode(record).write(to: url, options: .atomic)
             }
             statuses[record.appID] = .installed(record)
+            #if os(tvOS)
+            Self.remember(appID: record.appID, name: record.name)
+            #endif
         }
         for name in (try? fm.contentsOfDirectory(atPath: Self.installsDirectory.path)) ?? [] {
             guard let appID = UInt32(name), statuses[appID] == nil else { continue }
+            #if os(tvOS)
+            // A finished game that lost game.json to tvOS: restoreClearedGames() brings it back.
+            if (UserDefaults.standard.dictionary(forKey: Self.installedKey) as? [String: String])?[name] != nil { continue }
+            #endif
             statuses[appID] = .paused(nil)
         }
     }
@@ -211,6 +218,10 @@ final class GameLibrary {
                 let record = try await Self.finish(appID: appID, name: name, folder: folder, install: install, depots: depots,
                                                    branch: branch == "public" ? nil : branch)
                 statuses[appID] = .installed(record)
+                #if os(tvOS)
+                Self.remember(appID: appID, name: name)
+                restoring.remove(appID)
+                #endif
                 log.notice("Installed \(appID): engine \(record.engine?.engine ?? "none", privacy: .public) \(record.engine?.version ?? "?", privacy: .public), \(record.sizeBytes) bytes")
             } catch is CancellationError {
                 statuses[appID] = .paused(lastProgress(appID))
@@ -741,6 +752,70 @@ final class GameLibrary {
         return await (heroFile, logoFile)
     }
 
+    #if os(tvOS)
+    // MARK: - Games tvOS cleared
+
+    /// Installed games by app id, in UserDefaults, which tvOS keeps: everything else Shiori
+    /// writes on Apple TV is in Caches, which tvOS may clear (game.json and the install
+    /// bookkeeping included), so this is how Shiori knows what it had.
+    private static let installedKey = "tvInstalledGames"
+
+    private static func remember(appID: UInt32, name: String) {
+        var games = UserDefaults.standard.dictionary(forKey: installedKey) as? [String: String] ?? [:]
+        guard games[String(appID)] != name else { return }
+        games[String(appID)] = name
+        UserDefaults.standard.set(games, forKey: installedKey)
+    }
+
+    private static func forget(appID: UInt32) {
+        var games = UserDefaults.standard.dictionary(forKey: installedKey) as? [String: String] ?? [:]
+        guard games.removeValue(forKey: String(appID)) != nil else { return }
+        UserDefaults.standard.set(games, forKey: installedKey)
+    }
+
+    /// Games being downloaded again because tvOS cleared some or all of their files.
+    private(set) var restoring: Set<UInt32> = []
+    private var checkingCleared = false
+
+    /// Finds installed games that lost files to tvOS and downloads what's missing (only
+    /// those files: the depot writer re-fetches a file that's absent or the wrong size).
+    /// A game whose folder went entirely is downloaded again from scratch. Needs Steam, so
+    /// it runs once signed in, and again when the app comes back to the foreground.
+    func restoreClearedGames() {
+        guard !checkingCleared else { return }
+        checkingCleared = true
+        let remembered = UserDefaults.standard.dictionary(forKey: Self.installedKey) as? [String: String] ?? [:]
+        var installedChecks: [(UInt32, String, DepotInstall)] = []
+        for (key, name) in remembered {
+            guard let appID = UInt32(key), tasks[appID] == nil, !queue.contains(appID) else { continue }
+            switch statuses[appID] {
+            case .installed:
+                installedChecks.append((appID, name, install(appID: appID, folder: folder(appID: appID, name: name))))
+            case nil, .notInstalled:
+                // The whole game, game.json with it.
+                log.notice("tvOS cleared \(appID); downloading it again")
+                restoring.insert(appID)
+                statuses[appID] = .notInstalled
+                startDownload(appID: appID, name: name)
+            default:
+                break // Paused or failed: the person decides.
+            }
+        }
+        let checks = installedChecks
+        Task {
+            let missing = await Task.detached(priority: .utility) {
+                checks.map { ($0.0, $0.1, $0.2.missingFileCount() ?? 0) }
+            }.value
+            for (appID, name, count) in missing where count > 0 && tasks[appID] == nil {
+                log.notice("tvOS cleared \(count) files of \(appID); downloading them again")
+                restoring.insert(appID)
+                startDownload(appID: appID, name: name)
+            }
+            checkingCleared = false
+        }
+    }
+    #endif
+
     // MARK: - Verify
 
     func verify(appID: UInt32) {
@@ -795,6 +870,10 @@ final class GameLibrary {
         try? install(appID: appID, folder: folder).removeState()
         try? FileManager.default.removeItem(at: Self.runtimeCache(appID: appID))
         try? FileManager.default.removeItem(at: folder)
+        #if os(tvOS)
+        Self.forget(appID: appID)
+        restoring.remove(appID)
+        #endif
         statuses[appID] = nil
         verifyReports[appID] = nil
         updateIdleTimer()

@@ -56,6 +56,10 @@ struct ShioriApp: App {
             #if DEBUG || SHIORI_AUTOMATION
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
             #endif
+            #if os(tvOS)
+                // tvOS may have cleared downloaded games while Shiori wasn't running.
+                .task(id: steam.isLoggedOn) { if steam.isLoggedOn { games.restoreClearedGames() } }
+            #endif
         }
         .onChange(of: scenePhase) { old, phase in
             switch phase {
@@ -67,6 +71,9 @@ struct ShioriApp: App {
                 shiori_renpy_will_resign_active()
             case .active:
                 if old == .background { shiori_renpy_will_enter_foreground() }
+                #if os(tvOS)
+                if old == .background, steam.isLoggedOn, shiori_renpy_is_running() == 0 { games.restoreClearedGames() }
+                #endif
                 shiori_renpy_did_become_active()
                 games.willEnterForeground()
             default: break
