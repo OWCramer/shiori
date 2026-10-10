@@ -15,6 +15,9 @@ struct ShioriApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if os(tvOS)
+        PressFilter.install()
+        #endif
         // Other downloads (covers for the game runtime, SteamGridDB lookups) use URLCache.
         URLCache.shared = URLCache(memoryCapacity: 16 << 20, diskCapacity: 128 << 20)
         // Artwork: Kingfisher keeps decoded, downsampled images in memory and the originals

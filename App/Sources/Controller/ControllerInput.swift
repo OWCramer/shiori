@@ -28,7 +28,13 @@ final class ControllerInput {
     /// `-ShioriControllerMode NO` (debug) ignores controllers, e.g. the simulator's virtual one.
     private(set) var isSuppressed = false
 
+    #if os(tvOS)
+    /// On Apple TV the focus engine drives the hub with any controller; the console-style
+    /// launcher (and this class's hub actions) would move focus a second time per press.
+    var isActive: Bool { false }
+    #else
     var isActive: Bool { isForced || (isConnected && !isSuppressed) }
+    #endif
 
     /// Receives each press, including repeats while a direction is held.
     var handler: ((PadAction) -> Void)?
@@ -42,6 +48,12 @@ final class ControllerInput {
     static var gameReceiver: (@MainActor (GCExtendedGamepad) -> Void)?
 
     private var controller: GCController?
+    #if os(tvOS)
+    /// The Siri Remote, read through GameController for Ren'Py games (UIKit presses are kept
+    /// from them; see PressFilter).
+    private var remote: GCController?
+    private var remoteButtons: [Int: Bool] = [:]
+    #endif
     private var displayLink: CADisplayLink?
     private var held: Set<PadAction> = []
     private var repeatAt: [PadAction: CFTimeInterval] = [:]
@@ -81,6 +93,11 @@ final class ControllerInput {
     private func refresh() {
         let current = GCController.current ?? GCController.controllers().first { $0.extendedGamepad != nil }
         controller = current?.extendedGamepad != nil ? current : nil
+        #if os(tvOS)
+        remote = GCController.controllers().first { $0.extendedGamepad == nil && $0.microGamepad != nil }
+        remote?.microGamepad?.reportsAbsoluteDpadValues = false
+        remote?.microGamepad?.allowsRotation = true
+        #endif
         isConnected = controller != nil
         controllerName = controller?.vendorName
         hapticEngine = controller?.haptics?.createEngine(withLocality: .default)
@@ -96,7 +113,11 @@ final class ControllerInput {
     }
 
     private func updatePolling() {
+        #if os(tvOS)
+        let shouldPoll = (controller != nil || remote != nil) && !isPaused
+        #else
         let shouldPoll = controller != nil && !isPaused
+        #endif
         if shouldPoll, displayLink == nil {
             let link = CADisplayLink(target: DisplayLinkTarget { [weak self] in self?.poll() }, selector: #selector(DisplayLinkTarget.tick))
             link.add(to: .main, forMode: .common)
@@ -113,6 +134,16 @@ final class ControllerInput {
     private var gameAxes: [Int: Int] = [:]
 
     private func poll() {
+        #if os(tvOS)
+        if shiori_renpy_is_running() != 0 {
+            if let pad = controller?.extendedGamepad {
+                forwardToGame(pad)
+            } else if let remote = remote?.microGamepad {
+                forwardRemoteToGame(remote)
+            }
+            return
+        }
+        #endif
         guard let pad = controller?.extendedGamepad else { return }
         if shiori_renpy_is_running() != 0 {
             forwardToGame(pad)
@@ -123,6 +154,12 @@ final class ControllerInput {
             held = []
             return
         }
+        #if os(tvOS)
+        // Games without pad support (Artemis, Luca) take the controller as UIKit presses on
+        // Apple TV, and the hub is the focus engine's: nothing more to do here.
+        held = []
+        return
+        #endif
         if let notify = Self.unsupportedGame {
             let anyDown = [pad.buttonA, pad.buttonB, pad.buttonX, pad.buttonY, pad.leftShoulder, pad.rightShoulder,
                            pad.buttonMenu, pad.dpad.up, pad.dpad.down, pad.dpad.left, pad.dpad.right].contains { $0.isPressed }
@@ -189,6 +226,23 @@ final class ControllerInput {
             shiori_renpy_controller_axis(Int32(axis), Int32(value))
         }
     }
+
+    #if os(tvOS)
+    /// The Siri Remote as a pad for Ren'Py: a click is A (read on, select), Menu is B (the
+    /// game menu), Play/Pause is Y (hide the text box), and swipes are the d-pad.
+    private func forwardRemoteToGame(_ remote: GCMicroGamepad) {
+        let threshold: Float = 0.5
+        let buttons: [Int: Bool] = [
+            0: remote.buttonA.isPressed, 1: remote.buttonMenu.isPressed, 3: remote.buttonX.isPressed,
+            11: remote.dpad.yAxis.value > threshold, 12: remote.dpad.yAxis.value < -threshold,
+            13: remote.dpad.xAxis.value < -threshold, 14: remote.dpad.xAxis.value > threshold,
+        ]
+        for (button, down) in buttons where remoteButtons[button, default: false] != down {
+            remoteButtons[button] = down
+            shiori_renpy_controller_button(Int32(button), down ? 1 : 0)
+        }
+    }
+    #endif
 
     /// Delivers an action as if it came from the controller (debug scripting, tests).
     func fire(_ action: PadAction) {
