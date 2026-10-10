@@ -145,9 +145,8 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/Shiori-Bridging-Header.h
-  # Apple TV (Phase 15): the same app on tvOS, sharing the code. Engines whose native
-  # frameworks aren't built for tvOS yet (Ren'Py, KiriKiri, Siglus) are left out or stand in
-  # (App/TV); Artemis and Luca play.
+  # Apple TV (Phase 15): the same app on tvOS, sharing the code. KiriKiri and Siglus, whose
+  # native frameworks aren't built for tvOS yet, are left out; Ren'Py, Artemis and Luca play.
   ShioriTV:
     type: application
     platform: tvOS
@@ -157,7 +156,20 @@ targets:
         excludes: ["Engines/KiriKiri/**", "Engines/Siglus/**"]
       - path: App/Resources
         excludes: ["KiriKiriSchemes/**", "SiglusFonts/**", "Assets.xcassets/**"]
-      - App/TV
+      - path: App/TV
+        # Linked into the tvOS Ren'Py frameworks (Scripts/tv/build-renpy-tv.sh).
+        excludes: ["RenPyTVShims.m"]
+      - path: App/RenPy
+        excludes: ["*.py", "IAPHelper.m", "runtime_shim.c"]
+      - path: App/RenPy/IAPHelper.m
+        compilerFlags: ["-Wno-deprecated-declarations"]
+      - path: App/RenPy/shiori_main.py
+        buildPhase: resources
+      - path: App/RenPy/shiori_main2.py
+        buildPhase: resources
+      - path: Vendor/RenPy7Base
+        type: folder
+        buildPhase: resources
     info:
       path: App/TV/Info.plist
       properties:
@@ -168,7 +180,9 @@ targets:
         LSApplicationCategoryType: public.app-category.adventure-games
         ITSAppUsesNonExemptEncryption: false
     entitlements:
-      # No iCloud Documents: Apple TV has no iCloud Drive; saves go through Steam Cloud.
+      # No iCloud Documents for now: no tvOS profile with iCloud exists for this ID, and this
+      # Mac can't make one (no account in Xcode). Until it's back, Apple TV saves sync only
+      # through Steam Cloud (Ren'Py); Artemis and Luca saves stay on the box.
       path: App/TV/ShioriTV.entitlements
       properties: {}
     dependencies:
@@ -182,8 +196,22 @@ targets:
       # libvpx with tvOS slices (Scripts/luca/build-ios-vpx.sh): Luca movies and effects.
       - framework: Vendor/ShioriVPX.xcframework
         embed: false
+      # Ren'Py runtimes retagged for tvOS (Scripts/tv/build-renpy-tv.sh), loaded as on iOS.
+      - framework: Vendor/tv/RenPy8.xcframework
+        embed: true
+        link: false
+      - framework: Vendor/tv/RenPy7.xcframework
+        embed: true
+        link: false
+      - framework: Vendor/tv/MetalANGLE.xcframework
+        embed: true
+      - sdk: AudioToolbox.framework
       - sdk: AVFoundation.framework
+      - sdk: CoreGraphics.framework
       - sdk: GameController.framework
+      - sdk: ImageIO.framework
+      - sdk: QuartzCore.framework
+      - sdk: StoreKit.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.owencramer.vnhub

@@ -119,6 +119,13 @@ static double FootprintMB(void);
 }
 
 - (void)attachToWindow:(UIWindow *)window {
+#if TARGET_OS_TV
+    // The Siri Remote: SDL turns Select into Return and Menu into Escape (the game menu);
+    // Play/Pause hides the text box.
+    UITapGestureRecognizer *hide = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(hideTextPress:)];
+    hide.allowedPressTypes = @[@(UIPressTypePlayPause)];
+    [window addGestureRecognizer:hide];
+#else
     UITapGestureRecognizer *menu = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openMenu:)];
     menu.numberOfTouchesRequired = 2;
     menu.delaysTouchesBegan = YES;
@@ -128,6 +135,11 @@ static double FootprintMB(void);
     hide.minimumPressDuration = 0.45; // Just ahead of Ren'Py's own 0.5 s long-press.
     hide.delaysTouchesBegan = YES;
     [window addGestureRecognizer:hide];
+#endif
+}
+
+- (void)hideTextPress:(UITapGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateRecognized) PressKey(ScancodeH);
 }
 
 - (void)openMenu:(UITapGestureRecognizer *)recognizer {
@@ -497,6 +509,9 @@ static void ShowCover(void) {
 /// Lets the turn to landscape finish before Python starts: Python blocks the main thread
 /// for a second or two, which would freeze the rotation halfway.
 static void FinishRotation(void) {
+#if TARGET_OS_TV
+    [CATransaction flush]; // A TV doesn't rotate.
+#else
     UIWindowScene *scene = ActiveWindowScene();
     // Already landscape (an iPad on its side): nothing is animating.
     if (UIInterfaceOrientationIsLandscape(scene.effectiveGeometry.interfaceOrientation)) {
@@ -512,6 +527,7 @@ static void FinishRotation(void) {
         [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
     }
     [CATransaction flush];
+#endif
 }
 
 typedef void (*ReadPixelsFunction)(int, int, int, int, unsigned, unsigned, void *);
@@ -688,6 +704,7 @@ static void HideHubWindows(void) {
 /// Visual novels are landscape; ask the scene to rotate rather than letterboxing a
 /// 16:9 game into a portrait phone screen.
 static void RequestLandscape(void) {
+#if !TARGET_OS_TV
     UIWindowScene *scene = ActiveWindowScene();
     if (!scene) return;
     if (@available(iOS 16.0, *)) {
@@ -695,6 +712,7 @@ static void RequestLandscape(void) {
             [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
         [scene requestGeometryUpdateWithPreferences:preferences errorHandler:nil];
     }
+#endif
 }
 
 /// Makes SDL's views track the window. When the app returns to the foreground Ren'Py
