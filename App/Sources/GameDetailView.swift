@@ -165,15 +165,21 @@ struct GameDetailView: View {
     @ViewBuilder private var primaryAction: some View {
         switch status {
         case .notInstalled:
-            wideButton("Download", systemImage: "arrow.down.circle.fill", tint: .blue) { games.download(game) }
-                .disabled(!steam.isLoggedOn)
+            VStack(spacing: 6) {
+                wideButton("Download", systemImage: "arrow.down.circle.fill", tint: .blue) { games.download(game) }
+                    .disabled(!steam.isLoggedOn)
+                offlineNote
+            }
         case .queued:
             wideButton("Queued", systemImage: "clock", tint: .gray) { games.pause(appID: appID) }
         case .preparing, .downloading:
             wideButton("Pause", systemImage: "pause.fill", tint: .orange) { games.pause(appID: appID) }
         case .paused, .failed:
-            wideButton("Resume", systemImage: "arrow.down.circle.fill", tint: .blue) { games.resume(appID: appID, name: game.name) }
-                .disabled(!steam.isLoggedOn)
+            VStack(spacing: 6) {
+                wideButton("Resume", systemImage: "arrow.down.circle.fill", tint: .blue) { games.resume(appID: appID, name: game.name) }
+                    .disabled(!steam.isLoggedOn)
+                offlineNote
+            }
         case .verifying:
             wideButton("Verifying…", systemImage: "checkmark.shield", tint: .gray) {}
                 .disabled(true)
@@ -195,6 +201,17 @@ struct GameDetailView: View {
                 wideButton("Not playable yet", systemImage: "exclamationmark.triangle", tint: .gray) {}
                     .disabled(true)
             }
+        }
+    }
+
+    /// Under a button that needs Steam: why it's unavailable.
+    @ViewBuilder private var offlineNote: some View {
+        if let reason = steam.offlineReason {
+            Text(reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

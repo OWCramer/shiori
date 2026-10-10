@@ -26,6 +26,9 @@ final class SteamModel {
     private(set) var isLoadingLibrary = false
     private(set) var libraryError: String?
     private(set) var resumeError: String?
+    /// Why the stored session didn't log on at launch, if it failed for another reason
+    /// (offline, Steam unreachable, the Keychain); SteamSession may still be retrying.
+    private(set) var connectionError: String?
 
     let session: SteamSession
     private var signInTask: Task<Void, Never>?
@@ -53,6 +56,7 @@ final class SteamModel {
         for await state in await session.stateUpdates() {
             let wasLoggedOn = isLoggedOn
             self.state = state
+            if isLoggedOn { connectionError = nil }
             hasStoredSession = await session.storedAccountName != nil
             if isLoggedOn, !wasLoggedOn { await loadLibrary() }
         }
@@ -67,6 +71,7 @@ final class SteamModel {
             resumeError = SteamError.sessionExpired.description
         } catch {
             // Offline or Steam unreachable: SteamSession keeps retrying in the background.
+            connectionError = Self.message(for: error)
         }
     }
 
@@ -154,7 +159,25 @@ final class SteamModel {
     }
 
     private static var deviceName: String {
-        "Shiori (\(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"))"
+        switch UIDevice.current.userInterfaceIdiom {
+        case .pad: "Shiori (iPad)"
+        case .tv: "Shiori (Apple TV)"
+        default: "Shiori (iPhone)"
+        }
+    }
+
+    /// Why Steam actions are unavailable right now, for a line under a disabled button.
+    var offlineReason: String? {
+        switch state {
+        case .loggedOn: return nil
+        case .connecting: return "Connecting to Steam…"
+        case let .reconnecting(attempt): return "Reconnecting to Steam (attempt \(attempt))" + (connectionError.map { ": \($0)" } ?? "…")
+        case .connectedAnonymously: return "Not signed in to Steam."
+        case .signedOut:
+            if let resumeError { return resumeError }
+            if let connectionError { return "Not connected to Steam: \(connectionError)" }
+            return hasStoredSession ? "Not connected to Steam." : "Not signed in to Steam."
+        }
     }
 
     /// Random per-install seed for the machine ID Steam sees. Regenerated after a reinstall.

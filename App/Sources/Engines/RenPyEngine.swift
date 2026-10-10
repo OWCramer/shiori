@@ -254,14 +254,15 @@ extension RenPyEngine {
         let bootstrapName: String
         if runtime.usesGameEngine {
             bootstrapName = "shiori_main"
-            try fm.createSymbolicLink(at: runnerBase.appendingPathComponent("lib"), withDestinationURL: gameBase.appendingPathComponent("lib"))
+            try place(runnerBase.appendingPathComponent("lib"), from: gameBase.appendingPathComponent("lib"),
+                      only: { $0.hasPrefix("python") })
         } else {
             bootstrapName = "shiori_main2"
             guard let engine = Bundle.main.url(forResource: "RenPy7Base", withExtension: nil) else {
                 throw CocoaError(.fileNoSuchFile)
             }
             for name in ["lib", "renpy", "renpy.py"] {
-                try fm.createSymbolicLink(at: runnerBase.appendingPathComponent(name), withDestinationURL: engine.appendingPathComponent(name))
+                try place(runnerBase.appendingPathComponent(name), from: engine.appendingPathComponent(name))
             }
         }
         guard let bootstrap = Bundle.main.url(forResource: bootstrapName, withExtension: "py") else {
@@ -269,5 +270,26 @@ extension RenPyEngine {
         }
         try fm.copyItem(at: bootstrap, to: runnerBase.appendingPathComponent("main.py"))
         return runner
+    }
+
+    /// Puts `source` at `destination` in the runner: a symbolic link, or where the system
+    /// refuses one (tvOS doesn't let apps make links), a copy, which APFS makes as a clone
+    /// on the same volume. `only` limits a copied folder to the entries Python needs (the
+    /// launcher reads `lib/python*`; a game's `lib/` also carries its PC binaries).
+    private static func place(_ destination: URL, from source: URL, only: ((String) -> Bool)? = nil) throws {
+        let fm = FileManager.default
+        do {
+            try fm.createSymbolicLink(at: destination, withDestinationURL: source)
+        } catch let error as CocoaError where error.code == .fileWriteNoPermission {
+            var isFolder: ObjCBool = false
+            if let only, fm.fileExists(atPath: source.path, isDirectory: &isFolder), isFolder.boolValue {
+                try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+                for name in try fm.contentsOfDirectory(atPath: source.path) where only(name) {
+                    try fm.copyItem(at: source.appendingPathComponent(name), to: destination.appendingPathComponent(name))
+                }
+            } else {
+                try fm.copyItem(at: source, to: destination)
+            }
+        }
     }
 }
