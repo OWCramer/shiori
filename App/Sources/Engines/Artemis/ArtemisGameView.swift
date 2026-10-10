@@ -293,9 +293,26 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 progress = value
             }
         }
-        guard needsStage || textState != lastTextState || progress != nil || transitionJustEnded(progress) else { return }
+        let transitionEnded = transitionJustEnded(progress)
+        guard needsStage || textState != lastTextState || progress != nil || transitionEnded else { return }
         lastTextState = textState
         guard let drawable = metalLayer.nextDrawable(), let buffer = renderer.queue.makeCommandBuffer() else { return }
+        if player.traceWaits, needsStage {
+            NSLog("Artemis: draw stage %dx%d into %dx%d, %d top layers, transition %@", Int(player.stage.width), Int(player.stage.height),
+                  drawable.texture.width, drawable.texture.height, player.stage.root.children.count, progress.map { "\($0)" } ?? "none")
+        }
+        #if DEBUG
+        if player.traceWaits, needsStage, let target = renderer.makeTarget(width: stageTexture.width, height: stageTexture.height, readable: true),
+           let dump = renderer.queue.makeCommandBuffer() {
+            // `-ShioriArtemisTrace YES`: the latest stage as rendered, in tmp/artemis-stage.png.
+            renderer.render(stage: player.stage, texts: texts, textsVisible: false, into: target, commandBuffer: dump)
+            dump.commit()
+            dump.waitUntilCompleted()
+            if let image = ArtemisMetalRenderer.image(from: target) {
+                try? UIImage(cgImage: image).pngData()?.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("artemis-stage.png"))
+            }
+        }
+        #endif
         if needsStage {
             needsStage = false
             renderer.render(stage: player.stage, texts: texts, textsVisible: false, into: stageTexture, commandBuffer: buffer)
