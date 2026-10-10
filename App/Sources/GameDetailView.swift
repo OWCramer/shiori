@@ -148,16 +148,10 @@ struct GameDetailView: View {
                 .font(.headline)
                 .buttonStyle(.glassProminent)
 
-            Menu {
-                moreActions
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.headline)
-                    .frame(width: 22, height: 22)
-                    .padding(14)
-            }
-            .buttonStyle(.glass)
-            .accessibilityLabel("More")
+            // Rebuilt only when what the menu shows changes: during a download the status
+            // changes with every progress report, which made an open menu blink.
+            MoreMenu(state: moreMenuState) { AnyView(moreActions) }
+                .equatable()
         }
         .padding(.horizontal, 20)
     }
@@ -222,6 +216,19 @@ struct GameDetailView: View {
                 .padding(.vertical, 14)
         }
         .tint(tint)
+    }
+
+    /// What `moreActions` depends on, without download progress.
+    private var moreMenuState: MoreMenu.State {
+        MoreMenu.State(
+            isVisualNovel: curation.isVisualNovel(game),
+            installedEngine: record.map { $0.engine?.engine ?? "" },
+            hasPartialDownload: record == nil && status != .notInstalled,
+            hasPatches: !patchFiles.isEmpty,
+            branch: games.branch(for: appID),
+            isLoggedOn: steam.isLoggedOn,
+            phoneLayout: phoneLayout
+        )
     }
 
     @ViewBuilder private var moreActions: some View {
@@ -829,5 +836,37 @@ private struct VerifyReportView: View {
         case let .wrongSize(expected, actual): "Size \(actual.formatted(.byteCount(style: .file))), expected \(expected.formatted(.byteCount(style: .file)))"
         case .modified: "Contents changed"
         }
+    }
+}
+
+/// The game page's circular "More" menu. Equatable on what its items show, so a game
+/// downloading (a new status with every progress report) doesn't rebuild it while open.
+private struct MoreMenu: View, Equatable {
+    struct State: Equatable, Sendable {
+        var isVisualNovel: Bool
+        var installedEngine: String?
+        var hasPartialDownload: Bool
+        var hasPatches: Bool
+        var branch: String
+        var isLoggedOn: Bool
+        var phoneLayout: Bool
+    }
+
+    let state: State
+    let items: () -> AnyView
+
+    nonisolated static func == (a: MoreMenu, b: MoreMenu) -> Bool { a.state == b.state }
+
+    var body: some View {
+        Menu {
+            items()
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.headline)
+                .frame(width: 22, height: 22)
+                .padding(14)
+        }
+        .buttonStyle(.glass)
+        .accessibilityLabel("More")
     }
 }
