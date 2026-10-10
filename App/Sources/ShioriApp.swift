@@ -48,7 +48,7 @@ struct ShioriApp: App {
                     guard steam.isLoggedOn else { return }
                     engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && games.status(for: $0.appID) == .notInstalled }.map(\.appID))
                 }
-            #if DEBUG
+            #if DEBUG || SHIORI_AUTOMATION
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
             #endif
         }
@@ -156,7 +156,9 @@ struct SessionEndingView: View {
     }
 }
 
-#if DEBUG
+// SHIORI_AUTOMATION: a Release build for smoke tests keeps these
+// (`Scripts/release-smoke.sh`); shipped builds have neither flag.
+#if DEBUG || SHIORI_AUTOMATION
 /// Simulator test hooks, driven by launch arguments (`simctl launch … -ShioriAutoDownload 451760`).
 /// `-ShioriAutoDownload <appid>` starts or resumes that download once the library loads;
 /// `-ShioriAutoVerify <appid>` verifies an installed game; `-ShioriAutoPlay <appid>` starts it.

@@ -27,5 +27,11 @@ mkdir -p "$DEST"
 # prebuilt/release is iphoneos arm64; prebuilt/debug is the simulator (arm64 + x86_64).
 mv "$tmp/renios/prototype/prebuilt" "$DEST/prebuilt"
 mv "$tmp/renios/prototype/Frameworks/MetalANGLE.xcframework" "$DEST/MetalANGLE.xcframework"
+# Its device slice also carries 32-bit armv7, which iOS 26 can't run and App Store
+# processing rejects: keep arm64 only. (The slice folder keeps its name; the xcframework's
+# Info.plist still lists armv7, which xcodebuild doesn't mind.)
+angle="$DEST/MetalANGLE.xcframework/ios-arm64_armv7/MetalANGLE.framework/MetalANGLE"
+lipo "$angle" -remove armv7 -output "$angle.thin" && mv "$angle.thin" "$angle"
 echo "$VERSION" > "$STAMP"
+"$(dirname "$0")/add-privacy-manifests.sh"
 echo "renios $VERSION ready in $DEST"

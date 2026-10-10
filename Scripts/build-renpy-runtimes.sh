@@ -103,3 +103,4 @@ COMMON="renpython renpy avformat avcodec swscale swresample avutil SDL2_image SD
 build_framework RenPy8 Vendor/renios/prebuilt 3.9 $COMMON python3.9
 # 7.8.7 adds harfbuzz, brotli and libyuv/sharpyuv to the mix.
 build_framework RenPy7 "$R7/prebuilt" 2.7 $COMMON python2.7 harfbuzz brotlidec brotlicommon sharpyuv yuv
+"$(dirname "$0")/add-privacy-manifests.sh"
