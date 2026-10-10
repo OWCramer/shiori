@@ -150,7 +150,7 @@ struct GameDetailView: View {
 
             // Rebuilt only when what the menu shows changes: during a download the status
             // changes with every progress report, which made an open menu blink.
-            MoreMenu(state: moreMenuState) { AnyView(moreActions) }
+            MoreMenu(state: moreMenuState) { AnyView(moreActions($0)) }
                 .equatable()
         }
         .padding(.horizontal, 20)
@@ -231,16 +231,19 @@ struct GameDetailView: View {
         )
     }
 
-    @ViewBuilder private var moreActions: some View {
-        Button(curation.isVisualNovel(game) ? "Remove from Visual Novels" : "Add to Visual Novels",
-               systemImage: curation.isVisualNovel(game) ? "eye.slash" : "plus.circle") {
+    /// Built from the snapshot alone: anything observable read here would tie the open menu
+    /// to it again (a download's status changes with every progress report). Live objects
+    /// are only touched in the actions, when tapped.
+    @ViewBuilder private func moreActions(_ state: MoreMenu.State) -> some View {
+        Button(state.isVisualNovel ? "Remove from Visual Novels" : "Add to Visual Novels",
+               systemImage: state.isVisualNovel ? "eye.slash" : "plus.circle") {
             curation.toggle(game)
         }
         Button("Change Artwork…", systemImage: "photo.on.rectangle") { choosingArtwork = true }
         if let branches = game.branches, branches.count > 1 {
             Menu {
                 Picker("Steam Version", selection: Binding(
-                    get: { games.branch(for: appID) },
+                    get: { state.branch },
                     set: { chooseBranch($0) }
                 )) {
                     ForEach(branches, id: \.name) { branch in
@@ -248,24 +251,24 @@ struct GameDetailView: View {
                     }
                 }
             } label: {
-                Label("Steam Version: \(branchTitle(games.branch(for: appID)))", systemImage: "arrow.triangle.branch")
+                Label("Steam Version: \(branchTitle(state.branch))", systemImage: "arrow.triangle.branch")
             }
         }
-        if record == nil {
+        if state.installedEngine == nil {
             Button("Check Engine Again", systemImage: "magnifyingglass") { engineScans.scan([appID], force: true) }
-                .disabled(!steam.isLoggedOn)
+                .disabled(!state.isLoggedOn)
         }
         Divider()
-        if record?.engine?.engine == RenPyEngine.id {
+        if state.installedEngine == RenPyEngine.id {
             Toggle(isOn: Binding(
-                get: { phoneLayout },
+                get: { state.phoneLayout },
                 set: { phoneLayout = $0; RenPyEngine.setPhoneLayout($0, appID: appID) }
             )) {
                 Label("Phone Layout", systemImage: "iphone")
             }
         }
-        if record != nil {
-            if record?.engine?.engine == "artemis" {
+        if state.installedEngine != nil {
+            if state.installedEngine == "artemis" {
                 Button("Browse Archives", systemImage: "archivebox") { browsingArchives = true }
             }
             Button("Verify Files", systemImage: "checkmark.shield") { games.verify(appID: appID) }
@@ -273,12 +276,12 @@ struct GameDetailView: View {
             Button("Import Patch…", systemImage: "square.and.arrow.down") { importingPatch = true }
             Button("Open Folder in Files", systemImage: "folder") { openInFiles() }
             #endif
-            if !patchFiles.isEmpty {
+            if state.hasPatches {
                 Button("Remove All Patches", systemImage: "arrow.uturn.backward") { confirmingRemovePatches = true }
             }
             Divider()
             Button("Delete Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
-        } else if status != .notInstalled {
+        } else if state.hasPartialDownload {
             Button("Delete Partial Download", systemImage: "trash", role: .destructive) { confirmingDelete = true }
         }
     }
@@ -853,13 +856,13 @@ private struct MoreMenu: View, Equatable {
     }
 
     let state: State
-    let items: () -> AnyView
+    let items: (State) -> AnyView
 
     nonisolated static func == (a: MoreMenu, b: MoreMenu) -> Bool { a.state == b.state }
 
     var body: some View {
         Menu {
-            items()
+            items(state)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.headline)
