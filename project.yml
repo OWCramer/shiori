@@ -72,6 +72,9 @@ targets:
         # throttled) while the app is full screen: opt in, and say it's a game.
         GCSupportsGameMode: true
         LSApplicationCategoryType: public.app-category.adventure-games
+        # Export compliance (the user, 2026-10-10): encryption only for HTTPS, Steam sign-in and
+        # decrypting owned game content, all exempt; App Store Connect stops asking per upload.
+        ITSAppUsesNonExemptEncryption: false
     # iCloud Documents container that mirrors each game's saves/ (SaveSync).
     entitlements:
       path: App/Shiori.entitlements
