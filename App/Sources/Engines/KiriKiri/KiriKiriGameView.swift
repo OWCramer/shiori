@@ -10,7 +10,7 @@ import UIKit
 /// engine composes each frame on Shiori's Metal bridge; this view ticks it, presents the
 /// frame, and turns touches into the mouse input KiriKiri games expect.
 final class KiriKiriGameViewController: UIViewController {
-    /// Settings › Display: KiriKiri frames (1280×720 in most games) are enlarged to the screen
+    /// Settings › Engines: KiriKiri frames (1280×720 in most games) are enlarged to the screen
     /// with MetalFX instead of the Catmull-Rom shader. Read when a game starts.
     static var upscalingEnabled: Bool {
         get { UserDefaults.standard.object(forKey: "kirikiriMetalFXUpscaling") as? Bool ?? true }

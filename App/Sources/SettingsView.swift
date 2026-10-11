@@ -69,9 +69,9 @@ struct SettingsView: View {
                         set: { KiriKiriGameViewController.upscalingEnabled = $0 }
                     ))
                 } header: {
-                    Text("Display")
+                    Text("Engines")
                 } footer: {
-                    Text("KiriKiri games (NEKOPARA and others) draw at 1280×720. MetalFX enlarges them to the screen with sharper edges and text; off, Shiori uses a smooth bicubic filter. Applies the next time a game starts.")
+                    Text("KiriKiri: games like NEKOPARA draw at 1280×720. MetalFX enlarges them to the screen with sharper edges and text; off, Shiori uses a smooth bicubic filter. Applies the next time a game starts.")
                 }
                 #endif
 
