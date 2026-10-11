@@ -18,6 +18,8 @@ final class CompatibilityStore {
         var branch: String?
         var profile: String?
         var notes: String?
+        /// The game's title in GARbro's database, for KiriKiri games whose archives use CxDec.
+        var garbro: String?
     }
 
     enum Status: String, Decodable, Sendable {
@@ -50,6 +52,15 @@ final class CompatibilityStore {
     }
 
     func entry(for appID: UInt32) -> (entry: Entry, engine: String)? { entries[appID] }
+
+    /// An engine's entry for a game from the cached copy on disk, for callers off the main actor.
+    nonisolated static func cachedEntry(appID: UInt32, engine: String) -> Entry? {
+        let file = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("compatibility/\(engine).json")
+        guard let data = try? Data(contentsOf: file),
+              let list = try? JSONDecoder().decode(EngineFile.self, from: data) else { return nil }
+        return list.games.first { $0.appID == appID }
+    }
 
     /// Fetches the list again when the cached copy is older than six hours (or `force`).
     func refresh(force: Bool = false) async {

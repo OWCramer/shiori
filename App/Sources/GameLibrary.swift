@@ -653,6 +653,12 @@ final class GameLibrary {
                 async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
                 await syncSaves(appID: appID, direction: .pull)
                 if engine.engine != "artemis", engine.engine != "luca", steamCloudMapped[appID] == true { await pullSteamCloud(appID: appID) }
+                #if !os(tvOS)
+                if engine.engine == "kirikiri" {
+                    let runtimeCache = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(folder.lastPathComponent)", isDirectory: true)
+                    await GARbroDatabase.prepare(appID: appID, runtimeCache: runtimeCache)
+                }
+                #endif
                 let (heroFile, logoFile) = await cover
                 let art = LaunchCover.Art(hero: heroFile.flatMap { UIImage(contentsOfFile: $0.path) },
                                           logo: logoFile.flatMap { UIImage(contentsOfFile: $0.path) },

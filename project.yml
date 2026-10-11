@@ -32,14 +32,10 @@ targets:
     sources:
       - App/Sources
       - path: App/Resources
-        excludes: ["KiriKiriSchemes/**", "SiglusFonts/**"]
+        excludes: ["SiglusFonts/**"]
       # BIZ UDGothic (SIL OFL), metric-compatible with MS Gothic, for Siglus games that ask
       # for the Windows font (SiglusRuntime links it in as the game's font/ folder).
       - path: App/Resources/SiglusFonts
-        type: folder
-        buildPhase: resources
-      # CxDec schemes for KiriKiri titles, by Steam app id (Scripts/kirikiri/garbro-cx.py).
-      - path: App/Resources/KiriKiriSchemes
         type: folder
         buildPhase: resources
       - path: App/RenPy
@@ -162,7 +158,7 @@ targets:
       - path: App/Sources
         excludes: ["Engines/KiriKiri/**", "Engines/Siglus/**"]
       - path: App/Resources
-        excludes: ["KiriKiriSchemes/**", "SiglusFonts/**", "Assets.xcassets/**"]
+        excludes: ["SiglusFonts/**", "Assets.xcassets/**"]
       - path: App/TV
         # Linked into the tvOS Ren'Py frameworks (Scripts/tv/build-renpy-tv.sh).
         excludes: ["RenPyTVShims.m"]

@@ -6,7 +6,7 @@ import Foundation
 /// "corrupted execution file" once its startup script fails to parse.
 enum KiriKiriArchiveCheck {
     enum Encryption {
-        /// CxDec: needs the title's scheme bundled in KiriKiriSchemes/.
+        /// CxDec: needs the title's scheme from GARbro's database (GARbroDatabase).
         case cx
         /// KiriKiri Z's Hx (an `Hxv4` index chunk): needs keys Shiori doesn't have.
         case hx

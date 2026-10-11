@@ -45,16 +45,16 @@ enum KiriKiriRuntime {
         }
         setenv("AETHERKIRI_DATA_PATH", saves.path, 1)
         setenv("AETHERKIRI_LOG_DIR", caches.path, 1)
-        // A title whose archives use CxDec ships its scheme in the app (KiriKiriSchemes/<appid>.shcx,
-        // made with Scripts/kirikiri/garbro-cx.py); the engine decrypts its reads in memory only.
-        if let scheme = Bundle.main.url(forResource: String(appID), withExtension: "shcx",
-                                        subdirectory: "KiriKiriSchemes") {
+        // A title whose archives use CxDec has its scheme built from GARbro's database before
+        // launch (GARbroDatabase.prepare); the engine decrypts its reads in memory only.
+        let scheme = caches.appendingPathComponent("scheme.shcx")
+        if fileManager.fileExists(atPath: scheme.path) {
             setenv("AETHERKIRI_CX_SCHEME", scheme.path, 1)
         } else {
             unsetenv("AETHERKIRI_CX_SCHEME")
             switch KiriKiriArchiveCheck.unhandledEncryption(base: base) {
             case .cx:
-                throw Failure(errorDescription: "This game's archives use CxDec encryption, and Shiori doesn't have this title's keys yet.")
+                throw Failure(errorDescription: "This game's archives use CxDec encryption, and GARbro's database doesn't list this title yet (or Shiori couldn't download it).")
             case .hx:
                 throw Failure(errorDescription: "This game's archives use KiriKiri Z's Hx encryption, which Shiori can't open yet.")
             case nil:
