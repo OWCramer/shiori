@@ -110,8 +110,33 @@ final class SiglusGameViewController: UIViewController {
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
+    #if os(iOS)
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// A hardware keyboard's keys go to the engine as the PC's (Escape, Enter, Space, arrows, Ctrl).
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil }
+        for key in keys { if let code = key.windowsVirtualKey { padPress(.key(code), down: true) } }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil }
+        for key in keys { if let code = key.windowsVirtualKey { padPress(.key(code), down: false) } }
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        pressesEnded(presses, with: event)
+    }
+    #endif
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if os(iOS)
+        // Keys from a hardware keyboard come here, not to UIKit (Escape would close the cover).
+        becomeFirstResponder()
+        #endif
         requestOrientations(.landscape)
         startIfNeeded()
     }

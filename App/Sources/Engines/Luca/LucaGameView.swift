@@ -264,8 +264,30 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         displayLink = link
     }
 
+    #if os(iOS)
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// Escape opens the menu (as the PC's right-click does); Enter and Space read on.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let (keys, rest) = presses.splitKeys { [.keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar].contains($0) }
+        for key in keys {
+            if key == .keyboardEscape { showMenu() } else { tapped() }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let (_, rest) = presses.splitKeys { [.keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar].contains($0) }
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+    #endif
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if os(iOS)
+        // Keys from a hardware keyboard come here, not to UIKit (Escape would close the cover).
+        becomeFirstResponder()
+        #endif
         #if os(iOS)
         OrientationLock.set(.landscape, in: view.window?.windowScene)
         #endif

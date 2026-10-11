@@ -79,6 +79,8 @@ struct CoveredGame<Game: View>: View {
             try? await Task.sleep(for: .seconds(12))
             lift()
         }
+        // A game leaves through its own exit, never by UIKit dismissing the cover (Escape).
+        .interactiveDismissDisabled()
         .persistentSystemOverlays(.hidden)
         .hiddenStatusBar()
     }

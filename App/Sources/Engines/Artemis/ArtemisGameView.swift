@@ -224,8 +224,31 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         frame()
     }
 
+    #if os(iOS)
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// Escape is the PC's right-click (the menu, or back out of a screen). Other keys aren't the
+    /// game's yet: a tap reads on at a place on the stage, which a key doesn't have.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let (keys, rest) = presses.splitKeys { $0 == .keyboardEscape }
+        if !keys.isEmpty {
+            if backlogView != nil { closeBacklog() } else { player?.rightClick() }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let (_, rest) = presses.splitKeys { $0 == .keyboardEscape }
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+    #endif
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if os(iOS)
+        // Keys from a hardware keyboard come here, not to UIKit (Escape would close the cover).
+        becomeFirstResponder()
+        #endif
         #if os(iOS)
         requestOrientations(.landscape)
         #endif
