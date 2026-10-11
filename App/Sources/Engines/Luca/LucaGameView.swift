@@ -20,6 +20,13 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     private let stageSize = CGSize(width: 1920, height: 1080)
     private var renderer: LucaRenderer?
     private var windowMask: MTLTexture?
+    /// Chapters, event pictures and music reached, for the title's Chapter and Extras.
+    private var extras = LucaExtrasRecord()
+    private var extrasLayerKey = ""
+    /// The narration box (profile.narration), when the game has one.
+    private var narrationMask: MTLTexture?
+    /// Whether the line on screen is narration shown in the narration box.
+    private var narrating: Bool { profile.narration != nil && narrationMask != nil && (player?.message?.narration ?? false) }
     /// Pictures on screen now (texture ids), kept when the texture cache trims.
     private var onScreen = Set<Int>()
     /// Pictures being decoded and uploaded off the main thread.
@@ -208,6 +215,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             NSLog("Luca: %@ (%@)", profile.name, game.entryScript)
             // MWIN0 is the window's shape in white; the engine tints it.
             if let id = game.imageID(named: "MWIN0") { windowMask = renderer?.textures.texture(id, game: game) }
+            if let box = profile.narration?.box, let id = game.imageID(named: box) {
+                narrationMask = renderer?.textures.texture(id, game: game)
+            }
             if let plate = picture("mwin1920_0") {
                 namePlate.image = UIImage(cgImage: plate).withRenderingMode(.alwaysTemplate)
             }
@@ -228,6 +238,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
             settings = LucaSettings.load(from: saves)
             readLog = LucaReadLog(saves: saves)
+            extras = LucaExtrasRecord.load(from: saves)
+            backfillChapters(game)
             if let sheet = profile.shortcutSheet.flatMap(picture) {
                 let bar = LucaWindowBar(sheet: sheet)
                 bar.onPick = { [weak self] item in self?.windowBarPicked(item) }
@@ -302,6 +314,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         player.tick()
         audio.nextVoiceLevel = Float(settings.voiceLevel(for: player.message?.speaker))
         for sound in player.sounds { audio.handle(sound, game: game) }
+        recordExtras(player, game: game)
         player.sounds.removeAll()
         for notice in player.notices { show(notice) }
         player.notices.removeAll()
@@ -399,9 +412,16 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         }
         onScreen = shown
         let windowShown = player.windowVisible && !textHidden && titleView == nil && systemMenu == nil && saveScreen == nil && optionsScreen == nil && messageLog == nil
-        let window = LucaRenderer.Window(visible: windowShown, mask: windowMask,
+        let window: LucaRenderer.Window
+        if narrating, let narration = profile.narration {
+            window = LucaRenderer.Window(visible: windowShown, mask: narrationMask,
+                                         tint: SIMD4<Float>(0, 0, 0, settings.windowAlpha(base: narration.opacity)),
+                                         rect: CGRect(x: 0, y: 0, width: 1920, height: 1080), face: nil)
+        } else {
+            window = LucaRenderer.Window(visible: windowShown, mask: windowMask,
                                          tint: windowTint, rect: windowRect,
                                          face: windowShown && player.message != nil ? face : nil)
+        }
         renderer.draw(layers: items, shake: player.shake, window: window, effects: LucaEffects(sepia: player.effects.sepia))
     }
 
@@ -598,8 +618,19 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         let colour = lineWasRead && settings.colourReadText
             ? LucaSettings.readTextColours[min(settings.readTextColour, LucaSettings.readTextColours.count - 1)].color : UIColor.white
         let left = textLeft
-        let key = "\(message.speaker ?? "")\u{1}\(message.text)\u{1}\(settings.font)\u{1}\(colour)\u{1}\(left)\u{1}\(s)"
-        if key != composedKey {
+        let narration = narrating ? profile.narration : nil
+        let key = "\(message.speaker ?? "")\u{1}\(message.text)\u{1}\(settings.font)\u{1}\(colour)\u{1}\(left)\u{1}\(s)\u{1}\(narration != nil)"
+        if key != composedKey, let narration {
+            // Narration: centred on the narration box, both ways.
+            composedKey = key
+            let set = LucaTypeset(message.text, fonts: fonts(for: message.text), width: narration.textWidth, lineHeight: narration.lineHeight)
+            typeset = set
+            textView.image = textImage(set, fill: colour)
+            let x = (1920 - CGFloat(set.usedWidth)) / 2, y = (1080 - CGFloat(set.height)) / 2
+            textView.frame = CGRect(x: x * s, y: y * s, width: CGFloat(set.usedWidth) * s, height: CGFloat(set.height) * s)
+            textMask.frame = textView.bounds
+            nameView.image = nil
+        } else if key != composedKey {
             composedKey = key
             let w = profile.window
             let width = w.textWidth - Int(left - w.textLeft)
@@ -1019,6 +1050,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             case .options: self.presentOptions()
             case .manual: self.presentManual()
             case .exit: self.leave()
+            case .chapter: self.presentChapters()
+            case .gallery: self.presentGallery()
+            case .music: self.presentMusic()
             }
         }
         let title: UIView
@@ -1045,10 +1079,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         shownChoices = nil
     }
 
-    private func start(state: LucaPlayer.State?) {
+    private func start(state: LucaPlayer.State?, script: String? = nil) {
         guard let game else { return }
         do {
-            let player = try LucaPlayer(game: game)
+            let player = try LucaPlayer(game: game, script: script)
             if let state { try player.restore(state) }
             player.stopsVoiceOnClick = settings.voiceStopsOnTap
             self.player = player
@@ -1064,6 +1098,85 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         } catch {
             NSLog("Luca: couldn't start: %@", String(describing: error))
         }
+    }
+
+    // MARK: Chapter and Extras
+
+    /// Notes what the title's Chapter and Extras screens open: the chapter being read, event
+    /// pictures on stage, music played.
+    private func recordExtras(_ player: LucaPlayer, game: LucaGame) {
+        var record = extras
+        for case .music(let id, _) in player.sounds { record.tracks.insert(id) }
+        if let chapter = LucaExtrasRecord.chapter(ofScript: player.currentScript) { record.chapters.insert(chapter) }
+        let key = player.layers.values.map { "\($0.imageID)" }.sorted().joined(separator: ",")
+        if key != extrasLayerKey {
+            extrasLayerKey = key
+            for layer in player.layers.values {
+                if let name = game.imageName(layer.imageID), LucaExtrasRecord.isEventPicture(name) { record.pictures.insert(name) }
+            }
+        }
+        if record != extras {
+            extras = record
+            record.save(to: saves)
+        }
+    }
+
+    /// Chapters read before Shiori kept this record: any of their lines in the read log.
+    private func backfillChapters(_ game: LucaGame) {
+        guard let readLog else { return }
+        var record = extras
+        for name in game.scriptNames {
+            guard let chapter = LucaExtrasRecord.chapter(ofScript: name), !record.chapters.contains(chapter),
+                  let script = try? game.script(named: name) else { continue }
+            if LucaPlayer.lineKeys(in: script).contains(where: readLog.contains) { record.chapters.insert(chapter) }
+        }
+        if record != extras {
+            extras = record
+            record.save(to: saves)
+        }
+    }
+
+    private var titleSheet: CGImage? {
+        guard case .column(_, _, let menu, _, _) = profile.title else { return nil }
+        return picture(menu)
+    }
+
+    private func extrasSound(_ name: String) {
+        guard let game else { return }
+        audio.playSystem(name, game: game)
+    }
+
+    private func presentChapters() {
+        guard let game else { return }
+        let chapters = game.scriptNames.compactMap { name in LucaExtrasRecord.chapter(ofScript: name).map { ($0, name) } }
+        let page = LucaChapterPage(game: game, chapters: chapters, reached: extras.chapters, sheet: titleSheet)
+        page.onSound = { [weak self] in self?.extrasSound($0) }
+        page.onChapter = { [weak self] script in self?.start(state: nil, script: script) }
+        present(page, animated: true)
+    }
+
+    private func presentGallery() {
+        guard let game else { return }
+        let page = LucaGalleryPage(game: game, entries: profile.gallery, seen: extras.pictures, sheet: titleSheet)
+        page.onSound = { [weak self] in self?.extrasSound($0) }
+        present(page, animated: true)
+    }
+
+    private func presentMusic() {
+        guard let game, let archive = game.music else { return }
+        let tracks = archive.entries.map(\.id)
+        let page = LucaMusicPage(game: game, tracks: tracks, heard: extras.tracks, sheet: titleSheet)
+        page.onSound = { [weak self] in self?.extrasSound($0) }
+        page.onPlay = { [weak self] track in
+            guard let self, let game = self.game else { return }
+            if let track { self.audio.handle(.music(id: track, fadeFrames: 30), game: game) } else { self.audio.handle(.stopMusic(fadeFrames: 30), game: game) }
+        }
+        page.onClose = { [weak self] in
+            // Back to the title's own music.
+            guard let self, let game = self.game, let music = self.profile.titleMusic else { return }
+            self.audio.handle(.music(id: music, fadeFrames: 60), game: game)
+        }
+        present(page, animated: true)
     }
 
     // MARK: Manual and options

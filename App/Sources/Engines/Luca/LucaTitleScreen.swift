@@ -7,7 +7,7 @@ import UIKit
 /// camera panning down to the heroines, then the logo and the menu row. A tap skips ahead.
 /// Everything is laid out in the game's 1920×1080 space.
 final class LucaTitleScreen: UIView {
-    enum Action { case start, load, options, manual, exit }
+    enum Action { case start, load, options, manual, exit, chapter, gallery, music }
 
     private let game: LucaGame
     private let onAction: (Action) -> Void

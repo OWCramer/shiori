@@ -46,6 +46,15 @@ struct LucaProfile {
         var pageMarker: CGRect
     }
 
+    /// Narration (`LOG_BEGIN`) in a box of its own over the whole stage, text centred on it
+    /// (Harmonia's `NWIN`: black, feathered, inset 100 px), instead of the message window.
+    struct Narration {
+        var box: String
+        var opacity: Float
+        var textWidth: Int
+        var lineHeight: Int
+    }
+
     var name: String
     var title: Title
     var window: Window
@@ -63,6 +72,10 @@ struct LucaProfile {
     var voiceFaces: (name: String, cell: Int)?
     var saveBlank: [String]
     var saveCursor: [String]
+    var narration: Narration? = nil
+    /// Extras › Gallery: each thumbnail and the event picture family it stands for (matched
+    /// picture by picture against the thumbnails, 2026-10-11).
+    var gallery: [(thumb: String, prefix: String)] = []
 
     /// REFLECTION BLUE's, measured against its Steam screenshots: a teal band, text at 37 px.
     static let tealWindow = Window(
@@ -88,7 +101,12 @@ struct LucaProfile {
         bootPictures: ["warning_en", "logo1920_1", "logo1920_0", "logo1920_2", "logo1920_3"], titleMusic: 100_001,
         systemMenu: .icons(sheet: "system_icon_1920_en", background: "system_BG"), pageMarker: ("CURSOR", 45),
         shortcutSheet: nil, choiceSheet: nil, mapImage: nil, voiceFaces: ("voice_pt", 96),
-        saveBlank: ["save_blank", "SAVE_BLANK"], saveCursor: ["save_blank_ov", "save_cursor"])
+        saveBlank: ["save_blank", "SAVE_BLANK"], saveCursor: ["save_blank_ov", "save_cursor"],
+        narration: Narration(box: "NWIN", opacity: 0.7, textWidth: 1460, lineHeight: 64),
+        gallery: zip((1...23).map { String(format: "CGGALLERY_CH01_%03d", $0) },
+                     ["FG_014", "FG_001", "FG_002", "FG_004", "FG_003", "FG_015", "FG_005", "FG_006", "FG_016", "FG_007",
+                      "FG_008", "FG_009", "FG_010", "FG_011", "FG_012", "FG_013", "EF_011", "EF_071", "EF_061", "EF_021",
+                      "EF_031", "SP_02", "EF_041"]).map { ($0, $1) })
 
     /// For a game Shiori has no profile for: the shared kit, Shiori's stand-ins for the rest.
     static let plain = LucaProfile(

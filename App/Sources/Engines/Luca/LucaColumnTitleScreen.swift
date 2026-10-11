@@ -17,10 +17,17 @@ final class LucaColumnTitleScreen: UIView {
     private var timers: [Timer] = []
     private var menuShown = false
 
-    /// The sheet's rows and what they do (Chapter and Extras have no Shiori screen yet).
-    private static let rows: [(row: Int, title: String, action: LucaTitleScreen.Action)] = [
-        (0, "Start", .start), (1, "Load", .load), (3, "Options", .options), (5, "Manual", .manual), (6, "Exit", .exit),
+    /// The sheet's rows and what they do. Extras (row 4) swaps the column for its own rows:
+    /// Gallery, Music and Back (rows 7–9).
+    private static let rows: [(row: Int, title: String, action: LucaTitleScreen.Action?)] = [
+        (0, "Start", .start), (1, "Load", .load), (2, "Chapter", .chapter), (3, "Options", .options),
+        (4, "Extras", nil), (5, "Manual", .manual), (6, "Exit", .exit),
     ]
+    private static let extrasRows: [(row: Int, title: String, action: LucaTitleScreen.Action?)] = [
+        (7, "Gallery", .gallery), (8, "Music", .music), (9, "Back", nil),
+    ]
+    private var mainButtons: [UIView] = []
+    private var extrasButtons: [UIView] = []
 
     init(game: LucaGame, profile: LucaProfile, boot: Bool, onSound: @escaping (String) -> Void,
          onAction: @escaping (LucaTitleScreen.Action) -> Void) {
@@ -135,15 +142,21 @@ final class LucaColumnTitleScreen: UIView {
             titleLayer.addSubview(view)
         }
         let column = sheet.width / 2
-        let top: CGFloat = 1080 - CGFloat(Self.rows.count) * CGFloat(rowHeight) - 120
-        for (index, entry) in Self.rows.enumerated() {
-            let plain = sheet.cropping(to: CGRect(x: 0, y: entry.row * rowHeight, width: column, height: rowHeight))
-            let lit = sheet.cropping(to: CGRect(x: column, y: entry.row * rowHeight, width: column, height: rowHeight))
-            let button = LucaIconButton(plain: plain, lit: lit)
-            button.frame = CGRect(x: 1920 - CGFloat(column) - 120, y: top + CGFloat(index * rowHeight),
-                                  width: CGFloat(column), height: CGFloat(rowHeight))
-            add(button, action: entry.action)
+        func place(_ rows: [(row: Int, title: String, action: LucaTitleScreen.Action?)], hidden: Bool) -> [UIView] {
+            let top: CGFloat = 1080 - CGFloat(Self.rows.count) * CGFloat(rowHeight) - 120
+            return rows.enumerated().map { index, entry in
+                let plain = sheet.cropping(to: CGRect(x: 0, y: entry.row * rowHeight, width: column, height: rowHeight))
+                let lit = sheet.cropping(to: CGRect(x: column, y: entry.row * rowHeight, width: column, height: rowHeight))
+                let button = LucaIconButton(plain: plain, lit: lit)
+                button.frame = CGRect(x: 1920 - CGFloat(column) - 120, y: top + CGFloat(index * rowHeight),
+                                      width: CGFloat(column), height: CGFloat(rowHeight))
+                button.isHidden = hidden
+                add(button, action: entry.action)
+                return button
+            }
         }
+        mainButtons = place(Self.rows, hidden: false)
+        extrasButtons = place(Self.extrasRows, hidden: true)
     }
 
     /// Plain words over black, for a game without title art.
@@ -154,28 +167,45 @@ final class LucaColumnTitleScreen: UIView {
         name.textColor = .white
         name.textAlignment = .center
         titleLayer.addSubview(name)
-        for (index, entry) in Self.rows.enumerated() {
-            let button = UIButton(type: .system)
-            button.setTitle(entry.title, for: .normal)
-            button.titleLabel?.font = .systemFont(ofSize: 56, weight: .medium)
-            button.tintColor = .white
-            button.frame = CGRect(x: 760, y: 440 + CGFloat(index) * 100, width: 400, height: 90)
-            add(button, action: entry.action)
+        func place(_ rows: [(row: Int, title: String, action: LucaTitleScreen.Action?)], hidden: Bool) -> [UIView] {
+            rows.enumerated().map { index, entry in
+                let button = UIButton(type: .system)
+                button.setTitle(entry.title, for: .normal)
+                button.titleLabel?.font = .systemFont(ofSize: 56, weight: .medium)
+                button.tintColor = .white
+                button.frame = CGRect(x: 760, y: 340 + CGFloat(index) * 100, width: 400, height: 90)
+                button.isHidden = hidden
+                add(button, action: entry.action)
+                return button
+            }
         }
+        mainButtons = place(Self.rows, hidden: false)
+        extrasButtons = place(Self.extrasRows, hidden: true)
     }
 
-    private func add(_ control: UIControl, action: LucaTitleScreen.Action) {
+    /// A row with no action switches between the main column and Extras' (Extras, Back).
+    private func add(_ control: UIControl, action: LucaTitleScreen.Action?) {
         control.addAction(UIAction { [weak self] _ in
-            self?.onSound("title_hit")
-            self?.onAction(action)
+            guard let self else { return }
+            self.onSound("title_hit")
+            if let action { self.onAction(action) } else { self.showExtras(self.extrasButtons.first?.isHidden ?? false) }
         }, for: .touchUpInside)
         titleLayer.addSubview(control)
+    }
+
+    private func showExtras(_ extras: Bool) {
+        UIView.animate(withDuration: 0.2) {
+            self.mainButtons.forEach { $0.alpha = extras ? 0 : 1 }
+            self.extrasButtons.forEach { $0.alpha = extras ? 1 : 0 }
+        }
+        mainButtons.forEach { $0.isHidden = extras }
+        extrasButtons.forEach { $0.isHidden = !extras; $0.alpha = extras ? 1 : 0 }
     }
 
     /// The menu takes touches first once it's up.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if menuShown {
-            for control in titleLayer.subviews.reversed() where control is UIControl {
+            for control in titleLayer.subviews.reversed() where control is UIControl && !control.isHidden {
                 if control.point(inside: convert(point, to: control), with: event) { return control }
             }
         }

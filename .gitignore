@@ -7,3 +7,4 @@ DerivedData/
 Vendor/
 build/
 Scripts/kirikiri/harness/harness
+.claude/worktrees/
