@@ -24,6 +24,26 @@ final class CatSystemAudio {
     var musicVolume: Float = 0.7
     var voiceVolume: Float = 1
     var effectVolume: Float = 0.8
+    /// The system screens' sounds (channels `sys-…`).
+    var systemVolume: Float = 0.8
+
+    private func volume(forEffect channel: String) -> Float {
+        channel.hasPrefix("sys-") ? systemVolume : effectVolume
+    }
+
+    /// Takes new volumes (the CONFIG screen) for what is playing now too.
+    func setVolumes(music: Float, voice: Float, effects: Float, system: Float) {
+        musicVolume = music
+        voiceVolume = voice
+        effectVolume = effects
+        systemVolume = system
+        fades.removeAll { !$0.stop }
+        self.music?.volume = music
+        self.voice?.volume = voice
+        for (channel, node) in self.effects {
+            node.volume = volume(forEffect: channel) * (effectLevels[channel]?.to ?? 1)
+        }
+    }
 
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
@@ -88,12 +108,19 @@ final class CatSystemAudio {
     /// A sound effect on a channel (`se 0 se2041`, or a system screen's `se1`).
     func playEffect(_ name: String, channel: String, loop: Bool = false, game: CatSystemGame) {
         stop(effects[channel], frames: 0)
+        // A new sound on the channel starts at the channel's level, without its old fade.
+        if let level = effectLevels[channel] { effectLevels[channel] = (0, nil, level.to) }
         effects[channel] = nil
         let ticket = request("se" + channel)
         decode(name, game: game) { [weak self] buffer in
             guard let self, self.requested["se" + channel] == ticket, let buffer else { return }
-            let node = self.play(buffer, loop: loop, volume: self.effectVolume, fadeFrames: 0)
+            let level = self.effectLevels[channel]
+            let base = self.volume(forEffect: channel)
+            let node = self.play(buffer, loop: loop, volume: base * (level?.from ?? level?.to ?? 1), fadeFrames: 0)
             self.effects[channel] = node
+            if let level, let node, level.frames > 0 {
+                self.fades.append((node, node.volume, base * level.to, CACurrentMediaTime(), Double(level.frames) / 60, false))
+            }
             if !loop, let node {
                 let length = Double(buffer.frameLength) / buffer.format.sampleRate
                 DispatchQueue.main.asyncAfter(deadline: .now() + length + 0.3) { [weak self] in
@@ -102,6 +129,24 @@ final class CatSystemAudio {
                     self.effects[channel] = nil
                 }
             }
+        }
+    }
+
+    /// A channel's level (0–1, times the effects volume) as `se N fade`/`vol` set it, kept for
+    /// the channel's next sound too (an effect still decoding fades in once it starts).
+    private var effectLevels: [String: (frames: Int, from: Float?, to: Float)] = [:]
+
+    func fadeEffect(_ channel: String, frames: Int, from: Float?, to: Float) {
+        effectLevels[channel] = (frames, from, to)
+        guard let node = effects[channel] else { return }
+        effectLevels[channel] = (0, nil, to)
+        fades.removeAll { $0.node === node }
+        let base = volume(forEffect: channel)
+        if frames > 0 {
+            let start = from.map { base * $0 } ?? node.volume
+            fades.append((node, start, base * to, CACurrentMediaTime(), Double(frames) / 60, false))
+        } else {
+            node.volume = base * to
         }
     }
 
@@ -142,6 +187,7 @@ final class CatSystemAudio {
         voice = nil
         voiceName = nil
         effects.removeAll()
+        effectLevels.removeAll()
         fades.removeAll()
         engine.stop()
     }
