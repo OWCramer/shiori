@@ -84,14 +84,18 @@ extension View {
 /// Key art with the game's logo and a metadata line centred over it, ramping into the
 /// page background.
 struct GameHeroHeader: View {
+    /// The banner's height on game pages, which Home's lead game shares so both crop the
+    /// art the same way.
+    static let standardHeight: CGFloat = 400
+
     var game: LibraryGame
     var subtitle: String
-    var height: CGFloat = 400
+    var height: CGFloat = Self.standardHeight
     var overscroll: CGFloat = 0
 
     var body: some View {
         StretchyHeader(height: height, overscroll: overscroll) {
-            RemoteImage(url: game.hero, fallback: game.header) { ArtworkPlaceholder(title: game.name) }
+            HeroArtwork(game: game)
         }
         .overlay(alignment: .bottom) {
             // A tall, gentle ramp; a short steep fade reads as a blurred band.
@@ -138,6 +142,16 @@ struct GameHeroHeader: View {
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.6), radius: 8, y: 2)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A game's wide hero banner (Steam's library hero, or the SteamGridDB pick), filling its
+/// frame from the centre, else its header, else a placeholder. Game pages and Home use it.
+struct HeroArtwork: View {
+    var game: LibraryGame
+
+    var body: some View {
+        RemoteImage(url: game.hero, fallback: game.header) { ArtworkPlaceholder(title: game.name) }
     }
 }
 
