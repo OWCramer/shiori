@@ -62,6 +62,19 @@ struct SettingsView: View {
                     Text("Saves always download from Steam Cloud. With uploads on, saves made here go up when a game closes, replacing the PC's copy if it's older; Shiori keeps a backup of every cloud file it replaces.")
                 }
 
+                #if !os(tvOS)
+                Section {
+                    Toggle("MetalFX upscaling", isOn: Binding(
+                        get: { KiriKiriGameViewController.upscalingEnabled },
+                        set: { KiriKiriGameViewController.upscalingEnabled = $0 }
+                    ))
+                } header: {
+                    Text("Display")
+                } footer: {
+                    Text("KiriKiri games (NEKOPARA and others) draw at 1280×720. MetalFX enlarges them to the screen with sharper edges and text; off, Shiori uses a smooth bicubic filter. Applies the next time a game starts.")
+                }
+                #endif
+
                 SteamGridDBKeySection()
 
                 Section {
