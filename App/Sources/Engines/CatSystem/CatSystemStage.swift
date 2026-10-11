@@ -7,11 +7,13 @@ import QuartzCore
 final class CatSystemStageResources: @unchecked Sendable {
     let gpu: EmoteGPU
     let wipePipeline: MTLRenderPipelineState
+    let mosaicPipeline: MTLRenderPipelineState
     let sampler: MTLSamplerState
 
-    private init(gpu: EmoteGPU, wipePipeline: MTLRenderPipelineState, sampler: MTLSamplerState) {
+    private init(gpu: EmoteGPU, wipePipeline: MTLRenderPipelineState, mosaicPipeline: MTLRenderPipelineState, sampler: MTLSamplerState) {
         self.gpu = gpu
         self.wipePipeline = wipePipeline
+        self.mosaicPipeline = mosaicPipeline
         self.sampler = sampler
     }
 
@@ -30,13 +32,20 @@ final class CatSystemStageResources: @unchecked Sendable {
         let s = MTLSamplerDescriptor()
         s.minFilter = .linear; s.magFilter = .linear
         s.sAddressMode = .clampToEdge; s.tAddressMode = .clampToEdge
+        let m = MTLRenderPipelineDescriptor()
+        m.vertexFunction = library.makeFunction(name: "wipeVertex")
+        m.fragmentFunction = library.makeFunction(name: "mosaicFragment")
+        m.colorAttachments[0].pixelFormat = .bgra8Unorm
         guard let pipeline = try? device.makeRenderPipelineState(descriptor: d),
+              let mosaic = try? device.makeRenderPipelineState(descriptor: m),
               let sampler = device.makeSamplerState(descriptor: s) else { return nil }
-        return CatSystemStageResources(gpu: gpu, wipePipeline: pipeline, sampler: sampler)
+        return CatSystemStageResources(gpu: gpu, wipePipeline: pipeline, mosaicPipeline: mosaic, sampler: sampler)
     }
 
     /// A rule wipe: the last frame drawn over the new one, gone where the rule picture's
     /// grey is below the wipe's progress (dark parts first), with a soft edge `vague` wide.
+    /// A mosaic (`rwmos`): both frames in square blocks that grow to the largest size at the
+    /// middle and shrink again, the old frame giving way to the new one about the middle.
     private static let shaders = """
     #include <metal_stdlib>
     using namespace metal;
@@ -54,6 +63,15 @@ final class CatSystemStageResources: @unchecked Sendable {
         float r = rule.sample(s, in.uv).r;
         float shown = saturate((p.x * (1 + p.y) - r) / p.y);
         return last.sample(s, in.uv) * (1 - shown);
+    }
+    fragment float4 mosaicFragment(VOut in [[stage_in]], constant float4 &p [[buffer(0)]],
+                                   texture2d<float> last [[texture(0)]], texture2d<float> next [[texture(1)]],
+                                   sampler s [[sampler(0)]]) {
+        // p.x the progress (0–1), p.y the largest block in drawable pixels, p.zw the size.
+        float block = max(1.0, round(p.y * (1.0 - abs(2.0 * p.x - 1.0))));
+        float2 uv = min((floor(in.uv * p.zw / block) + 0.5) * block, p.zw - 0.5) / p.zw;
+        float4 a = last.sample(s, uv), b = next.sample(s, uv);
+        return float4(mix(a, b, smoothstep(0.3, 0.7, p.x)).rgb, 1);
     }
     """
 }
@@ -77,6 +95,8 @@ final class CatSystemStageRenderer {
     private var fadeLength = 0.0
     /// The rule picture of the transition under way (nil: a crossfade).
     private var rule: MTLTexture?
+    /// The mosaic's largest block in game pixels, for an `rwmos` under way.
+    private var mosaic: Double?
     private let gameWidth = 1280, gameHeight = 720
     /// When each model's textures became ready, if a frame had to wait for them (-1 while
     /// waiting).
@@ -148,12 +168,14 @@ final class CatSystemStageRenderer {
 
     /// From the next frame, the screen crossfades from the last frame drawn over `seconds`,
     /// or wipes by `rule` (a rule picture's texture) when one is given.
-    func transition(seconds: Double, rule: MTLTexture? = nil) {
+    /// `mosaic` (game pixels) makes it a mosaic instead.
+    func transition(seconds: Double, rule: MTLTexture? = nil, mosaic: Double? = nil) {
         guard seconds > 0, current != nil else { return }
         swap(&previous, &current)
         fadeStart = CACurrentMediaTime()
         fadeLength = seconds
         self.rule = rule
+        self.mosaic = rule == nil ? mosaic : nil
     }
 
     func crossfade(seconds: Double) { transition(seconds: seconds) }
@@ -173,8 +195,8 @@ final class CatSystemStageRenderer {
     // MARK: Frames
 
     /// Draws a frame: `below` (the planes under the characters, in order), `drawings` (from
-    /// `EmoteStage`), then `above`.
-    func render(below: [PlaneDrawing], _ drawings: [EmoteStage.Drawing], above: [PlaneDrawing]) {
+    /// `EmoteStage`), `marks` (emotion marks by the characters' heads), then `above`.
+    func render(below: [PlaneDrawing], _ drawings: [EmoteStage.Drawing], marks: [PlaneDrawing] = [], above: [PlaneDrawing]) {
         let started = CACurrentMediaTime()
         let size = layer.drawableSize
         let width = Int(size.width), height = Int(size.height)
@@ -225,6 +247,7 @@ final class CatSystemStageRenderer {
                 gpu.draw(c.prepared, encoder: encoder, width: width, height: height)
             }
         }
+        marks.forEach(plane)
         above.forEach(plane)
         encoder.endEncoding()
 
@@ -235,6 +258,14 @@ final class CatSystemStageRenderer {
                 let t = (now - fadeStart) / fadeLength
                 if t >= 1 {
                     fadeLength = 0
+                } else if let mosaic {
+                    var p = SIMD4<Float>(Float(t), Float(mosaic * s), Float(width), Float(height))
+                    present.setRenderPipelineState(resources.mosaicPipeline)
+                    present.setFragmentBytes(&p, length: 16, index: 0)
+                    present.setFragmentTexture(previous, index: 0)
+                    present.setFragmentTexture(current, index: 1)
+                    present.setFragmentSamplerState(resources.sampler, index: 0)
+                    present.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
                 } else if let rule {
                     var p = SIMD2<Float>(Float(t), 0.12)
                     present.setRenderPipelineState(resources.wipePipeline)
