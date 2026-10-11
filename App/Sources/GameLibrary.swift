@@ -136,9 +136,14 @@ final class GameLibrary {
             guard let data = try? Data(contentsOf: url),
                   var record = try? Self.decoder.decode(GameRecord.self, from: data)
             else { continue }
-            // Installed before Shiori knew its engine: look again (detection reads a few names).
-            if record.engine == nil,
-               let engine = EngineDetection.detect(gameRoot: url.deletingLastPathComponent().appendingPathComponent("base", isDirectory: true)) {
+            // Installed before Shiori knew its engine, or recorded as one no runtime takes (an
+            // older detector read Sakura Isekai Adventure's Ren'Py 8.1 as its Python 2 twin,
+            // 7.6): look again (detection reads a few small files).
+            let stale = record.engine == nil
+                || (record.engine?.engine == RenPyEngine.id && record.engine.map(RenPyEngine.incompatibility) != nil)
+            if stale,
+               let engine = EngineDetection.detect(gameRoot: url.deletingLastPathComponent().appendingPathComponent("base", isDirectory: true)),
+               engine != record.engine {
                 record.engine = engine
                 try? Self.encoder.encode(record).write(to: url, options: .atomic)
             }
