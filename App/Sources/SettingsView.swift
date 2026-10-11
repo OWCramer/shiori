@@ -75,6 +75,10 @@ struct SettingsView: View {
                 }
                 #endif
 
+                #if os(iOS)
+                DenpasoftSection()
+                #endif
+
                 SteamGridDBKeySection()
 
                 Section {
@@ -96,3 +100,30 @@ struct SettingsView: View {
         }
     }
 }
+
+#if os(iOS)
+/// Settings › Denpasoft: the account Shiori downloads Denpasoft's patches with.
+private struct DenpasoftSection: View {
+    @State private var signingIn = false
+    private var account: DenpasoftAccount { .shared }
+
+    var body: some View {
+        Section {
+            if account.isSignedIn {
+                LabeledContent("Patches in your downloads", value: "\(account.downloads.count)")
+                Button("Sign Out", role: .destructive) { Task { await account.signOut() } }
+            } else {
+                Button("Sign In to Denpasoft") { signingIn = true }
+            }
+        } header: {
+            Text("Denpasoft")
+        } footer: {
+            Text("Many of Denpasoft's 18+ patches are free but need an account. Sign in on Denpasoft's own page; Shiori never sees your password, keeps the session on this device, and installs the patches in your Denpasoft downloads from each game's page.")
+        }
+        .sheet(isPresented: $signingIn) {
+            DenpasoftWebSheet(url: DenpasoftAccount.account, title: "Sign In to Denpasoft")
+        }
+        .task { if account.isSignedIn { await account.refresh() } }
+    }
+}
+#endif

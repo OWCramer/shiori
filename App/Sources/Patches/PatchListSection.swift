@@ -15,6 +15,10 @@ struct PatchListSection: View {
     @Environment(GameLibrary.self) private var games
     @Environment(\.openURL) private var openURL
     @State private var dlcs: [DLCInfo]?
+    #if os(iOS)
+    @State private var denpasoftPage: URL?
+    private var denpasoft: DenpasoftAccount { .shared }
+    #endif
     /// The question being asked: install (or update) a patch, or remove it. One dialog, since
     /// SwiftUI drops a second confirmationDialog on the same view.
     @State private var prompt: Prompt?
@@ -50,6 +54,14 @@ struct PatchListSection: View {
             dlcs = try? await steam.session.dlcs(appID: appID)
         }
         .onChange(of: installer.installed[appID]) { onChange() }
+        #if os(iOS)
+        .task(id: patches.contains { denpasoftProduct($0) != nil }) {
+            if patches.contains(where: { denpasoftProduct($0) != nil }) { await denpasoft.refresh() }
+        }
+        .sheet(isPresented: Binding(get: { denpasoftPage != nil }, set: { if !$0 { denpasoftPage = nil } })) {
+            if let url = denpasoftPage { DenpasoftWebSheet(url: url, title: "Denpasoft") }
+        }
+        #endif
         .alert(promptTitle, isPresented: Binding(
             get: { prompt != nil }, set: { if !$0 { prompt = nil } }
         ), presenting: prompt) { prompt in
@@ -173,6 +185,21 @@ struct PatchListSection: View {
             Button("Install", systemImage: "arrow.down.circle") { prompt = .install(patch) }
                 .buttonStyle(.glass).font(.caption)
                 .disabled(busy)
+        } else if let denpasoftURL = denpasoftProduct(patch) {
+            #if os(iOS)
+            if denpasoft.isSignedIn, denpasoft.download(forProductURL: denpasoftURL) != nil {
+                Button("Install", systemImage: "arrow.down.circle") { prompt = .install(patch) }
+                    .buttonStyle(.glass).font(.caption)
+                    .disabled(busy)
+            } else {
+                Button(patch.files.first?.price?.lowercased() == "free" ? "Free" : "Buy", systemImage: "arrow.up.right") {
+                    denpasoftPage = URL(string: denpasoftURL)
+                }
+                .buttonStyle(.glass).font(.caption)
+            }
+            #else
+            EmptyView()
+            #endif
         } else if let dlc = patch.files.first?.dlc, dlcs?.first(where: { $0.appID == dlc })?.owned == true {
             Label("Owned", systemImage: "checkmark.circle.fill")
                 .font(.caption).foregroundStyle(.teal)
@@ -257,6 +284,12 @@ struct PatchListSection: View {
         return "\(patch.by) · via \(site)"
     }
 
+    /// The Denpasoft product page of a patch Denpasoft sells or gives away.
+    private func denpasoftProduct(_ patch: PatchListStore.Patch) -> String? {
+        guard let file = patch.files.first, file.host == "store", file.url.contains("denpasoft.com/product") else { return nil }
+        return file.url
+    }
+
     private func externalLink(_ patch: PatchListStore.Patch) -> (title: String, url: URL)? {
         guard let file = patch.files.first, let url = URL(string: file.url) else { return nil }
         switch file.host {
@@ -276,7 +309,11 @@ struct PatchListSection: View {
         else { parts.append("Downloads the patch and installs it into this game's patch folder.") }
         if !patch.official { parts.append("This is a community patch, not one from the game's publisher.") }
         if patch.verified == nil { parts.append("Nobody has checked it in Shiori yet; if the game misbehaves, remove it from here.") }
-        if patch.files.contains(where: { $0.sha256 == nil }) { parts.append("The list has no checksum for it yet, so the download can't be checked.") }
+        if denpasoftProduct(patch) != nil {
+            parts.append("It downloads from your Denpasoft account.")
+        } else if patch.files.contains(where: { $0.sha256 == nil }) {
+            parts.append("The list has no checksum for it yet, so the download can't be checked.")
+        }
         if !(installer.installed[appID] ?? []).isEmpty, installedVersion(patch) == nil {
             parts.append("Files it shares with an installed patch are replaced by this one.")
         }

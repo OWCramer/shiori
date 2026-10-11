@@ -152,7 +152,7 @@ final class PatchInstaller {
                 try? fm.removeItem(at: partial)
                 throw Failure.hashMismatch(result.name)
             }
-            downloaded.append((partial, file.name ?? result.name))
+            downloaded.append((result.file, file.name ?? result.name))
         }
 
         jobs[appID]?.phase = .installing(fraction: 0)
@@ -176,6 +176,20 @@ final class PatchInstaller {
     }
 
     private func downloadFile(_ file: PatchListStore.Patch.File, to partial: URL, appID: UInt32, part: Int, parts: Int) async throws -> PatchDownloader.Result {
+        #if os(iOS)
+        // A Denpasoft product: downloaded through the player's signed-in Denpasoft session.
+        if file.host == "store", file.url.contains("denpasoft.com") {
+            let account = DenpasoftAccount.shared
+            await account.refresh()
+            guard let item = account.download(forProductURL: file.url) else { throw DenpasoftAccount.Failure.notInAccount }
+            let saved = try await account.fetch(item, to: partial) { [weak self] written, total in
+                self?.jobs[appID]?.phase = .downloading(written: written, total: total, part: part, parts: parts)
+            }
+            let size = ((try? FileManager.default.attributesOfItem(atPath: saved.path)[.size]) as? Int64) ?? 0
+            let hash = try await Task.detached { try PatchDownloader.sha256(of: saved) }.value
+            return PatchDownloader.Result(file: saved, name: saved.lastPathComponent, size: size, sha256: hash)
+        }
+        #endif
         let sources = [(file.host, file.url)] + (file.mirrors ?? []).map { ($0.host, $0.url) }
         var lastError: Error = PatchDownloader.Failure.unsupportedLink
         for (host, link) in sources where ["direct", "gdrive", "mega", "wetransfer"].contains(host) {
