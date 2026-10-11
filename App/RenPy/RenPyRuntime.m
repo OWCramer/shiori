@@ -693,7 +693,7 @@ static void WatchForFirstFrame(void) {
 }
 
 static void RestoreGameLayout(void);
-static void FitGameViews(void);
+static void FitGameViews(BOOL makeKey);
 
 static UIWindowScene *ActiveWindowScene(void) {
     UIWindowScene *fallback = nil;
@@ -725,7 +725,7 @@ static void AttachSDLWindowsToScene(void) {
             gameWindow = window;
             // Once SDL has shown it, keep the hub's own window from showing through.
             dispatch_async(dispatch_get_main_queue(), ^{ HideHubWindows(); });
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ FitGameViews(); });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ FitGameViews(YES); });
             return window;
         });
         const char *types = method_getTypeEncoding(class_getInstanceMethod(UIWindow.class, @selector(initWithFrame:)));
@@ -763,7 +763,7 @@ static void RequestLandscape(void) {
 /// rebuilds its GL context, and SDL creates a fresh GL view sized to whatever the window
 /// was at that instant (often the portrait background snapshot) with no autoresizing, so
 /// it stays portrait-sized in a landscape window and ignores later rotations.
-static void FitGameViews(void) {
+static void FitGameViews(BOOL makeKey) {
     UIWindow *window = gameWindow;
     if (!window.windowScene) return;
     CGRect bounds = window.windowScene.coordinateSpace.bounds;
@@ -783,19 +783,28 @@ static void FitGameViews(void) {
         [root setNeedsLayout];
         [root layoutIfNeeded];
     }
-    if (!window.isKeyWindow) [window makeKeyAndVisible];
+    if (makeKey && !window.isKeyWindow) [window makeKeyAndVisible];
 }
 
-/// Coming back from the Home Screen: ask for landscape again and refit SDL's views a few
-/// times, since Ren'Py recreates its GL view shortly after the app becomes active.
+/// Coming back from the Home Screen: ask for landscape again and refit SDL's views.
 static void RestoreGameLayout(void) {
     if (!gameWindow) return;
     RequestLandscape();
     HideHubWindows();
-    for (NSNumber *delay in @[@0.0, @0.3, @0.8, @1.5, @3.0]) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{ FitGameViews(); });
-    }
+    FitGameViews(YES);
+}
+
+/// Keeps SDL's views fitted while a game runs. Ren'Py recreates its GL view shortly after
+/// the app becomes active, and iPadOS resizes the window for the app switcher without the
+/// app leaving the foreground; a view left at the old size drew the game small in a corner
+/// until the next refit (the user, 2026-10-10). Four checks a second cost nothing when it fits.
+static NSTimer *StartLayoutWatch(void) {
+    NSTimer *timer = [NSTimer timerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *t) {
+        // Never takes key status here: the system keyboard or an alert may hold it.
+        if (gameWindow) FitGameViews(NO);
+    }];
+    [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
+    return timer;
 }
 
 int shiori_renpy_run(const char *runtime, const char *gameFolder, const char *launcherName, const char *saveDirectory) {
@@ -818,6 +827,7 @@ int shiori_renpy_run(const char *runtime, const char *gameFolder, const char *la
     id activation = [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
                                                                      queue:NSOperationQueue.mainQueue
                                                                 usingBlock:^(NSNotification *note) { RestoreGameLayout(); }];
+    NSTimer *layoutWatch = StartLayoutWatch();
     sdl.setMainReady();
 #if DEBUG
     ScheduleScriptedInput();
@@ -832,6 +842,7 @@ int shiori_renpy_run(const char *runtime, const char *gameFolder, const char *la
 
     free(argv0);
     [NSNotificationCenter.defaultCenter removeObserver:activation];
+    [layoutWatch invalidate];
     running = 0;
     return status;
 }
