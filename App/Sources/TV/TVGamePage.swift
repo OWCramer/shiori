@@ -61,7 +61,7 @@ struct TVGamePage: View {
 
     private var chips: some View {
         HStack(spacing: 14) {
-            if engine != nil { chip(Playability.badge(engine), tint: Playability(engine) == .playable ? .green : nil) }
+            if engine != nil { chip(Playability.badge(engine, appID: appID), tint: Playability(engine) == .playable ? .green : nil) }
             if let entry = compatibility.entry(for: appID)?.entry { chip(entry.status.rawValue.capitalized, tint: entry.status == .unsupported ? .red : nil) }
         }
     }

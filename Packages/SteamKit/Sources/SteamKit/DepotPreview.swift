@@ -31,6 +31,24 @@ public struct DepotPreview: Sendable {
         }
         return nil
     }
+
+    /// The first bytes of one file (at least `length`, rounded up to whole chunks, usually
+    /// one), for reading a header out of a file too big to fetch. Nil if the game doesn't have it.
+    public func prefix(of path: String, length: UInt64) async throws -> Data? {
+        let wanted = path.lowercased()
+        for job in jobs {
+            guard let file = job.manifest.files.first(where: { $0.name.lowercased() == wanted && !$0.isDirectory }) else { continue }
+            var data = Data()
+            for chunk in file.chunks where chunk.offset < length {
+                // Chunks are sorted by offset; stop at a gap rather than return misplaced bytes.
+                guard chunk.offset == UInt64(data.count) else { break }
+                let compressed = try await cdn.chunk(depotID: job.depot.depotID, chunk: chunk)
+                data.append(try DepotWriter.decode(compressed, chunk: chunk, key: job.key))
+            }
+            return data
+        }
+        return nil
+    }
 }
 
 extension SteamSession {

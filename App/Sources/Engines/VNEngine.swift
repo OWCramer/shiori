@@ -61,7 +61,9 @@ enum EngineDetection {
                 || FileManager.default.fileExists(atPath: root.appendingPathComponent("www/js/rpg_core.js").path)
                 || FileManager.default.fileExists(atPath: root.appendingPathComponent("js/rmmz_core.js").path)
         },
-        Signature(id: "unity", name: "Unity") { names, _ in names.contains("unityplayer.dll") || names.contains { $0.hasSuffix("_data") } },
+        // UnityPlayer.dll or a <Name>_Data/ folder with the player's own files, at the root or
+        // one folder down; not any name ending in _data (UnityLayout).
+        Signature(id: "unity", name: "Unity") { _, root in UnityLayout.find(in: root) != nil },
         Signature(id: "godot", name: "Godot") { names, _ in names.contains { $0.hasSuffix(".pck") } },
     ]
 
@@ -71,6 +73,7 @@ enum EngineDetection {
         }
         let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: gameRoot.path)) ?? []).map { $0.lowercased() })
         if let signature = signatures.first(where: { $0.matches(names, gameRoot) }) {
+            if signature.id == "unity", let unity = UnityLayout.match(in: gameRoot) { return unity }
             return EngineMatch(engine: signature.id, version: nil)
         }
         return nil

@@ -141,6 +141,8 @@ final class GameLibrary {
             // 7.6): look again (detection reads a few small files).
             let stale = record.engine == nil
                 || (record.engine?.engine == RenPyEngine.id && record.engine.map(RenPyEngine.incompatibility) != nil)
+                // Unity from before the layout check (any `_data` name), with no version or backend.
+                || (record.engine?.engine == "unity" && record.engine?.version == nil && record.engine?.details["backend"] == nil)
             if stale,
                let engine = EngineDetection.detect(gameRoot: url.deletingLastPathComponent().appendingPathComponent("base", isDirectory: true)),
                engine != record.engine {
@@ -566,6 +568,7 @@ final class GameLibrary {
     /// Why the game can't be played, or nil if Play should be offered.
     func playBlocker(appID: UInt32) -> String? {
         guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
+        if let message = Playability.unsupportedMessage(record.engine, appID: appID) { return message }
         guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
         if engine.engine == "artemis" || engine.engine == "siglus" || engine.engine == "luca" { return nil }
         if engine.engine == "catsystem2" {

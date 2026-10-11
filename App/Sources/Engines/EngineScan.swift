@@ -30,6 +30,14 @@ enum Playability: Equatable {
     case needsRuntime(String)
     case unsupportedEngine(String)
     case unknownEngine
+    /// A server-backed game (OnlineGames), whatever it's built with.
+    case onlineGame
+
+    /// For a particular game: online games first, then by engine.
+    init(_ engine: EngineMatch?, appID: UInt32) {
+        if OnlineGames.contains(appID) { self = .onlineGame; return }
+        self.init(engine)
+    }
 
     init(_ engine: EngineMatch?) {
         guard let engine else { self = .unknownEngine; return }
@@ -57,6 +65,26 @@ enum Playability: Equatable {
         }
         return name
     }
+
+    static func badge(_ engine: EngineMatch?, appID: UInt32) -> String {
+        OnlineGames.contains(appID) ? OnlineGames.badge : badge(engine)
+    }
+
+    /// "Unity 2018.4.0f1, Mono": what a Unity scan found, for the unsupported message.
+    static func unityBuild(_ engine: EngineMatch?) -> String? {
+        guard let engine, engine.engine == "unity" else { return nil }
+        let parts = [engine.version, engine.details["backend"]].compactMap { $0 }
+        return parts.isEmpty ? "Unity" : "Unity " + parts.joined(separator: ", ")
+    }
+
+    /// What the game page says about a game Shiori can't play.
+    static func unsupportedMessage(_ engine: EngineMatch?, appID: UInt32) -> String? {
+        if OnlineGames.contains(appID) { return OnlineGames.explanation }
+        if let unity = unityBuild(engine) {
+            return "Built with \(unity). Shiori doesn't play Unity games; they can be downloaded and patched here."
+        }
+        return nil
+    }
 }
 
 /// Detects engines from depot manifests and keeps the results on disk.
@@ -69,7 +97,7 @@ final class EngineScanStore {
     private let session: SteamSession
 
     /// Bumped when detection changes, so older results are scanned again.
-    private static var url: URL { URL.shioriSupport.appendingPathComponent("engine-scan-6.json") }
+    private static var url: URL { URL.shioriSupport.appendingPathComponent("engine-scan-7.json") }
 
     init(session: SteamSession) {
         self.session = session
@@ -144,17 +172,21 @@ final class EngineScanStore {
             // Placeholders for everything two levels deep, plus a few deeper marker files.
             // Folders first (any path with children is a folder), then empty files.
             let markers: Set<String> = ["www/js/rpg_core.js", "js/rmmz_core.js", "resources/app/tyrano"]
+            // A Unity player one folder down (`WEE3 HD/WEE3_Data/…`) is looked at one level deeper.
+            func unityNested(_ parts: [String]) -> Bool { parts.count >= 3 && parts[1].lowercased().hasSuffix("_data") }
             var folders: Set<String> = []
             for path in preview.paths {
                 let parts = path.split(separator: "/").map(String.init)
-                for depth in 1 ..< min(parts.count, 3) { folders.insert(parts.prefix(depth).joined(separator: "/")) }
+                let limit = unityNested(parts) ? 4 : 3
+                for depth in 1 ..< min(parts.count, limit) { folders.insert(parts.prefix(depth).joined(separator: "/")) }
             }
             for folder in folders {
                 try fm.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
             }
             for path in preview.paths where !folders.contains(path) {
-                let depth = path.split(separator: "/").count
-                guard depth <= 2 || markers.contains(path.lowercased()) else { continue }
+                let parts = path.split(separator: "/").map(String.init)
+                let depth = parts.count
+                guard depth <= 2 || markers.contains(path.lowercased()) || (depth == 3 && unityNested(parts)) else { continue }
                 let url = root.appendingPathComponent(path)
                 try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
@@ -167,7 +199,19 @@ final class EngineScanStore {
                     try data.write(to: url)
                 }
             }
-            return EngineScanResult(engine: EngineDetection.detect(gameRoot: root), installSize: preview.totalSize, scannedAt: .now)
+            var engine = EngineDetection.detect(gameRoot: root)
+            // Unity: the version sits in the first bytes of the player's data (one chunk).
+            if engine?.engine == "unity", let found = UnityLayout.find(in: root), let data = found.dataFolder {
+                let folder = found.folder.isEmpty ? data : "\(found.folder)/\(data)"
+                for name in UnityLayout.versionFiles {
+                    guard let path = preview.paths.first(where: { $0.lowercased() == "\(folder)/\(name)".lowercased() }),
+                          let head = try await preview.prefix(of: path, length: 256), !head.isEmpty else { continue }
+                    try head.prefix(4096).write(to: root.appendingPathComponent(path))
+                    engine = EngineDetection.detect(gameRoot: root)
+                    break
+                }
+            }
+            return EngineScanResult(engine: engine, installSize: preview.totalSize, scannedAt: .now)
         } catch {
             return EngineScanResult(engine: nil, installSize: 0, scannedAt: .now,
                                     error: (error as? SteamError)?.description ?? error.localizedDescription)

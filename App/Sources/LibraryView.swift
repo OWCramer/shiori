@@ -147,15 +147,18 @@ struct CapsuleCard: View {
     /// Before download: what the game runs on, from its manifests. Green when playable.
     @ViewBuilder private var engineBadge: some View {
         if status == .notInstalled, let scan = engineScans.result(for: game.appID), scan.error == nil {
-            let playable = Playability(scan.engine) == .playable
-            Text(Playability.badge(scan.engine))
+            // A beta that plays (WORLD END ECONOMiCA's KiriKiri/Ren'Py originals) counts.
+            let beta = Playability(scan.engine, appID: game.appID) == .playable ? nil : scan.playableBranch
+            let playable = Playability(scan.engine, appID: game.appID) == .playable || beta != nil
+            let label = beta.map { "\(Playability.badge($0.engine)) (beta)" } ?? Playability.badge(scan.engine, appID: game.appID)
+            Text(label)
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(playable ? Color.green.opacity(0.85) : Color.black.opacity(0.6), in: .capsule)
                 .padding(6)
-                .accessibilityLabel(playable ? "Playable, \(Playability.badge(scan.engine))" : Playability.badge(scan.engine))
+                .accessibilityLabel(playable ? "Playable, \(label)" : label)
         }
     }
 

@@ -323,6 +323,8 @@ struct GameDetailView: View {
     private struct BranchHint: Equatable {
         var branch: String
         var detail: String
+        /// The engine scan read that version's files and found an engine Shiori plays.
+        var scanned = false
     }
 
     private var branchHint: BranchHint? {
@@ -341,7 +343,8 @@ struct GameDetailView: View {
         {
             let size = scan.installSize > 0 ? ", \(scan.installSize.formatted(.byteCount(style: .file)))" : ""
             return BranchHint(branch: scan.branch,
-                              detail: "The \(branchTitle(scan.branch)) version is \(engineDescription(scan.engine)) and plays in Shiori (a Steam beta\(size)).")
+                              detail: "The \(branchTitle(scan.branch)) version is \(engineDescription(scan.engine)) and plays in Shiori (a Steam beta\(size)).",
+                              scanned: true)
         }
         if let entry = compatibility.entry(for: appID)?.entry, let branch = entry.branch, branch != current,
            entry.status != .unsupported, branches.isEmpty || branches.contains(branch)
@@ -356,7 +359,8 @@ struct GameDetailView: View {
     @ViewBuilder private var branchSuggestion: some View {
         if let hint = branchHint {
             VStack(alignment: .leading, spacing: 8) {
-                Label("There may be another version of this game that works", systemImage: "arrow.triangle.branch")
+                Label(hint.scanned ? "Another version of this game plays in Shiori" : "There may be another version of this game that works",
+                      systemImage: "arrow.triangle.branch")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.orange)
                 Text(hint.detail).font(.callout)
@@ -438,12 +442,12 @@ struct GameDetailView: View {
                     Label("Couldn't check the engine: \(error)", systemImage: "questionmark.circle")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20)
                 } else {
-                    let playability = Playability(scan.engine)
+                    let playability = Playability(scan.engine, appID: appID)
                     VStack(alignment: .leading, spacing: 4) {
                         Label(engineLine(scan), systemImage: playability == .playable ? "checkmark.circle.fill" : "exclamationmark.triangle")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(playability == .playable ? .green : .orange)
-                        Text(playabilityText(playability)).font(.caption).foregroundStyle(.secondary)
+                        Text(playabilityText(playability, engine: scan.engine)).font(.caption).foregroundStyle(.secondary)
                     }
                     .glassCard()
                     .padding(.horizontal, 20)
@@ -513,16 +517,19 @@ struct GameDetailView: View {
     }
 
     private func engineLine(_ scan: EngineScanResult) -> String {
-        let engine = engineDescription(scan.engine)
+        var engine = engineDescription(scan.engine)
+        if OnlineGames.contains(appID) { engine = scan.engine == nil ? OnlineGames.badge : "\(OnlineGames.badge) · \(engine)" }
         return scan.installSize > 0 ? "\(engine) · \(scan.installSize.formatted(.byteCount(style: .file)))" : engine
     }
 
-    private func playabilityText(_ playability: Playability) -> String {
+    private func playabilityText(_ playability: Playability, engine: EngineMatch?) -> String {
+        if playability != .playable, let message = Playability.unsupportedMessage(engine, appID: appID) { return message }
         switch playability {
-        case .playable: "Playable in Shiori."
-        case let .needsRuntime(reason): reason
-        case let .unsupportedEngine(name): "\(name) games can be downloaded and patched, but not played in Shiori yet."
-        case .unknownEngine: "Shiori doesn't recognise this game's engine."
+        case .playable: return "Playable in Shiori."
+        case let .needsRuntime(reason): return reason
+        case let .unsupportedEngine(name): return "\(name) games can be downloaded and patched, but not played in Shiori yet."
+        case .unknownEngine: return "Shiori doesn't recognise this game's engine."
+        case .onlineGame: return OnlineGames.explanation
         }
     }
 
