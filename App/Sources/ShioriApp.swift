@@ -80,6 +80,7 @@ struct ShioriApp: App {
                 // Settings other devices changed through iCloud Keychain.
                 curation.reload()
                 steam.artwork.reload()
+                PlayHistory.shared.reload()
                 SyncedPreferences.reload()
                 if old == .background { Task { await steam.adoptSyncedSession() } }
                 if old == .background { shiori_renpy_will_enter_foreground() }
@@ -171,7 +172,7 @@ struct RootView: View {
             if controllers.isActive {
                 LauncherView()
             } else {
-                LibraryView()
+                ShowcaseShell()
             }
             #endif
         } else {

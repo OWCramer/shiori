@@ -9,7 +9,7 @@ struct TVHomeView: View {
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
     @Environment(LibraryCuration.self) private var curation
-    @AppStorage("libraryFilter") private var filter: LibraryView.Filter = .visualNovels
+    @AppStorage("libraryFilter") private var filter: LibraryFilter = .visualNovels
     @State private var path: [LibraryGame] = []
     @State private var featured: LibraryGame?
     @State private var showingDownloads = false
@@ -88,7 +88,7 @@ struct TVHomeView: View {
     private func switchTab(_ step: Int) {
         guard path.isEmpty, !showingDownloads, !showingSettings,
               games.artemisSession == nil, games.lucaSession == nil, shiori_renpy_is_running() == 0 else { return }
-        let all = LibraryView.Filter.allCases
+        let all = LibraryFilter.allCases
         guard let index = all.firstIndex(of: filter) else { return }
         let next = index + step
         guard all.indices.contains(next) else { return }
@@ -100,7 +100,7 @@ struct TVHomeView: View {
 
     private var topBar: some View {
         HStack(spacing: 16) {
-            ForEach(LibraryView.Filter.allCases) { tab in
+            ForEach(LibraryFilter.allCases) { tab in
                 Button(tab.rawValue) { filter = tab }
                     .buttonStyle(TVPillButtonStyle(selected: tab == filter))
             }

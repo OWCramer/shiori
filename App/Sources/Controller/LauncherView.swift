@@ -9,7 +9,7 @@ struct LauncherView: View {
     @Environment(GameLibrary.self) private var games
     @Environment(ControllerInput.self) private var pad
     @Environment(LibraryCuration.self) private var curation
-    @AppStorage("libraryFilter") private var filter: LibraryView.Filter = .visualNovels
+    @AppStorage("libraryFilter") private var filter: LibraryFilter = .visualNovels
     @State private var selection = 0
     @State private var menu: LauncherMenu?
     @State private var detail: LibraryGame?
@@ -125,7 +125,7 @@ struct LauncherView: View {
     private var filterTabs: some View {
         HStack(spacing: 14) {
             Image(systemName: pad.symbol(for: .leftShoulder)).foregroundStyle(.secondary)
-            ForEach(LibraryView.Filter.allCases) { tab in
+            ForEach(LibraryFilter.allCases) { tab in
                 Text(tab.rawValue)
                     .font(.headline)
                     .lineLimit(1)
@@ -262,7 +262,7 @@ struct LauncherView: View {
     }
 
     private func cycleFilter(_ step: Int) {
-        let all = LibraryView.Filter.allCases
+        let all = LibraryFilter.allCases
         guard let index = all.firstIndex(of: filter) else { return }
         filter = all[(index + step + all.count) % all.count]
         pad.tick()

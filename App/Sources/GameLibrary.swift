@@ -660,6 +660,7 @@ final class GameLibrary {
         guard playBlocker(appID: appID) == nil, tasks[appID] == nil, launching == nil,
               case let .installed(record) = statuses[appID], let engine = record.engine
         else { return }
+        PlayHistory.shared.recordLaunch(appID) // Home's "last played" (synced).
         let folder = folder(appID: appID, name: record.name)
         if ["artemis", "kirikiri", "siglus", "luca", "catsystem2"].contains(engine.engine) {
             // ArtemisKit's saves aren't the PC's format, so no Steam Cloud; iCloud mirrors them.

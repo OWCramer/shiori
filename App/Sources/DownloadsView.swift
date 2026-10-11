@@ -4,6 +4,8 @@ import SwiftUI
 /// The download queue: the active download, then queued, paused and failed ones.
 struct DownloadsView: View {
     let library: [LibraryGame]
+    /// Shown as a tab (iPhone and iPad) rather than a sheet (Apple TV): no Done button.
+    var isTab = false
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
     @Environment(PatchInstaller.self) private var patches
@@ -38,7 +40,9 @@ struct DownloadsView: View {
             .navigationTitle("Downloads")
             .inlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                if !isTab {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 if games.isDownloading {
