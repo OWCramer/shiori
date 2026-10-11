@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(GameLibrary.self) private var games
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingSignOut = false
+    @State private var signingInToDenpasoft = false
 
     private var installed: [GameRecord] {
         games.statuses.values.compactMap { if case let .installed(record) = $0 { record } else { nil } }
@@ -76,7 +77,7 @@ struct SettingsView: View {
                 #endif
 
                 #if os(iOS)
-                DenpasoftSection()
+                DenpasoftSection(signingIn: $signingInToDenpasoft)
                 #endif
 
                 SteamGridDBKeySection()
@@ -89,6 +90,12 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            #if os(iOS)
+            // On the Form, not its row: a sheet attached to a Form row is dismissed as it appears.
+            .sheet(isPresented: $signingInToDenpasoft) {
+                DenpasoftWebSheet(url: DenpasoftAccount.account, title: "Sign In to Denpasoft")
+            }
+            #endif
             .confirmationDialog("Sign out of Steam?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
                 Button("Sign out", role: .destructive) {
                     Task { await steam.signOut() }
@@ -104,7 +111,7 @@ struct SettingsView: View {
 #if os(iOS)
 /// Settings › Denpasoft: the account Shiori downloads Denpasoft's patches with.
 private struct DenpasoftSection: View {
-    @State private var signingIn = false
+    @Binding var signingIn: Bool
     private var account: DenpasoftAccount { .shared }
 
     var body: some View {
@@ -119,9 +126,6 @@ private struct DenpasoftSection: View {
             Text("Denpasoft")
         } footer: {
             Text("Many of Denpasoft's 18+ patches are free but need an account. Sign in on Denpasoft's own page; Shiori never sees your password, keeps the session on this device, and installs the patches in your Denpasoft downloads from each game's page.")
-        }
-        .sheet(isPresented: $signingIn) {
-            DenpasoftWebSheet(url: DenpasoftAccount.account, title: "Sign In to Denpasoft")
         }
         .task { if account.isSignedIn { await account.refresh() } }
     }
