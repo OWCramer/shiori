@@ -881,8 +881,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         guard story != nil, let stageRenderer, let emoteStage, !stageRenderer.layer.isHidden else { return }
         let now = CACurrentMediaTime()
         emoteStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted, envelope: audio.voiceEnvelope)
-        let planes = planeDrawings(stageRenderer, at: now)
-        stageRenderer.render(below: planes.below, emoteStage.drawings(at: now), marks: markDrawings(stageRenderer, at: now), above: planes.above)
+        stageRenderer.render(layers: stageLayers(stageRenderer, at: now), emoteStage.drawings(at: now),
+                             marks: markDrawings(stageRenderer, at: now))
         if let faceStage {
             faceStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted, envelope: audio.voiceEnvelope)
             stageRenderer.renderFaces(faceStage.drawings(at: now))
@@ -1114,7 +1114,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private func planeMotion(_ words: [String], text: String, story: ScenePlayer, time: Double) {
         guard words.count >= 3 else { return }
         let motions: Set<String> = ["amove1", "amove2", "amove3", "move", "ascale1", "ascale2", "ascale3",
-                                    "fade", "m2fade", "quake", "stop"]
+                                    "fade", "m2fade", "quake", "stop", "m2move", "m2amove1", "m2amove1p", "m2scale", "m2ascale1p"]
         let target = words[1]
         let numbered = Int(target) != nil || target.hasPrefix("[")
         guard motions.contains(numbered ? words[2] : target) else { return }
@@ -1132,43 +1132,43 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         if skipping { planeStage.finishMotions() }
     }
 
-    /// The planes shown, as drawn at `time`: those up to 0 under the characters, the rest
-    /// over them.
-    private func planeDrawings(_ renderer: CatSystemStageRenderer, at time: Double)
-        -> (below: [CatSystemStageRenderer.PlaneDrawing], above: [CatSystemStageRenderer.PlaneDrawing]) {
-        guard let planes = shownPlanes else { return ([], []) }
-        var below: [CatSystemStageRenderer.PlaneDrawing] = [], above: [CatSystemStageRenderer.PlaneDrawing] = []
-        let w = Double(stageSize.width), h = Double(stageSize.height)
-        for n in planes.keys.sorted() {
-            guard let plane = planes[n], plane.visible else { continue }
-            let state = planeStage.state(n, plane, at: time)
-            guard state.alpha > 0.5 else { continue }
-            var drawing: CatSystemStageRenderer.PlaneDrawing?
-            if let color = plane.color {
-                let key = String(format: "$%08X", color)
-                if let texture = planeTexture(key, renderer, make: { renderer.texture(color: color) }) {
-                    drawing = .init(texture: texture, x: state.offsetX, y: state.offsetY, width: w, height: h, alpha: state.alpha / 255)
-                }
-            } else if let file = plane.file, let image = image(file), let frame = image.frames.first {
-                let at = plane.placement(baseX: frame.baseX, baseY: frame.baseY, canvasWidth: frame.canvasWidth,
-                                         canvasHeight: frame.canvasHeight, width: Int(w), height: Int(h))
-                let baseX = Double(at.anchorX - at.originX), baseY = Double(at.anchorY - at.originY)
-                let ax = state.x ?? Double(at.anchorX), ay = state.y ?? Double(at.anchorY)
-                let sx = state.scaleX / 100, sy = state.scaleY / 100
-                if let texture = planeTexture(file.lowercased(), renderer, make: {
-                    renderer.texture(rgba: frame.premultipliedRGBA(), width: frame.width, height: frame.height, premultiplied: true)
-                }) {
-                    drawing = .init(texture: texture,
-                                    x: ax + (Double(frame.offsetX) - baseX) * sx + state.offsetX,
-                                    y: ay + (Double(frame.offsetY) - baseY) * sy + state.offsetY,
-                                    width: Double(frame.width) * sx, height: Double(frame.height) * sy,
-                                    alpha: state.alpha / 255)
-                }
+    /// The screen at `time`, back to front: the planes' pictures as `PlaneStage` has them now
+    /// and the characters among them, by priority (`StageLayout`).
+    private func stageLayers(_ renderer: CatSystemStageRenderer, at time: Double) -> [CatSystemStageRenderer.Layer] {
+        guard let planes = shownPlanes else { return [] }
+        let items = StageLayout.items(planes: planes, cast: story?.cast ?? shownCast ?? [:],
+                                      width: Int(stageSize.width), height: Int(stageSize.height),
+                                      state: { planeStage.state($0, $1, at: time) },
+                                      frame: { [weak self] in self?.image($0)?.frames.first })
+        func texture(_ name: String, _ effect: PictureEffect = PictureEffect()) -> MTLTexture? {
+            guard let frame = image(name)?.frames.first else { return nil }
+            return planeTexture(name.lowercased() + (effect.isNone ? "" : "|" + effect.key), renderer) {
+                let f = frame.applying(effect)
+                return renderer.texture(rgba: f.premultipliedRGBA(), width: f.width, height: f.height, premultiplied: true)
             }
-            guard let drawing else { continue }
-            if n <= 0 { below.append(drawing) } else { above.append(drawing) }
         }
-        return (below, above)
+        return items.compactMap { item in
+            switch item {
+            case .character(let bank): return .character(bank: bank)
+            case .quad(let q):
+                let picture: MTLTexture?
+                switch q.source {
+                case .color(let color):
+                    picture = planeTexture(String(format: "$%08X", color), renderer) { renderer.texture(color: color) }
+                case .picture(let name, let effect):
+                    picture = texture(name, effect)
+                }
+                guard let picture else { return nil }
+                var drawing = CatSystemStageRenderer.PlaneDrawing(texture: picture, x: q.x, y: q.y, width: q.width, height: q.height,
+                                                                  alpha: q.alpha, flipX: q.flipX, flipY: q.flipY, additive: q.additive)
+                if let m = q.mask {
+                    // A mask that isn't there hides the plane rather than showing all of it.
+                    guard let mask = texture(m.name) else { return nil }
+                    drawing.mask = (mask, m.x, m.y, m.width, m.height, m.flipX, m.flipY)
+                }
+                return .plane(drawing)
+            }
+        }
     }
 
     private func planeTexture(_ key: String, _ renderer: CatSystemStageRenderer, make: () -> MTLTexture?) -> MTLTexture? {
@@ -1176,7 +1176,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         guard let texture = make() else { return nil }
         planeTextures[key] = texture
         planeTextureOrder.append(key)
-        if planeTextureOrder.count > 16 { planeTextures.removeValue(forKey: planeTextureOrder.removeFirst()) }
+        if planeTextureOrder.count > 32 { planeTextures.removeValue(forKey: planeTextureOrder.removeFirst()) }
         return texture
     }
 

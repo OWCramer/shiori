@@ -8,12 +8,19 @@ final class CatSystemStageResources: @unchecked Sendable {
     let gpu: EmoteGPU
     let wipePipeline: MTLRenderPipelineState
     let mosaicPipeline: MTLRenderPipelineState
+    /// The planes' pictures: laid over (`quadPipeline`) or added (`addPipeline`, `pl N bmode 1`),
+    /// either one through a mask picture (`\ma`).
+    let quadPipeline: MTLRenderPipelineState
+    let addPipeline: MTLRenderPipelineState
     let sampler: MTLSamplerState
 
-    private init(gpu: EmoteGPU, wipePipeline: MTLRenderPipelineState, mosaicPipeline: MTLRenderPipelineState, sampler: MTLSamplerState) {
+    private init(gpu: EmoteGPU, wipePipeline: MTLRenderPipelineState, mosaicPipeline: MTLRenderPipelineState,
+                 quadPipeline: MTLRenderPipelineState, addPipeline: MTLRenderPipelineState, sampler: MTLSamplerState) {
         self.gpu = gpu
         self.wipePipeline = wipePipeline
         self.mosaicPipeline = mosaicPipeline
+        self.quadPipeline = quadPipeline
+        self.addPipeline = addPipeline
         self.sampler = sampler
     }
 
@@ -36,10 +43,23 @@ final class CatSystemStageResources: @unchecked Sendable {
         m.vertexFunction = library.makeFunction(name: "wipeVertex")
         m.fragmentFunction = library.makeFunction(name: "mosaicFragment")
         m.colorAttachments[0].pixelFormat = .bgra8Unorm
+        let q = MTLRenderPipelineDescriptor()
+        q.vertexFunction = library.makeFunction(name: "stageQuadVertex")
+        q.fragmentFunction = library.makeFunction(name: "stageQuadFragment")
+        let qa = q.colorAttachments[0]!
+        qa.pixelFormat = .bgra8Unorm
+        qa.isBlendingEnabled = true
+        qa.rgbBlendOperation = .add; qa.alphaBlendOperation = .add
+        qa.sourceRGBBlendFactor = .one; qa.sourceAlphaBlendFactor = .one
+        qa.destinationRGBBlendFactor = .oneMinusSourceAlpha; qa.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         guard let pipeline = try? device.makeRenderPipelineState(descriptor: d),
               let mosaic = try? device.makeRenderPipelineState(descriptor: m),
+              let quad = try? device.makeRenderPipelineState(descriptor: q) else { return nil }
+        qa.destinationRGBBlendFactor = .one; qa.destinationAlphaBlendFactor = .one
+        guard let add = try? device.makeRenderPipelineState(descriptor: q),
               let sampler = device.makeSamplerState(descriptor: s) else { return nil }
-        return CatSystemStageResources(gpu: gpu, wipePipeline: pipeline, mosaicPipeline: mosaic, sampler: sampler)
+        return CatSystemStageResources(gpu: gpu, wipePipeline: pipeline, mosaicPipeline: mosaic, quadPipeline: quad,
+                                       addPipeline: add, sampler: sampler)
     }
 
     /// A rule wipe: the last frame drawn over the new one, gone where the rule picture's
@@ -72,6 +92,30 @@ final class CatSystemStageResources: @unchecked Sendable {
         float2 uv = min((floor(in.uv * p.zw / block) + 0.5) * block, p.zw - 0.5) / p.zw;
         float4 a = last.sample(s, uv), b = next.sample(s, uv);
         return float4(mix(a, b, smoothstep(0.3, 0.7, p.x)).rgb, 1);
+    }
+    // A plane's picture: `rect` and `maskRect` in clip space (x, y, w, h), `source` and
+    // `maskSource` the parts of the textures (mirrored by negative sizes).
+    struct QuadUniforms { float4 rect; float4 source; float4 maskRect; float4 maskSource; float opacity; float hasMask; };
+    struct QuadOut { float4 position [[position]]; float2 uv; float2 maskAt; };
+    vertex QuadOut stageQuadVertex(uint vid [[vertex_id]], constant QuadUniforms &u [[buffer(0)]]) {
+        float2 c = float2(vid & 1, vid >> 1);
+        float2 p = u.rect.xy + u.rect.zw * c;
+        QuadOut out;
+        out.position = float4(p, 0, 1);
+        out.uv = u.source.xy + u.source.zw * c;
+        out.maskAt = (p - u.maskRect.xy) / u.maskRect.zw;
+        return out;
+    }
+    fragment float4 stageQuadFragment(QuadOut in [[stage_in]], constant QuadUniforms &u [[buffer(0)]],
+                                      texture2d<float> t [[texture(0)]], texture2d<float> mask [[texture(1)]],
+                                      sampler s [[sampler(0)]]) {
+        float4 c = t.sample(s, in.uv) * u.opacity;
+        if (u.hasMask > 0.5) {
+            float2 m = in.maskAt;
+            if (m.x < 0 || m.y < 0 || m.x > 1 || m.y > 1) return float4(0);
+            c *= mask.sample(s, u.maskSource.xy + u.maskSource.zw * m).a;
+        }
+        return c;
     }
     """
 }
@@ -130,6 +174,17 @@ final class CatSystemStageRenderer {
         var texture: MTLTexture
         var x: Double, y: Double, width: Double, height: Double
         var alpha: Double
+        var flipX = false, flipY = false
+        /// Added to what is under it (`pl N bmode 1`).
+        var additive = false
+        /// Shown only where this picture (a `\ma` mask, placed in game pixels) is opaque.
+        var mask: (texture: MTLTexture, x: Double, y: Double, width: Double, height: Double, flipX: Bool, flipY: Bool)?
+    }
+
+    /// One step of a frame, back to front: a plane's picture, or the character in a bank.
+    enum Layer {
+        case plane(PlaneDrawing)
+        case character(bank: Int)
     }
 
     /// A picture as a texture: RGBA, premultiplied (`HGImage.Frame.premultipliedRGBA`) unless
@@ -194,9 +249,11 @@ final class CatSystemStageRenderer {
 
     // MARK: Frames
 
-    /// Draws a frame: `below` (the planes under the characters, in order), `drawings` (from
-    /// `EmoteStage`), `marks` (emotion marks by the characters' heads), then `above`.
-    func render(below: [PlaneDrawing], _ drawings: [EmoteStage.Drawing], marks: [PlaneDrawing] = [], above: [PlaneDrawing]) {
+    /// Draws a frame: `layers` back to front (the planes' pictures and the characters among them,
+    /// by priority: `StageLayout`), the characters from `drawings` (`EmoteStage`, by bank; one
+    /// the layers leave out goes on top), and `marks` (emotion marks by the characters' heads)
+    /// just over the last character.
+    func render(layers: [Layer], _ drawings: [EmoteStage.Drawing], marks: [PlaneDrawing] = []) {
         let started = CACurrentMediaTime()
         let size = layer.drawableSize
         let width = Int(size.width), height = Int(size.height)
@@ -207,7 +264,7 @@ final class CatSystemStageRenderer {
 
         // Characters: evaluated, masks and (for a fading character) a picture of their own,
         // all before the pass that puts the screen together.
-        var characters: [(prepared: EmoteGPU.Prepared, alpha: Float, group: MTLTexture?)] = []
+        var characters: [(bank: Int, prepared: EmoteGPU.Prepared, alpha: Float, group: MTLTexture?)] = []
         for var d in drawings {
             let model = d.renderer.model
             let key = ObjectIdentifier(model)
@@ -217,8 +274,11 @@ final class CatSystemStageRenderer {
             if since < 0 { readySince[key] = started }
             let ramp = since < 0 ? 0 : min(1, (started - since) / 0.25)
             if ramp < 1, d.alpha > 0 { d = d.fading(d.alpha * ramp) }
+            // `mpl N rot 0 0 degrees`: turned clockwise about the model's origin.
+            let turn = d.rotation * .pi / 180, cosine = cos(turn), sine = sin(turn)
             let list = d.renderer.drawList(variables: d.variables,
-                                           transform: (d.scaleX * s, 0, 0, d.scaleY * s, d.x * s, d.y * s))
+                                           transform: (cosine * d.scaleX * s, sine * d.scaleX * s, -sine * d.scaleY * s,
+                                                       cosine * d.scaleY * s, d.x * s, d.y * s))
             guard let prepared = gpu.prepare(list, model: model, buffer: buffer) else { continue }
             var group: MTLTexture?
             if d.alpha < 0.999, let t = gpu.scratch(width: width, height: height, format: .bgra8Unorm, for: buffer),
@@ -227,19 +287,37 @@ final class CatSystemStageRenderer {
                 encoder.endEncoding()
                 group = t
             }
-            characters.append((prepared, Float(d.alpha), group))
+            characters.append((d.bank, prepared, Float(d.alpha), group))
         }
 
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: Self.pass(current, clear: true, black: true)) else { return }
         let full = SIMD4<Float>(0, 0, Float(width), Float(height))
         func plane(_ p: PlaneDrawing) {
             guard p.alpha > 0.002 else { return }
-            gpu.drawQuad(p.texture, encoder: encoder, width: width, height: height,
-                         rect: SIMD4(Float(p.x * s), Float(p.y * s), Float(p.width * s), Float(p.height * s)),
-                         opacity: Float(min(1, p.alpha)))
+            func clip(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> SIMD4<Float> {
+                SIMD4(Float(x * s / Double(width) * 2 - 1), Float(1 - y * s / Double(height) * 2),
+                      Float(w * s / Double(width) * 2), Float(-h * s / Double(height) * 2))
+            }
+            func source(_ flipX: Bool, _ flipY: Bool) -> SIMD4<Float> {
+                SIMD4(flipX ? 1 : 0, flipY ? 1 : 0, flipX ? -1 : 1, flipY ? -1 : 1)
+            }
+            var u = QuadUniforms(rect: clip(p.x, p.y, p.width, p.height), source: source(p.flipX, p.flipY),
+                                 maskRect: SIMD4(-1, 1, 2, -2), maskSource: SIMD4(0, 0, 1, 1),
+                                 opacity: Float(min(1, p.alpha)), hasMask: 0)
+            if let m = p.mask {
+                u.maskRect = clip(m.x, m.y, m.width, m.height)
+                u.maskSource = source(m.flipX, m.flipY)
+                u.hasMask = 1
+            }
+            encoder.setRenderPipelineState(p.additive ? resources.addPipeline : resources.quadPipeline)
+            encoder.setVertexBytes(&u, length: MemoryLayout<QuadUniforms>.stride, index: 0)
+            encoder.setFragmentBytes(&u, length: MemoryLayout<QuadUniforms>.stride, index: 0)
+            encoder.setFragmentTexture(p.texture, index: 0)
+            encoder.setFragmentTexture(p.mask?.texture ?? p.texture, index: 1)
+            encoder.setFragmentSamplerState(resources.sampler, index: 0)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         }
-        below.forEach(plane)
-        for c in characters {
+        func character(_ c: (bank: Int, prepared: EmoteGPU.Prepared, alpha: Float, group: MTLTexture?)) {
             if let group = c.group {
                 gpu.drawQuad(group, encoder: encoder, width: width, height: height, rect: full,
                              source: SIMD4(0, 0, Float(width) / Float(group.width), Float(height) / Float(group.height)), opacity: c.alpha)
@@ -247,8 +325,20 @@ final class CatSystemStageRenderer {
                 gpu.draw(c.prepared, encoder: encoder, width: width, height: height)
             }
         }
-        marks.forEach(plane)
-        above.forEach(plane)
+        var drawn = Set<Int>()
+        let lastCharacter = layers.lastIndex { layer in
+            if case .character(let bank) = layer { characters.contains { $0.bank == bank } } else { false }
+        }
+        for (i, layer) in layers.enumerated() {
+            switch layer {
+            case .plane(let p): plane(p)
+            case .character(let bank):
+                for c in characters where c.bank == bank { character(c); drawn.insert(bank) }
+            }
+            if i == lastCharacter { marks.forEach(plane) }
+        }
+        for c in characters where !drawn.contains(c.bank) { character(c) }
+        if lastCharacter == nil { marks.forEach(plane) }
         encoder.endEncoding()
 
         if let drawable = layer.nextDrawable(), let present = buffer.makeRenderCommandEncoder(descriptor: Self.pass(drawable.texture, clear: false)) {
@@ -298,9 +388,9 @@ final class CatSystemStageRenderer {
                 defer { self.gpuSum = 0; self.gpuCount = 0 }
                 return (self.gpuSum, self.gpuCount)
             }
-            NSLog("CatSystem: %d frames in %.1f s, CPU %.2f ms a frame, GPU %.2f ms, %d characters, %d planes, %dx%d",
+            NSLog("CatSystem: %d frames in %.1f s, CPU %.2f ms a frame, GPU %.2f ms, %d characters, %d layers, %dx%d",
                   framesTimed, started - lastReport, cpuTotal / Double(max(1, framesTimed)) * 1000,
-                  gpuSum / Double(max(1, gpuCount)) * 1000, drawings.count, below.count + above.count, width, height)
+                  gpuSum / Double(max(1, gpuCount)) * 1000, drawings.count, layers.count, width, height)
             cpuTotal = 0
             framesTimed = 0
             lastReport = started
@@ -370,6 +460,16 @@ final class CatSystemStageRenderer {
         encoder.endEncoding()
         buffer.present(drawable)
         buffer.commit()
+    }
+
+    /// `stageQuadVertex`/`stageQuadFragment`'s uniforms, laid out as the shader has them.
+    private struct QuadUniforms {
+        var rect: SIMD4<Float>
+        var source: SIMD4<Float>
+        var maskRect: SIMD4<Float>
+        var maskSource: SIMD4<Float>
+        var opacity: Float
+        var hasMask: Float
     }
 
     private static func pass(_ texture: MTLTexture, clear: Bool, black: Bool = false) -> MTLRenderPassDescriptor {
