@@ -32,6 +32,25 @@ final class KiriKiriGameViewController: UIViewController {
     #endif
     /// The touch currently driving the pointer (KiriKiri has one mouse).
     private weak var pointerTouch: UITouch?
+    #if os(iOS)
+    /// A trackpad or mouse is in use (since the last finger): the game's own cursor, when it
+    /// sets one, draws at the pointer in place of the iPad's.
+    private var pointerHovering = false {
+        didSet {
+            guard pointerHovering != oldValue else { return }
+            pointerInteraction?.invalidate()
+            if !pointerHovering { cursorLayer.isHidden = true }
+        }
+    }
+    private var pointerInteraction: UIPointerInteraction?
+    private var pointerLocation: CGPoint?
+    private let cursorLayer = CALayer()
+    private var cursorSerial: UInt32 = 0
+    /// shiori_krkr_cursor's kind: 0 the system pointer, 1 the game's cursor image, 2 hidden.
+    private var cursorKind: Int32 = 0
+    private var cursorImageSize = CGSize.zero
+    private var cursorHotspot = CGPoint.zero
+    #endif
 
     private var metalLayer: CAMetalLayer { view.layer as! CAMetalLayer }
 
@@ -85,6 +104,13 @@ final class KiriKiriGameViewController: UIViewController {
         view.addHover(target: self, action: #selector(hovered(_:)))
         view.addScroll(target: self, action: #selector(scrolled(_:)))
         history.fingersOnly()
+        let pointer = UIPointerInteraction(delegate: self)
+        view.addInteraction(pointer)
+        pointerInteraction = pointer
+        cursorLayer.isHidden = true
+        cursorLayer.zPosition = 1000
+        cursorLayer.contentsGravity = .resize
+        view.layer.addSublayer(cursorLayer)
         #endif
 
         // The pad drives the game through its keyboard and mouse (see `pad(_:)`).
@@ -171,6 +197,9 @@ final class KiriKiriGameViewController: UIViewController {
         }
         KiriKiriRuntime.drainLogs(engine)
         KiriKiriRuntime.handlePlatformRequests(engine)
+        #if os(iOS)
+        syncCursor()
+        #endif
         var texture: UInt64 = 0, width: UInt32 = 0, height: UInt32 = 0, serial: UInt64 = 0
         if engine_get_godot_native_frame_texture(engine, &texture, &width, &height, &serial) == ENGINE_RESULT_OK,
            texture != 0 {
@@ -237,6 +266,8 @@ final class KiriKiriGameViewController: UIViewController {
         if touch.isPointer, let mask = event?.buttonMask {
             if mask.contains(.secondary) { pointerButton = 1 } else if mask.contains(.button(3)) { pointerButton = 2 }
         }
+        pointerHovering = touch.isPointer
+        if touch.isPointer { moveCursor(to: touch.location(in: view)) }
         #endif
         send(ENGINE_INPUT_EVENT_POINTER_MOVE, at: touch.location(in: view))
         send(ENGINE_INPUT_EVENT_POINTER_DOWN, at: touch.location(in: view), button: pointerButton)
@@ -245,6 +276,9 @@ final class KiriKiriGameViewController: UIViewController {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = pointerTouch, touches.contains(touch) else { return }
         send(ENGINE_INPUT_EVENT_POINTER_MOVE, at: touch.location(in: view))
+        #if os(iOS)
+        if touch.isPointer { moveCursor(to: touch.location(in: view)) }
+        #endif
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -257,8 +291,70 @@ final class KiriKiriGameViewController: UIViewController {
     /// A trackpad or mouse over the game with no button down: the engine's mouse move
     /// (button highlights, KAG's rollovers).
     @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        if recognizer.state == .ended || recognizer.state == .cancelled {
+            // The pointer left the game (onto the dock, another window).
+            pointerLocation = nil
+            cursorLayer.isHidden = true
+            return
+        }
         guard pointerTouch == nil, recognizer.state == .began || recognizer.state == .changed else { return }
+        pointerHovering = true
+        moveCursor(to: recognizer.location(in: view))
         send(ENGINE_INPUT_EVENT_POINTER_MOVE, at: recognizer.location(in: view))
+    }
+
+    // MARK: Game cursor
+
+    /// Follows the pointer with the game's cursor (its hotspot on the pointer), at the size
+    /// the game's art is drawn.
+    private func moveCursor(to location: CGPoint) {
+        pointerLocation = location
+        layoutCursor()
+    }
+
+    private func layoutCursor() {
+        guard let location = pointerLocation, pointerHovering, cursorKind == 1,
+              gameSize.width > 0, cursorImageSize.width > 0
+        else {
+            cursorLayer.isHidden = true
+            return
+        }
+        let scale = gameRect.width / gameSize.width
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cursorLayer.frame = CGRect(x: location.x - cursorHotspot.x * scale, y: location.y - cursorHotspot.y * scale,
+                                   width: cursorImageSize.width * scale, height: cursorImageSize.height * scale)
+        cursorLayer.isHidden = false
+        CATransaction.commit()
+    }
+
+    /// Picks up the cursor the game set since the last frame (scripts change it as the
+    /// pointer moves over buttons and characters).
+    private func syncCursor() {
+        guard pointerHovering else { return }
+        var pixels: UnsafePointer<UInt8>?
+        var width: Int32 = 0, height: Int32 = 0, hotX: Int32 = 0, hotY: Int32 = 0, kind: Int32 = 0
+        let serial = shiori_krkr_cursor(&pixels, &width, &height, &hotX, &hotY, &kind)
+        guard serial != cursorSerial else { return }
+        cursorSerial = serial
+        if kind == 1, let pixels, width > 0, height > 0,
+           let provider = CGDataProvider(data: Data(bytes: pixels, count: Int(width * height * 4)) as CFData),
+           let image = CGImage(width: Int(width), height: Int(height), bitsPerComponent: 8, bitsPerPixel: 32,
+                               bytesPerRow: Int(width) * 4, space: CGColorSpaceCreateDeviceRGB(),
+                               bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                               provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        {
+            cursorLayer.contents = image
+            cursorImageSize = CGSize(width: Int(width), height: Int(height))
+            cursorHotspot = CGPoint(x: Int(hotX), y: Int(hotY))
+        } else if kind == 1 {
+            kind = 0 // couldn't make the image: the system pointer
+        }
+        if kind != cursorKind {
+            cursorKind = kind
+            pointerInteraction?.invalidate()
+        }
+        layoutCursor()
     }
 
     private var scrollSent: CGFloat = 0
@@ -587,3 +683,15 @@ extension KiriKiriGameViewController: CAMetalDisplayLinkDelegate {
         MainActor.assumeIsolated { tick(drawable: drawable) }
     }
 }
+
+#if os(iOS)
+extension KiriKiriGameViewController: UIPointerInteractionDelegate {
+    /// The iPad pointer hides while the game's own cursor draws in its place (or the game
+    /// hid the cursor), as the PC build replaces Windows's.
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        guard pointerHovering, cursorKind != 0 else { return nil }
+        return .hidden()
+    }
+}
+#endif
+
