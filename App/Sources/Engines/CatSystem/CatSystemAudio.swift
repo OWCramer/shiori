@@ -67,15 +67,22 @@ final class CatSystemAudio {
             guard let self, self.requested["voice"] == ticket, let buffer else { return }
             self.voice = self.play(buffer, loop: false, volume: self.voiceVolume, fadeFrames: 0)
             NSLog("CatSystem: voice %@ (%.1f s)", name, Double(buffer.frameLength) / buffer.format.sampleRate)
+            self.voiceStarted = CACurrentMediaTime()
+            self.voiceName = name
             self.voiceEnds = CACurrentMediaTime() + Double(buffer.frameLength) / buffer.format.sampleRate
         }
     }
+
+    /// The voice playing and when it began (for lip sync).
+    private(set) var voiceName: String?
+    private(set) var voiceStarted: CFTimeInterval = 0
 
     func stopVoice() {
         _ = request("voice")
         stop(voice, frames: 0)
         voice = nil
         voiceEnds = 0
+        voiceName = nil
     }
 
     /// A sound effect on a channel (`se 0 se2041`, or a system screen's `se1`).
@@ -133,6 +140,7 @@ final class CatSystemAudio {
         music = nil
         musicName = nil
         voice = nil
+        voiceName = nil
         effects.removeAll()
         fades.removeAll()
         engine.stop()

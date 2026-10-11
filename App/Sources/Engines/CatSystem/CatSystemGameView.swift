@@ -5,18 +5,26 @@ import UIKit
 
 /// Plays a CatSystem2 game (NEKOPARA Vol. 3) with CatSystemKit. The title is the game's own
 /// FES screens (logo, language picker, title menu) run by `FESPlayer`; GAME START runs the
-/// kcScripts to the first scene, and `ScenePlayer` plays the story. Pictures are composited
-/// at the game's 1280×720 and shown in a Core Animation layer, letterboxed; waits, fades and
-/// `rwipe` become crossfades. The message window is the game's art with the text set in the
-/// game's own font (GenJyuu Gothic X, from `font/`). E-mote characters are drawn by
-/// CatSystemKit's `EmoteCast` in their scene pose (still; their idle motions, blinking and lip
-/// sync aren't played yet).
+/// kcScripts to the first scene, and `ScenePlayer` plays the story. The story's screen is
+/// drawn with Metal every frame (`CatSystemStageRenderer`): the planes under and over the
+/// characters as two 1280×720 pictures, and the E-mote characters on the GPU at the screen's
+/// resolution, posed for the moment by `EmoteStage` (idle loops, blinking, lip sync with the
+/// voice, expression changes, `mpl` slides and fades, hair and bust inertia); `fmpl` faces
+/// are drawn in the message window. Waits, fades and `rwipe` become crossfades. The message
+/// window is the game's art with the text set in the game's own font (GenJyuu Gothic X, from
+/// `font/`). The title's FES screens are a Core Animation layer.
 final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDelegate {
     private let gameFolder: URL
     private let onExit: () -> Void
     private var onFirstFrame: (() -> Void)?
     private var game: CatSystemGame?
     private var emote: EmoteCast?
+    /// The characters over time, and the Metal screen that draws the story every frame
+    /// (nil without Metal: then the story is composited on the CPU, characters still).
+    private var emoteStage: EmoteStage?
+    /// The faces in the message window (`fmpl`), timed the same way.
+    private var faceStage: EmoteStage?
+    private let stageRenderer = CatSystemStageRenderer()
     private let audio = CatSystemAudio()
     private var displayLink: CADisplayLink?
     private var leaving = false
@@ -89,6 +97,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         picture.contentsGravity = .resize
         picture.minificationFilter = .trilinear
         stage.layer.addSublayer(picture)
+        if let metal = stageRenderer?.layer {
+            metal.frame = stage.bounds
+            metal.isHidden = true
+            stage.layer.addSublayer(metal)
+        }
 
         // The message window: sys_meswnd_n under the window's buttons (sys_meswnd), at y 460.
         window.frame = CGRect(x: 0, y: 460, width: 1280, height: 260)
@@ -97,6 +110,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         stage.addSubview(window)
         windowArt.frame = window.bounds
         window.addSubview(windowArt)
+        if let faces = stageRenderer?.faceLayer {
+            faces.frame = CatSystemStageRenderer.faceBox
+            window.layer.insertSublayer(faces, above: windowArt.layer)
+        }
         nameLabel.frame = CGRect(x: 264, y: 66, width: 600, height: 44)
         textLabel.frame = CGRect(x: 245, y: 112, width: 802, height: 140)
         textLabel.numberOfLines = 0
@@ -152,6 +169,16 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         // Text drawn sharp at the scaled size.
         let screen = view.window?.screen.scale ?? 3
         for label in [nameLabel, textLabel] { label.layer.contentsScale = max(1, screen * scale) }
+        // Characters drawn at the screen's resolution.
+        if let metal = stageRenderer?.layer {
+            metal.contentsScale = max(1, screen * scale)
+            metal.drawableSize = CGSize(width: (stageSize.width * scale * screen).rounded(), height: (stageSize.height * scale * screen).rounded())
+        }
+        if let faces = stageRenderer?.faceLayer {
+            let box = CatSystemStageRenderer.faceBox
+            faces.contentsScale = max(1, screen * scale)
+            faces.drawableSize = CGSize(width: (box.width * scale * screen).rounded(), height: (box.height * scale * screen).rounded())
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -186,7 +213,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     private func opened(_ game: CatSystemGame) {
         self.game = game
-        emote = EmoteCast(game: game)
+        let cast = EmoteCast(game: game)
+        emote = cast
+        emoteStage = EmoteStage(cast: cast)
+        faceStage = EmoteStage(cast: cast)
         buildWindow(game)
         #if DEBUG
         // `-ShioriCatSystemLoad latest`: loads the newest save straight away (unattended runs).
@@ -275,6 +305,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         lineSnapshot = nil
         shownPlanes = nil
         shownCast = nil
+        stageRenderer?.layer.isHidden = true
+        emoteStage?.reset([:], time: 0)
+        faceStage?.reset([:], time: 0)
+        stageRenderer?.renderFaces([])
         audio.stopAll()
         musicName = nil
         setWindow(visible: false, frames: 0)
@@ -393,13 +427,25 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     // MARK: Story
 
     private func storyFrame() {
-        let now = CACurrentMediaTime()
         if line != nil {
             revealLine()
-            return
+        } else if CACurrentMediaTime() >= waitUntil {
+            pump()
         }
-        guard now >= waitUntil else { return }
-        pump()
+        drawStage()
+    }
+
+    /// The story's screen this frame: characters posed for now (idle, blinks, the voice's
+    /// lip sync, motions under way), drawn with Metal.
+    private func drawStage() {
+        guard story != nil, let stageRenderer, let emoteStage, !stageRenderer.layer.isHidden else { return }
+        let now = CACurrentMediaTime()
+        emoteStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted)
+        stageRenderer.render(emoteStage.drawings(at: now))
+        if let faceStage {
+            faceStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted)
+            stageRenderer.renderFaces(faceStage.drawings(at: now))
+        }
     }
 
     /// Runs the story until it shows a line or waits.
@@ -460,6 +506,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             setWindow(visible: false, frames: words.count >= 3 ? Int(words[2]) ?? 15 : 15)
         case "frameon":
             setWindow(visible: true, frames: words.count >= 3 ? Int(words[2]) ?? 15 : 15)
+        case "mpl":
+            emoteStage?.command(text, cast: story.cast, time: now)
+        case "fmpl":
+            faceStage?.command(text, cast: story.faces, time: now)
         default:
             break
         }
@@ -484,6 +534,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     /// Shows the planes as they are now, crossfading from what was shown.
     private func present(force: Bool = false) {
+        if let stageRenderer {
+            presentPlanes(stageRenderer, force: force)
+            return
+        }
         guard let story, force || story.planes != shownPlanes || story.cast != shownCast else { return }
         shownPlanes = story.planes
         shownCast = story.cast
@@ -504,6 +558,42 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         }
         picture.contents = image
         CATransaction.commit()
+        transitionEnds = CACurrentMediaTime() + Double(frames) / 60
+        liftCover()
+    }
+
+    /// With Metal: the planes under and over the characters as two pictures, made again when
+    /// they change. A change of planes, an explicit transition (`rwipe`, `pl … fade`) or a
+    /// character coming, going or changing body crossfades the whole screen (the profile's
+    /// default fade, 20 frames, for the last); expressions and motions play out on their
+    /// own in `EmoteStage`.
+    private func presentPlanes(_ renderer: CatSystemStageRenderer, force: Bool) {
+        guard let story else { return }
+        let planesChanged = force || story.planes != shownPlanes
+        func bodies(_ cast: [Int: ScenePlayer.Character]?) -> [Int: String] {
+            (cast ?? [:]).compactMapValues { c in
+                guard c.visible, let model = c.model else { return nil }
+                return model.split(separator: ",").prefix(2).joined(separator: ",")
+            }
+        }
+        let castChanged = bodies(story.cast) != bodies(shownCast)
+        guard planesChanged || castChanged || transitionFrames != nil else { return }
+        if planesChanged {
+            let pictures: (String) -> HGImage? = { [weak self] name in self?.image(name) }
+            let below = story.render(width: Int(stageSize.width), height: Int(stageSize.height), layer: .below, pictures: pictures)
+            let over = story.planes.contains { $0.key > 0 && $0.value.visible && $0.value.alpha > 0 }
+            let above = over ? story.render(width: Int(stageSize.width), height: Int(stageSize.height), layer: .above, pictures: pictures) : nil
+            renderer.setPlanes(below: below, above: above)
+        }
+        shownPlanes = story.planes
+        shownCast = story.cast
+        let frames = force ? 0 : transitionFrames ?? (planesChanged ? 15 : 20)
+        transitionFrames = nil
+        if renderer.layer.isHidden {
+            renderer.layer.isHidden = false
+        } else if frames > 0 {
+            renderer.crossfade(seconds: Double(frames) / 60)
+        }
         transitionEnds = CACurrentMediaTime() + Double(frames) / 60
         liftCover()
     }
@@ -606,6 +696,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             // A tap cuts a wait or a crossfade short.
             waitUntil = 0
             picture.removeAllAnimations()
+            stageRenderer?.endCrossfade()
             pump()
         }
     }
@@ -716,6 +807,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         waitUntil = 0
         shownPlanes = nil
         shownCast = nil
+        emoteStage?.reset(player.cast, time: CACurrentMediaTime())
+        faceStage?.reset(player.faces, time: CACurrentMediaTime())
         present(force: true)
         musicName = player.bgm
         if let music = player.bgm { audio.playMusic(music, game: game, fadeFrames: 30) }
