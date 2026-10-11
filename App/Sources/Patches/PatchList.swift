@@ -51,6 +51,8 @@ final class PatchListStore {
             var format: String?
             var installer: Bool?
             var dlc: UInt32?
+            /// For a shop link: what it charges ("Free" when nothing, though it may need an account).
+            var price: String?
             var mirrors: [Mirror]?
         }
 

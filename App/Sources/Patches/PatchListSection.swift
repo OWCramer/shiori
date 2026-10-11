@@ -210,6 +210,9 @@ struct PatchListSection: View {
         HStack(spacing: 6) {
             badge(patch.official ? "Official" : "Community", tint: patch.official ? .teal : .purple)
             if patch.adult { badge("18+", tint: .pink) }
+            if patch.files.first?.host == "store", let price = patch.files.first?.price {
+                badge(price.lowercased() == "free" ? "Free" : price, tint: .blue)
+            }
             if patch.verified != nil {
                 badge("Works in Shiori", tint: .green)
             } else {
@@ -260,7 +263,7 @@ struct PatchListSection: View {
         case "steam":
             if let dlc = file.dlc, dlcs?.first(where: { $0.appID == dlc })?.owned == true { return nil }
             return ("Steam", url)
-        case "store": return ("Buy", url)
+        case "store": return (file.price?.lowercased() == "free" ? "Free" : "Buy", url)
         default:
             if patch.status == "unsupported" || file.installer == true { return ("Page", URL(string: patch.source.page) ?? url) }
             return ("Open", url)
