@@ -227,7 +227,8 @@ struct GameDetailView: View {
             hasPatches: !patchFiles.isEmpty,
             branch: games.branch(for: appID),
             isLoggedOn: steam.isLoggedOn,
-            phoneLayout: phoneLayout
+            phoneLayout: phoneLayout,
+            suggestedBranch: branchHint?.branch
         )
     }
 
@@ -247,11 +248,20 @@ struct GameDetailView: View {
                     set: { chooseBranch($0) }
                 )) {
                     ForEach(branches, id: \.name) { branch in
-                        Text(branchTitle(branch.name)).tag(branch.name)
+                        VStack {
+                            Text(branchTitle(branch.name))
+                            if branch.name == state.suggestedBranch { Text("Should work in Shiori") }
+                        }
+                        .tag(branch.name)
                     }
                 }
             } label: {
-                Label("Steam Version: \(branchTitle(state.branch))", systemImage: "arrow.triangle.branch")
+                Label {
+                    Text("Steam Version: \(branchTitle(state.branch))")
+                    if state.suggestedBranch != nil { Text("Another version may work") }
+                } icon: {
+                    Image(systemName: state.suggestedBranch != nil ? "exclamationmark.arrow.triangle.2.circlepath" : "arrow.triangle.branch")
+                }
             }
         }
         if state.installedEngine == nil {
@@ -306,23 +316,55 @@ struct GameDetailView: View {
         }
     }
 
-    /// The default build can't be played here but a beta can: offer it.
-    @ViewBuilder private var branchSuggestion: some View {
-        if let scan = engineScans.result(for: appID), let better = scan.playableBranch,
-           games.branch(for: appID) != better.branch,
-           record.map({ Playability($0.engine) != .playable }) ?? true
+    /// Another Steam version that should play here, when the one picked doesn't: from the
+    /// engine scan (a beta it found playable) or the compatibility list (its `branch`).
+    private struct BranchHint: Equatable {
+        var branch: String
+        var detail: String
+    }
+
+    private var branchHint: BranchHint? {
+        let current = games.branch(for: appID)
+        if let record {
+            // Downloaded, and plays as it is: nothing to suggest.
+            if Playability(record.engine) == .playable { return nil }
+        } else if current != "public" {
+            return nil // A beta is already picked for the download.
+        } else if let engine = engineScans.result(for: appID)?.engine, Playability(engine) == .playable {
+            return nil
+        }
+        let branches = Set(game.branches?.map(\.name) ?? [])
+        if let scan = engineScans.result(for: appID)?.playableBranch, scan.branch != current,
+           branches.isEmpty || branches.contains(scan.branch)
         {
+            let size = scan.installSize > 0 ? ", \(scan.installSize.formatted(.byteCount(style: .file)))" : ""
+            return BranchHint(branch: scan.branch,
+                              detail: "The \(branchTitle(scan.branch)) version is \(engineDescription(scan.engine)) and plays in Shiori (a Steam beta\(size)).")
+        }
+        if let entry = compatibility.entry(for: appID)?.entry, let branch = entry.branch, branch != current,
+           entry.status != .unsupported, branches.isEmpty || branches.contains(branch)
+        {
+            let verb = entry.status == .boots ? "starts" : "plays"
+            return BranchHint(branch: branch,
+                              detail: "The compatibility list says the \(branchTitle(branch)) version \(verb) in Shiori (a Steam beta).")
+        }
+        return nil
+    }
+
+    @ViewBuilder private var branchSuggestion: some View {
+        if let hint = branchHint {
             VStack(alignment: .leading, spacing: 8) {
-                Label("The \(branchTitle(better.branch)) version is \(engineDescription(better.engine)) and plays in Shiori",
-                      systemImage: "arrow.triangle.branch")
+                Label("There may be another version of this game that works", systemImage: "arrow.triangle.branch")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
-                Text("It's a Steam beta of this game\(better.installSize > 0 ? ", \(better.installSize.formatted(.byteCount(style: .file)))" : ""). Saves and patches stay if you switch.")
+                    .foregroundStyle(.orange)
+                Text(hint.detail).font(.callout)
+                Text("Saves and patches stay if you switch. Steam Version in the More menu switches back.")
                     .font(.caption).foregroundStyle(.secondary)
-                Button("Use This Version") { chooseBranch(better.branch) }
+                Button("Use This Version") { chooseBranch(hint.branch) }
                     .buttonStyle(.glass)
                     .font(.subheadline.weight(.semibold))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard()
             .padding(.horizontal, 20)
         }
@@ -853,6 +895,8 @@ private struct MoreMenu: View, Equatable {
         var branch: String
         var isLoggedOn: Bool
         var phoneLayout: Bool
+        /// Another version that should play (GameDetailView.branchHint): marked in the menu.
+        var suggestedBranch: String?
     }
 
     let state: State
@@ -868,6 +912,12 @@ private struct MoreMenu: View, Equatable {
                 .font(.headline)
                 .frame(width: 22, height: 22)
                 .padding(14)
+                // Another Steam version may play: the menu's Steam Version entry says which.
+                .overlay(alignment: .topTrailing) {
+                    if state.suggestedBranch != nil {
+                        Circle().fill(.orange).frame(width: 9, height: 9).padding(8)
+                    }
+                }
         }
         .buttonStyle(.glass)
         .accessibilityLabel("More")
