@@ -12,6 +12,8 @@ struct ShioriApp: App {
     @State private var curation = LibraryCuration()
     @State private var engineScans: EngineScanStore
     @State private var compatibility = CompatibilityStore()
+    @State private var patchList = PatchListStore()
+    @State private var patchInstaller = PatchInstaller()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -46,9 +48,12 @@ struct ShioriApp: App {
                 .environment(curation)
                 .environment(engineScans)
                 .environment(compatibility)
+                .environment(patchList)
+                .environment(patchInstaller)
                 .environment(steam.artwork)
                 .task { await games.syncAllSaves() }
                 .task { await compatibility.refresh() }
+                .task { await patchList.refresh() }
                 // Learn each visual novel's engine from its manifests, so the library and the
                 // launcher can say what's playable before anything is downloaded.
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {

@@ -12,6 +12,7 @@ struct TVGamePage: View {
     @Environment(CompatibilityStore.self) private var compatibility
     @State private var showingMore = false
     @State private var confirmingDelete = false
+    @State private var showingPatches = false
 
     private var appID: UInt32 { game.appID }
     private var status: GameLibrary.Status { games.status(for: appID) }
@@ -37,6 +38,18 @@ struct TVGamePage: View {
         }
         .environment(\.colorScheme, .dark)
         .confirmationDialog(game.name, isPresented: $showingMore) { moreActions }
+        .sheet(isPresented: $showingPatches) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Patches for \(game.name)").font(.title2.bold())
+                    PatchListSection(appID: appID, gameFolder: games.folder(appID: appID, name: game.name)) {}
+                    Text("Patches install into this game's patch folder; Remove puts the game back as Steam delivered it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(60)
+                .frame(maxWidth: 1200, alignment: .leading)
+            }
+        }
         .confirmationDialog("Delete \(game.name)?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) { games.delete(appID: appID, name: game.name) }
         } message: {
@@ -97,6 +110,8 @@ struct TVGamePage: View {
 
     @ViewBuilder private var moreActions: some View {
         if record != nil {
+            // Apple TV has no Files app: the patch list is how patches get here.
+            Button("Patches") { showingPatches = true }
             Button("Verify Files") { games.verify(appID: appID) }
         }
         switch status {

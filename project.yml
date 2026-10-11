@@ -148,6 +148,8 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: App/RenPy/Shiori-Bridging-Header.h
+        # MetalFX (KiriKiri upscaling) exists in the device SDK only.
+        "OTHER_LDFLAGS[sdk=iphoneos*]": ["$(inherited)", "-framework", "MetalFX"]
   # Apple TV (Phase 15): the same app on tvOS, sharing the code. KiriKiri and Siglus, whose
   # native frameworks aren't built for tvOS yet, are left out; Ren'Py, Artemis and Luca play.
   ShioriTV:

@@ -6,6 +6,7 @@ struct DownloadsView: View {
     let library: [LibraryGame]
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
+    @Environment(PatchInstaller.self) private var patches
     @Environment(\.dismiss) private var dismiss
 
     private func game(_ appID: UInt32) -> LibraryGame? { library.first { $0.appID == appID } }
@@ -18,9 +19,18 @@ struct DownloadsView: View {
                         DownloadRow(game: game, status: games.status(for: appID))
                     }
                 }
+                if !patches.jobs.isEmpty {
+                    Section("Patches") {
+                        ForEach(patches.jobs.keys.sorted(), id: \.self) { appID in
+                            if let job = patches.jobs[appID], let game = game(appID) {
+                                PatchJobRow(game: game, job: job)
+                            }
+                        }
+                    }
+                }
             }
             .overlay {
-                if games.downloadItems.isEmpty {
+                if games.downloadItems.isEmpty && patches.jobs.isEmpty {
                     ContentUnavailableView("No downloads", systemImage: "arrow.down.circle",
                                            description: Text("Games you download appear here while they're in progress."))
                 }
@@ -39,6 +49,48 @@ struct DownloadsView: View {
                 }
             }
         }
+    }
+}
+
+/// A patch from the patch list downloading or installing (PatchInstaller).
+private struct PatchJobRow: View {
+    let game: LibraryGame
+    let job: PatchInstaller.Job
+    @Environment(PatchInstaller.self) private var patches
+
+    var body: some View {
+        HStack(spacing: 12) {
+            CapsuleArt(game: game)
+                .frame(width: 44)
+                .clipShape(.rect(cornerRadius: 5))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(job.name).font(.headline).lineLimit(1)
+                Text(game.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                switch job.phase {
+                case let .downloading(written, total, _, _):
+                    if total > 0 { ProgressView(value: Double(written), total: Double(max(total, written))) }
+                    Text(total > 0 ? "\(written.formatted(.byteCount(style: .file))) of \(total.formatted(.byteCount(style: .file)))"
+                                   : written.formatted(.byteCount(style: .file)))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                case .checking:
+                    Text("Checking…").font(.caption).foregroundStyle(.secondary)
+                case let .installing(fraction):
+                    ProgressView(value: fraction)
+                    Text("Installing…").font(.caption).foregroundStyle(.secondary)
+                case let .failed(message):
+                    Text(message).font(.caption).foregroundStyle(.red).lineLimit(3)
+                }
+            }
+            Spacer()
+            if case .failed = job.phase {
+                Button("Dismiss", systemImage: "xmark.circle") { patches.dismissFailure(appID: game.appID) }
+                    .labelStyle(.iconOnly)
+            } else {
+                Button("Cancel", systemImage: "xmark.circle") { patches.cancel(appID: game.appID) }
+                    .labelStyle(.iconOnly)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

@@ -235,3 +235,39 @@ struct DepotJob: Sendable {
     var key: Data
     var manifest: DepotManifest
 }
+
+/// One of a game's DLCs, as the Steam client lists them under the game.
+public struct DLCInfo: Hashable, Sendable, Identifiable {
+    public var appID: UInt32
+    public var name: String
+    public var owned: Bool
+    /// The game's depots that carry this DLC's files; empty when the DLC only unlocks
+    /// content the game already has (it asks Steam whether you own it).
+    public var depotIDs: [UInt32]
+    public var id: UInt32 { appID }
+}
+
+extension SteamSession {
+    /// The game's DLCs (from its PICS `listofdlc` and the depots marked with a `dlcappid`),
+    /// with their names and whether the account owns them.
+    public func dlcs(appID: UInt32) async throws -> [DLCInfo] {
+        guard let app = try await appInfo([appID]).first else { return [] }
+        var depotsByDLC: [UInt32: [UInt32]] = [:]
+        for depot in app.keyValues["depots"]?.children ?? [] {
+            guard let depotID = UInt32(depot.name), let dlc = depot["dlcappid"]?.uint32 else { continue }
+            depotsByDLC[dlc, default: []].append(depotID)
+        }
+        var ids = (app.keyValues[path: "extended", "listofdlc"]?.value ?? "")
+            .split(separator: ",").compactMap { UInt32($0.trimmingCharacters(in: .whitespaces)) }
+        for dlc in depotsByDLC.keys where !ids.contains(dlc) { ids.append(dlc) }
+        guard !ids.isEmpty else { return [] }
+        let owned = try await ownedPackageContents()
+        let names = Dictionary((try await appInfo(ids)).map { ($0.appID, $0) }, uniquingKeysWith: { a, _ in a })
+        return ids.map { id in
+            DLCInfo(appID: id, name: names[id]?.name ?? "DLC \(id)", owned: owned.contains(id),
+                    depotIDs: (depotsByDLC[id] ?? []).sorted())
+        }
+        // Steam lists hidden and unreleased DLC too; drop the ones with no name and no store page.
+        .filter { names[$0.appID] != nil }
+    }
+}

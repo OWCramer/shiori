@@ -65,20 +65,43 @@ enum PatchStore {
             try fm.copyItem(at: source, to: staging.appendingPathComponent(source.lastPathComponent))
         } else if source.pathExtension.lowercased() == "zip" {
             try ZipExtractor.extract(source, to: staging, progress: progress)
+        } else if ArchiveExtractor.archiveExtensions.contains(source.pathExtension.lowercased()) {
+            try ArchiveExtractor.extract(source, to: staging) { written, total, file in
+                progress?(UInt64(written), UInt64(max(total, 0)), file)
+            }
         } else {
             // A single loose file, such as an .rpa: it belongs in game/.
             try fm.createDirectory(at: staging.appendingPathComponent("game"), withIntermediateDirectories: true)
             try fm.copyItem(at: source, to: staging.appendingPathComponent("game").appendingPathComponent(source.lastPathComponent))
         }
 
-        let root = contentRoot(of: staging)
+        return try place(staging, gameFolder: gameFolder).count
+    }
+
+    /// Moves an unpacked patch from `staging` into `patch/`, placed as Import Patch does
+    /// (`into` forces the game's folder, "root", or Ren'Py's "game"; `strip` steps into a
+    /// named wrapper folder). Returns the paths written, relative to `patch/`.
+    static func place(_ staging: URL, gameFolder: URL, into: String? = nil, strip: String? = nil) throws -> [String] {
+        let fm = FileManager.default
+        var root = contentRoot(of: staging)
+        if let strip, let inner = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil))?
+            .first(where: { $0.lastPathComponent.lowercased() == strip.lowercased() }) { root = inner }
         let patch = patchFolder(gameFolder)
         let hasGame = (try? fm.contentsOfDirectory(atPath: root.path))?.contains { $0.lowercased() == "game" } ?? false
         // Only Ren'Py keeps its files in `game/`; other engines' patches mirror `base/` itself.
         let base = gameFolder.appendingPathComponent("base", isDirectory: true)
         let baseHasGame = (try? fm.contentsOfDirectory(atPath: base.path))?.contains { $0.lowercased() == "game" } ?? true
-        let destination = hasGame || !baseHasGame ? patch : patch.appendingPathComponent("game", isDirectory: true)
-        return try merge(root, into: destination)
+        let intoGame: Bool
+        switch into {
+        case "game": intoGame = !hasGame
+        case "root": intoGame = false
+        default: intoGame = !(hasGame || !baseHasGame)
+        }
+        let destination = intoGame ? patch.appendingPathComponent("game", isDirectory: true) : patch
+        let prefix = intoGame ? "game/" : ""
+        var written: [String] = []
+        try merge(root, into: destination, relative: "", written: &written)
+        return written.map { prefix + $0 }
     }
 
     /// Steps into a lone wrapper folder (e.g. `MyPatch-v2/`) unless it's `game` itself.
@@ -95,26 +118,25 @@ enum PatchStore {
         }
     }
 
-    private static func merge(_ source: URL, into destination: URL) throws -> Int {
+    private static func merge(_ source: URL, into destination: URL, relative: String, written: inout [String]) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-        var count = 0
         for item in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey]) {
             let name = item.lastPathComponent
             if name.hasPrefix(".") || name == "__MACOSX" { continue }
             // Match an existing folder's case ("Game" vs "game") so layers line up.
             let existing = (try? fm.contentsOfDirectory(atPath: destination.path))?.first { $0.lowercased() == name.lowercased() }
             let target = destination.appendingPathComponent(existing ?? name)
+            let path = relative + (existing ?? name)
             if (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-                count += try merge(item, into: target)
+                try merge(item, into: target, relative: path + "/", written: &written)
             } else {
                 // The staging folder is Shiori's own, so its files move into place rather than
                 // being written a second time (a 5 GB patch would need 10 GB free otherwise).
                 if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
                 try fm.moveItem(at: item, to: target)
-                count += 1
+                written.append(path)
             }
         }
-        return count
     }
 }

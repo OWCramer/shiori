@@ -18,6 +18,7 @@ struct LibraryView: View {
     @AppStorage("libraryFilter") private var filter: Filter = .visualNovels
     @State private var query = ""
     @State private var path: [LibraryGame] = []
+    @Environment(PatchInstaller.self) private var patchInstaller
     @State private var showingDownloads = false
     @State private var showingSettings = false
     @State private var showingAddGame = false
@@ -89,7 +90,7 @@ struct LibraryView: View {
                         Image(systemName: games.isDownloading ? "arrow.down.circle.fill" : "arrow.down.circle")
                             .symbolEffect(.pulse, isActive: games.isDownloading)
                     }
-                    .countBadge(games.downloadItems.count)
+                    .countBadge(games.downloadItems.count + patchInstaller.jobs.count)
                     .accessibilityLabel("Downloads")
                     Button { showingSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Settings")

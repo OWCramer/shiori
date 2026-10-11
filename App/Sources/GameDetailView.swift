@@ -12,6 +12,7 @@ struct GameDetailView: View {
     @Environment(LibraryCuration.self) private var curation
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(CompatibilityStore.self) private var compatibility
+    @Environment(PatchInstaller.self) private var patchInstaller
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmingDelete = false
     /// A Steam branch picked for a game that's already (partly) downloaded, awaiting confirmation.
@@ -104,6 +105,7 @@ struct GameDetailView: View {
         .confirmationDialog("Remove all patches?", isPresented: $confirmingRemovePatches, titleVisibility: .visible) {
             Button("Remove \(patchFiles.count) patch files", role: .destructive) {
                 try? PatchStore.removeAll(gameFolder: folder)
+                patchInstaller.forgetAll(appID: appID, gameFolder: folder)
                 reloadPatches()
             }
         } message: {
@@ -619,8 +621,9 @@ struct GameDetailView: View {
 
     private var patchesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
+            PatchListSection(appID: appID, gameFolder: folder) { reloadPatches() }
             if patchFiles.isEmpty {
-                Text("No patches. Files in this game's patch folder replace or add to the game's own files, and are picked up the next time you play.")
+                Text("No patch files. Files in this game's patch folder replace or add to the game's own files, and are picked up the next time you play.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             ForEach(patchFiles.prefix(20)) { file in
