@@ -6,11 +6,12 @@ import UIKit
 /// Plays a CatSystem2 game (NEKOPARA Vol. 3) with CatSystemKit. The title is the game's own
 /// FES screens (logo, language picker, title menu) run by `FESPlayer`; GAME START runs the
 /// kcScripts to the first scene, and `ScenePlayer` plays the story. The story's screen is
-/// drawn with Metal every frame (`CatSystemStageRenderer`): the planes under and over the
-/// characters as two 1280×720 pictures, and the E-mote characters on the GPU at the screen's
+/// drawn with Metal every frame (`CatSystemStageRenderer`): each plane a texture, and the E-mote characters on the GPU at the screen's
 /// resolution, posed for the moment by `EmoteStage` (idle loops, blinking, lip sync with the
 /// voice, expression changes, `mpl` slides and fades, hair and bust inertia); `fmpl` faces
-/// are drawn in the message window. Waits, fades and `rwipe` become crossfades. The message
+/// are drawn in the message window. Planes are drawn every frame too, moved, scaled, faded and
+/// shaken by `PlaneStage`; transitions crossfade (`rdraw`) or wipe through the game's rule
+/// pictures (`rwipe`). Movies (WMV) play through `CatSystemMovie`. The message
 /// window is the game's art with the text set in the game's own font (GenJyuu Gothic X, from
 /// `font/`). The title's FES screens are a Core Animation layer.
 final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDelegate {
@@ -24,7 +25,17 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private var emoteStage: EmoteStage?
     /// The faces in the message window (`fmpl`), timed the same way.
     private var faceStage: EmoteStage?
-    private let stageRenderer = CatSystemStageRenderer()
+    /// Made once the game opens (its shaders are compiled off the main thread).
+    private var stageRenderer: CatSystemStageRenderer?
+    /// The planes' motions (`pl N amove1`, `ascale1`, `fade`, `quake`).
+    private let planeStage = PlaneStage()
+    /// Plane pictures and colours on the GPU, by file name or colour (the last 24).
+    private var planeTextures: [String: MTLTexture] = [:]
+    private var planeTextureOrder: [String] = []
+    /// Rule pictures (`wipe04a`) for wipes, kept once made.
+    private var ruleTextures: [String: MTLTexture] = [:]
+    /// The next transition's rule picture (`rwipe wipe04a 40`), if it is a wipe.
+    private var transitionRule: String?
     private let audio = CatSystemAudio()
     private var displayLink: CADisplayLink?
     private var leaving = false
@@ -66,8 +77,12 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private var imageOrder: [String] = []
     private var settings = CatSystemSettings()
     private var sheet: UIViewController?
-    /// Text reveal speed, characters a second.
-    private let textSpeed = 60.0
+    /// A movie playing (`movie nekopara3op`): the story waits until it ends or a tap skips it.
+    private var movie: CatSystemMovie?
+    /// Auto mode (the two-finger menu): lines read on by themselves once shown and voiced.
+    private var autoMode = false
+    /// When the line on screen was fully shown with its voice ended (for Auto's wait).
+    private var lineDoneAt: CFTimeInterval?
 
     init(gameFolder: URL, onFirstFrame: @escaping () -> Void = {}, onExit: @escaping () -> Void) {
         self.gameFolder = gameFolder
@@ -97,12 +112,6 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         picture.contentsGravity = .resize
         picture.minificationFilter = .trilinear
         stage.layer.addSublayer(picture)
-        if let metal = stageRenderer?.layer {
-            metal.frame = stage.bounds
-            metal.isHidden = true
-            stage.layer.addSublayer(metal)
-        }
-
         // The message window: sys_meswnd_n under the window's buttons (sys_meswnd), at y 460.
         window.frame = CGRect(x: 0, y: 460, width: 1280, height: 260)
         window.isUserInteractionEnabled = false
@@ -110,10 +119,6 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         stage.addSubview(window)
         windowArt.frame = window.bounds
         window.addSubview(windowArt)
-        if let faces = stageRenderer?.faceLayer {
-            faces.frame = CatSystemStageRenderer.faceBox
-            window.layer.insertSublayer(faces, above: windowArt.layer)
-        }
         nameLabel.frame = CGRect(x: 264, y: 66, width: 600, height: 44)
         textLabel.frame = CGRect(x: 245, y: 112, width: 802, height: 140)
         textLabel.numberOfLines = 0
@@ -143,7 +148,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
         try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         settings = CatSystemSettings.load(from: saves)
-        registerFonts()
+        applySettings()
         open()
 
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
@@ -186,38 +191,96 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         displayLink?.invalidate()
         displayLink = nil
         audio.stopAll()
+        stopMovie()
     }
 
     // MARK: Opening the game
 
-    /// The archives' name key is recovered once (about a second) and kept in Caches.
+    /// What opening the game prepares off the main thread, so the first frames don't wait.
+    private struct Opened: @unchecked Sendable {
+        let game: CatSystemGame
+        let cast: EmoteCast
+        let stage: CatSystemStageResources?
+        let fonts: (text: String?, name: String?)
+        let window: Window
+        let title: FESPlayer?
+        let titleError: Error?
+    }
+
+    /// The message window's art: the band and its buttons as one picture, the key-wait
+    /// paw's frames and its place.
+    private struct Window {
+        var art: UIImage?
+        var wait: [UIImage] = []
+        var waitFrame: CGRect?
+    }
+
+    /// Opens the archives (their name key is recovered once, about a second, and kept in
+    /// Caches), then everything the first screens need, all off the main thread: the game's
+    /// fonts, the E-mote profiles, the Metal shaders, the message window's art and the boot
+    /// flow's script with its first pictures. The title's pictures keep decoding in the
+    /// background while the logo shows.
     private func open() {
         let base = base
         let cache = URL.cachesDirectory.appendingPathComponent("CatSystem/\(gameFolder.lastPathComponent)", isDirectory: true)
         let keyFile = cache.appendingPathComponent("namekey")
+        let languageChosen = settings.languageChosen
         Task.detached(priority: .userInitiated) {
+            let started = CACurrentMediaTime()
             let known = (try? String(contentsOf: keyFile, encoding: .utf8)).flatMap { UInt32($0.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16) }
             let result = Result { try CatSystemGame(root: base, nameKey: known) }
-            if case .success(let game) = result, known == nil, let key = game.nameKey {
+            guard case .success(let game) = result else {
+                await MainActor.run { [weak self] in
+                    if case .failure(let error) = result { self?.fail("This game can't start", error) }
+                }
+                return
+            }
+            if known == nil, let key = game.nameKey {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
                 try? String(key, radix: 16).write(to: keyFile, atomically: true, encoding: .utf8)
             }
-            await MainActor.run { [weak self] in
-                switch result {
-                case .success(let game): self?.opened(game)
-                case .failure(let error): self?.fail("This game can't start", error)
-                }
-            }
+            let archives = CACurrentMediaTime()
+            let fonts = Self.registerFonts(in: base.appendingPathComponent("font", isDirectory: true))
+            let cast = EmoteCast(game: game)
+            let stage = CatSystemStageResources.make()
+            let window = Self.windowArt(game)
+            let title = FESPlayer(game: game)
+            if languageChosen { title.setVariable(897, 1) }
+            var titleError: Error?
+            do { try title.start("flow") } catch { titleError = error }
+            title.preload(scripts: ["flow", "brandlogo"])
+            NSLog("CatSystem: opened in %.2f s (archives %.2f s), all off the main thread",
+                  CACurrentMediaTime() - started, archives - started)
+            let opened = Opened(game: game, cast: cast, stage: stage, fonts: fonts, window: window,
+                                title: titleError == nil ? title : nil, titleError: titleError)
+            await MainActor.run { [weak self] in self?.opened(opened) }
+            // The language picker's and the title's pictures, while the logo shows.
+            let preloading = CACurrentMediaTime()
+            title.preload(scripts: ["langselect", "title", "ttlflow", "confirm"])
+            NSLog("CatSystem: title pictures decoded in %.2f s", CACurrentMediaTime() - preloading)
         }
     }
 
-    private func opened(_ game: CatSystemGame) {
+    private func opened(_ opened: Opened) {
+        let game = opened.game
         self.game = game
-        let cast = EmoteCast(game: game)
-        emote = cast
-        emoteStage = EmoteStage(cast: cast)
-        faceStage = EmoteStage(cast: cast)
-        buildWindow(game)
+        emote = opened.cast
+        emoteStage = EmoteStage(cast: opened.cast)
+        faceStage = EmoteStage(cast: opened.cast)
+        if let name = opened.fonts.text, let font = UIFont(name: name, size: 25) { textFont = font }
+        if let name = opened.fonts.name, let font = UIFont(name: name, size: 27) { nameFont = font }
+        windowArt.image = opened.window.art
+        keyWait.animationImages = opened.window.wait
+        if let frame = opened.window.waitFrame { keyWait.frame = frame }
+        if let resources = opened.stage, let renderer = CatSystemStageRenderer(resources: resources) {
+            stageRenderer = renderer
+            renderer.layer.frame = stage.bounds
+            renderer.layer.isHidden = true
+            stage.layer.insertSublayer(renderer.layer, above: picture)
+            renderer.faceLayer.frame = CatSystemStageRenderer.faceBox
+            window.layer.insertSublayer(renderer.faceLayer, above: windowArt.layer)
+            view.setNeedsLayout()
+        }
         #if DEBUG
         // `-ShioriCatSystemLoad latest`: loads the newest save straight away (unattended runs).
         if UserDefaults.standard.string(forKey: "ShioriCatSystemLoad") == "latest", let save = CatSystemSave.list(in: saves).first {
@@ -225,7 +288,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             return
         }
         #endif
-        startTitle(skipLogo: false)
+        if let error = opened.titleError {
+            fail("This game can't start", error)
+            return
+        }
+        startTitle(skipLogo: false, prepared: opened.title)
     }
 
     private func fail(_ title: String, _ error: Error) {
@@ -235,8 +302,9 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         present(alert, animated: true)
     }
 
-    private func registerFonts() {
-        let folder = base.appendingPathComponent("font", isDirectory: true)
+    /// Registers the game's fonts (`font/`, GenJyuu Gothic X) for this process: the names of
+    /// its bold (the text) and heavy (the speaker) faces.
+    nonisolated private static func registerFonts(in folder: URL) -> (text: String?, name: String?) {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
         var names: [String: String] = [:]
         for url in files where ["ttf", "otf", "ttc"].contains(url.pathExtension.lowercased()) {
@@ -248,19 +316,22 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         }
         let bold = names.first { $0.key.hasSuffix("bold") }?.value
         let heavy = names.first { $0.key.hasSuffix("heavy") }?.value ?? bold
-        if let bold, let font = UIFont(name: bold, size: 25) { textFont = font }
-        if let heavy, let font = UIFont(name: heavy, size: 27) { nameFont = font }
+        return (bold, heavy)
     }
 
     /// The window's art in one picture: the brown band and its row of buttons.
-    private func buildWindow(_ game: CatSystemGame) {
+    nonisolated private static func windowArt(_ game: CatSystemGame) -> Window {
+        func picture(_ name: String) -> HGImage? {
+            ((try? game.file(named: name + ".hg3")) ?? nil).flatMap { try? HGImage($0) }
+        }
         let size = CGSize(width: 1280, height: 260)
         let renderer = UIGraphicsImageRenderer(size: size, format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }())
-        let band = image("sys_meswnd_n")
-        let parts = image("sys_meswnd")
-        windowArt.image = renderer.image { context in
+        let band = picture("sys_meswnd_n")
+        let parts = picture("sys_meswnd")
+        var window = Window()
+        window.art = renderer.image { context in
             func draw(_ frame: HGImage.Frame) {
-                guard let cg = Self.cgImage(frame) else { return }
+                guard let cg = cgImage(frame) else { return }
                 UIImage(cgImage: cg).draw(in: CGRect(x: frame.offsetX, y: frame.offsetY, width: frame.width, height: frame.height))
             }
             if let band = band?.frames.first { draw(band) }
@@ -268,19 +339,32 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
                 if let frame = parts?.frame(id: id) { draw(frame) }
             }
         }
-        if let wait = image("sys_meswnd_wait") {
-            keyWait.animationImages = (11...19).compactMap { wait.frame(id: $0).flatMap(Self.cgImage).map { UIImage(cgImage: $0) } }
+        if let wait = picture("sys_meswnd_wait") {
+            window.wait = (11...19).compactMap { wait.frame(id: $0).flatMap(cgImage).map { UIImage(cgImage: $0) } }
         }
         if let marker = parts?.frame(id: 50) {
-            keyWait.frame = CGRect(x: marker.offsetX, y: marker.offsetY + 4, width: 34, height: 33)
+            window.waitFrame = CGRect(x: marker.offsetX, y: marker.offsetY + 4, width: 34, height: 33)
         }
+        return window
     }
 
     // MARK: Frames
 
+    /// When the last frame began, to log the main thread stalling (a frame late by 0.1 s).
+    private var lastFrame: CFTimeInterval = 0
+
     @objc private func frame() {
+        let now = CACurrentMediaTime()
+        if lastFrame > 0, now - lastFrame > 0.1 {
+            NSLog("CatSystem: the main thread was busy for %.0f ms (%@)", (now - lastFrame) * 1000,
+                  movie != nil ? "movie" : fes != nil ? "title" : "story")
+        }
+        lastFrame = now
         audio.tick()
-        if let fes {
+        if let movie {
+            movie.draw()
+            if movie.finished { endMovie() }
+        } else if let fes {
             titleFrame(fes)
         } else if story != nil {
             storyFrame()
@@ -298,8 +382,9 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     /// The boot flow (`flow.fes`: logo, language picker, title) or, coming back from the
     /// story, the title flow alone (`ttlflow.fes`).
-    private func startTitle(skipLogo: Bool) {
+    private func startTitle(skipLogo: Bool, prepared: FESPlayer? = nil) {
         guard let game else { return }
+        stopMovie()
         story = nil
         line = nil
         lineSnapshot = nil
@@ -312,14 +397,19 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         audio.stopAll()
         musicName = nil
         setWindow(visible: false, frames: 0)
-        let player = FESPlayer(game: game)
-        // `$897` says the language picker was answered; ttlflow goes straight to the title.
-        if settings.languageChosen { player.setVariable(897, 1) }
-        do {
-            try player.start(skipLogo ? "ttlflow" : "flow")
-        } catch {
-            fail("This game can't start", error)
-            return
+        let player: FESPlayer
+        if let prepared {
+            player = prepared
+        } else {
+            player = FESPlayer(game: game)
+            // `$897` says the language picker was answered; ttlflow goes straight to the title.
+            if settings.languageChosen { player.setVariable(897, 1) }
+            do {
+                try player.start(skipLogo ? "ttlflow" : "flow")
+            } catch {
+                fail("This game can't start", error)
+                return
+            }
         }
         fes = player
         fesDrawn = nil
@@ -354,7 +444,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         let state = fes.drawState
         if state != fesDrawn {
             fesDrawn = state
+            let started = CACurrentMediaTime()
             let rgba = fes.render()
+            let took = CACurrentMediaTime() - started
+            if took > 0.03 { NSLog("CatSystem: the title screen took %.0f ms to draw", took * 1000) }
             picture.removeAllAnimations()
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -371,15 +464,18 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     private func titleTap(_ point: CGPoint) {
         guard let fes, !startingStory else { return }
-        guard let button = fes.button(atX: Int(point.x), y: Int(point.y)) else { return }
+        let button = fes.button(atX: Int(point.x), y: Int(point.y))
+        #if DEBUG
+        NSLog("CatSystem: title tap at %.0f,%.0f: %@ (%@)", point.x, point.y, button ?? "nothing", fes.stack.joined(separator: " > "))
+        #endif
+        guard let button else { return }
         switch button {
         case "btn1[1]":
             // DATA LOAD: Shiori's own saves.
             showLoad()
         case "btn1[2]":
-            let alert = UIAlertController(title: "CONFIG", message: "The game's settings screen isn't in Shiori yet.", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .cancel))
-            present(alert, animated: true)
+            // CONFIG: Shiori's own (the game's config.fes isn't run yet).
+            showConfig()
         case "btn1[4]":
             confirmLeave()
         default:
@@ -419,6 +515,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         shownPlanes = nil
         shownCast = nil
         transitionFrames = nil
+        transitionRule = nil
+        planeStage.reset([:])
         waitUntil = 0
         backlog = []
         line = nil
@@ -427,8 +525,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     // MARK: Story
 
     private func storyFrame() {
-        if line != nil {
+        if movie != nil {
+            return
+        } else if let line {
             revealLine()
+            autoAdvance(line)
         } else if CACurrentMediaTime() >= waitUntil {
             pump()
         }
@@ -441,7 +542,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         guard story != nil, let stageRenderer, let emoteStage, !stageRenderer.layer.isHidden else { return }
         let now = CACurrentMediaTime()
         emoteStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted)
-        stageRenderer.render(emoteStage.drawings(at: now))
+        let planes = planeDrawings(stageRenderer, at: now)
+        stageRenderer.render(below: planes.below, emoteStage.drawings(at: now), above: planes.above)
         if let faceStage {
             faceStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted)
             stageRenderer.renderFaces(faceStage.drawings(at: now))
@@ -451,7 +553,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     /// Runs the story until it shows a line or waits.
     private func pump() {
         var budget = 4000
-        while budget > 0, let story, line == nil, CACurrentMediaTime() >= waitUntil {
+        while budget > 0, let story, line == nil, movie == nil, CACurrentMediaTime() >= waitUntil {
             budget -= 1
             let event: ScenePlayer.Event?
             do { event = try story.next() } catch {
@@ -489,9 +591,16 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
                 waitUntil = max(waitUntil, transitionEnds)
             }
         case "rwipe":
+            // `rwipe wipe04a 40`: a wipe through the rule picture (`wipedef`, 40 frames).
             transitionFrames = words.count >= 3 ? Int(words[2]) ?? 40 : 40
-        case "pl" where words.count >= 4 && (words[2] == "fade" || words[2] == "m2fade"):
-            if let frames = Int(words[3]) { transitionFrames = max(transitionFrames ?? 0, frames) }
+            transitionRule = words.count >= 2 ? words[1] : nil
+        case "rdraw", "rwmos":
+            // `rdraw 60`: the next drawing crossfades over its frames (`drawdef`, 15);
+            // `rwmos` (a mosaic) is a crossfade here.
+            transitionFrames = words.count >= 2 ? Int(words[1]) ?? 15 : 15
+            transitionRule = nil
+        case "pl":
+            planeMotion(words, text: text, story: story, time: now)
         case "bgm":
             if let name = story.bgm {
                 if name != musicName { audio.playMusic(name, game: game) }
@@ -506,6 +615,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             setWindow(visible: false, frames: words.count >= 3 ? Int(words[2]) ?? 15 : 15)
         case "frameon":
             setWindow(visible: true, frames: words.count >= 3 ? Int(words[2]) ?? 15 : 15)
+        case "movie" where words.count >= 2:
+            playMovie(words[1], game: game)
         case "mpl":
             emoteStage?.command(text, cast: story.cast, time: now)
         case "fmpl":
@@ -513,6 +624,38 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         default:
             break
         }
+    }
+
+    // MARK: Movies
+
+    /// Plays a movie over everything; the story goes on when it ends or a tap skips it.
+    private func playMovie(_ name: String, game: CatSystemGame) {
+        present()
+        guard let player = CatSystemMovie(name: name, game: game, volume: audio.musicVolume) else {
+            NSLog("CatSystem: movie %@ doesn't play here; skipped", name)
+            return
+        }
+        player.layer.frame = stage.bounds
+        let scale = stage.transform.a, screen = view.window?.screen.scale ?? 3
+        player.layer.contentsScale = max(1, screen * scale)
+        player.layer.drawableSize = CGSize(width: (stageSize.width * scale * screen).rounded(),
+                                           height: (stageSize.height * scale * screen).rounded())
+        stage.layer.addSublayer(player.layer)
+        movie = player
+        player.start()
+    }
+
+    private func endMovie() {
+        guard movie != nil else { return }
+        stopMovie()
+        NSLog("CatSystem: movie ended")
+        pump()
+    }
+
+    private func stopMovie() {
+        movie?.stop()
+        movie?.layer.removeFromSuperlayer()
+        movie = nil
     }
 
     /// `se`, `se N`, `se N file`, `se N end frames`, `se N vol v`.
@@ -527,7 +670,12 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         }
         switch args[1] {
         case "end", "stop": audio.stopEffect(channel, fadeFrames: args.count >= 3 ? Int(args[2]) ?? 0 : 0)
-        case "vol": break
+        case "vol" where args.count >= 3:
+            audio.fadeEffect(channel, frames: 0, from: nil, to: Float(args[2].replacingOccurrences(of: "%", with: "")).map { $0 / 100 } ?? 1)
+        case "fade" where args.count >= 5:
+            // `se N fade frames from to`: the channel's volume, in percent.
+            audio.fadeEffect(channel, frames: Int(args[2]) ?? 0, from: Float(args[3]).map { $0 / 100 }, to: (Float(args[4]) ?? 100) / 100)
+        case "vol", "fade": break
         default: audio.playEffect(args[1], channel: channel, loop: args.dropFirst(2).contains("loop") || args[1].hasPrefix("bgs"), game: game)
         }
     }
@@ -562,11 +710,13 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         liftCover()
     }
 
-    /// With Metal: the planes under and over the characters as two pictures, made again when
-    /// they change. A change of planes, an explicit transition (`rwipe`, `pl … fade`) or a
-    /// character coming, going or changing body crossfades the whole screen (the profile's
-    /// default fade, 20 frames, for the last); expressions and motions play out on their
-    /// own in `EmoteStage`.
+    /// With Metal: each plane is drawn every frame from its picture's texture, placed,
+    /// scaled, faded and shaken by `PlaneStage`. What the planes show changes here, at a
+    /// drawing point (`wait`, a line): a change of pictures or places, an explicit transition
+    /// (`rdraw`, `rwipe` with its rule picture) or a character coming, going or changing body
+    /// crossfades or wipes the whole screen from the last frame (the game's `drawdef`, 15
+    /// frames; a character's profile fade, 20, for the last). Motions (`pl N amove1`, `fade`,
+    /// `quake`) play out on their own; expressions and character motions in `EmoteStage`.
     private func presentPlanes(_ renderer: CatSystemStageRenderer, force: Bool) {
         guard let story else { return }
         let planesChanged = force || story.planes != shownPlanes
@@ -578,24 +728,111 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         }
         let castChanged = bodies(story.cast) != bodies(shownCast)
         guard planesChanged || castChanged || transitionFrames != nil else { return }
-        if planesChanged {
-            let pictures: (String) -> HGImage? = { [weak self] name in self?.image(name) }
-            let below = story.render(width: Int(stageSize.width), height: Int(stageSize.height), layer: .below, pictures: pictures)
-            let over = story.planes.contains { $0.key > 0 && $0.value.visible && $0.value.alpha > 0 }
-            let above = over ? story.render(width: Int(stageSize.width), height: Int(stageSize.height), layer: .above, pictures: pictures) : nil
-            renderer.setPlanes(below: below, above: above)
-        }
         shownPlanes = story.planes
         shownCast = story.cast
+        planeStage.sync(story.planes)
         let frames = force ? 0 : transitionFrames ?? (planesChanged ? 15 : 20)
+        let transitionRuleName = transitionRule
+        let rule = force ? nil : transitionRule.flatMap { ruleTexture($0, renderer) }
         transitionFrames = nil
+        transitionRule = nil
         if renderer.layer.isHidden {
             renderer.layer.isHidden = false
         } else if frames > 0 {
-            renderer.crossfade(seconds: Double(frames) / 60)
+            var seconds = Double(frames) / 60
+            #if DEBUG
+            // `-ShioriCatSystemSlowTransitions 8`: transitions eight times as long (to look at wipes).
+            let slow = UserDefaults.standard.double(forKey: "ShioriCatSystemSlowTransitions")
+            if slow > 0 { seconds *= slow }
+            #endif
+            renderer.transition(seconds: seconds, rule: rule)
+            if rule != nil { NSLog("CatSystem: wipe %@ over %.2f s", transitionRuleName ?? "?", seconds) }
         }
         transitionEnds = CACurrentMediaTime() + Double(frames) / 60
         liftCover()
+    }
+
+    /// `pl N amove1/2/3`, `move`, `ascale1/2/3`, `fade`, `quake`, `stop` (and `pl quake`
+    /// for every plane) start at once on what is shown, without a transition.
+    private func planeMotion(_ words: [String], text: String, story: ScenePlayer, time: Double) {
+        guard words.count >= 3 else { return }
+        let motions: Set<String> = ["amove1", "amove2", "amove3", "move", "ascale1", "ascale2", "ascale3",
+                                    "fade", "m2fade", "quake", "stop"]
+        let target = words[1]
+        let numbered = Int(target) != nil || target.hasPrefix("[")
+        guard motions.contains(numbered ? words[2] : target) else { return }
+        if numbered, var shown = shownPlanes {
+            for n in ScenePlayer.planeNumbers(target) {
+                guard let now = story.planes[n], var old = shown[n] else { continue }
+                old.x = now.x; old.y = now.y
+                old.scaleX = now.scaleX; old.scaleY = now.scaleY
+                old.alpha = now.alpha
+                shown[n] = old
+            }
+            shownPlanes = shown
+        }
+        planeStage.command(text, planes: shownPlanes ?? [:], time: time)
+    }
+
+    /// The planes shown, as drawn at `time`: those up to 0 under the characters, the rest
+    /// over them.
+    private func planeDrawings(_ renderer: CatSystemStageRenderer, at time: Double)
+        -> (below: [CatSystemStageRenderer.PlaneDrawing], above: [CatSystemStageRenderer.PlaneDrawing]) {
+        guard let planes = shownPlanes else { return ([], []) }
+        var below: [CatSystemStageRenderer.PlaneDrawing] = [], above: [CatSystemStageRenderer.PlaneDrawing] = []
+        let w = Double(stageSize.width), h = Double(stageSize.height)
+        for n in planes.keys.sorted() {
+            guard let plane = planes[n], plane.visible else { continue }
+            let state = planeStage.state(n, plane, at: time)
+            guard state.alpha > 0.5 else { continue }
+            var drawing: CatSystemStageRenderer.PlaneDrawing?
+            if let color = plane.color {
+                let key = String(format: "$%08X", color)
+                if let texture = planeTexture(key, renderer, make: { renderer.texture(color: color) }) {
+                    drawing = .init(texture: texture, x: state.offsetX, y: state.offsetY, width: w, height: h, alpha: state.alpha / 255)
+                }
+            } else if let file = plane.file, let image = image(file), let frame = image.frames.first {
+                let at = plane.placement(baseX: frame.baseX, baseY: frame.baseY, canvasWidth: frame.canvasWidth,
+                                         canvasHeight: frame.canvasHeight, width: Int(w), height: Int(h))
+                let baseX = Double(at.anchorX - at.originX), baseY = Double(at.anchorY - at.originY)
+                let ax = state.x ?? Double(at.anchorX), ay = state.y ?? Double(at.anchorY)
+                let sx = state.scaleX / 100, sy = state.scaleY / 100
+                if let texture = planeTexture(file.lowercased(), renderer, make: {
+                    renderer.texture(rgba: frame.premultipliedRGBA(), width: frame.width, height: frame.height, premultiplied: true)
+                }) {
+                    drawing = .init(texture: texture,
+                                    x: ax + (Double(frame.offsetX) - baseX) * sx + state.offsetX,
+                                    y: ay + (Double(frame.offsetY) - baseY) * sy + state.offsetY,
+                                    width: Double(frame.width) * sx, height: Double(frame.height) * sy,
+                                    alpha: state.alpha / 255)
+                }
+            }
+            guard let drawing else { continue }
+            if n <= 0 { below.append(drawing) } else { above.append(drawing) }
+        }
+        return (below, above)
+    }
+
+    private func planeTexture(_ key: String, _ renderer: CatSystemStageRenderer, make: () -> MTLTexture?) -> MTLTexture? {
+        if let hit = planeTextures[key] { return hit }
+        guard let texture = make() else { return nil }
+        planeTextures[key] = texture
+        planeTextureOrder.append(key)
+        if planeTextureOrder.count > 16 { planeTextures.removeValue(forKey: planeTextureOrder.removeFirst()) }
+        return texture
+    }
+
+    /// A rule picture (`wipe04a`) as a texture of its grey levels.
+    private func ruleTexture(_ name: String, _ renderer: CatSystemStageRenderer) -> MTLTexture? {
+        let key = name.lowercased()
+        if let hit = ruleTextures[key] { return hit }
+        guard let frame = image(key)?.frames.first,
+              let texture = renderer.ruleTexture(grey: frame.redPlane(), width: frame.width, height: frame.height) else {
+            NSLog("CatSystem: no rule picture %@; crossfading", name)
+            return nil
+        }
+        ruleTextures[key] = texture
+        return texture
     }
 
     private func show(_ message: ScenePlayer.Message) {
@@ -653,9 +890,23 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         guard let line else { return }
         let length = (line.text as NSString).length
         guard revealed < Double(length) else { return }
-        revealed = min(Double(length), revealed + textSpeed / 60)
+        revealed = min(Double(length), settings.lettersPerSecond.map { revealed + $0 / 60 } ?? Double(length))
         setText(revealing: Int(revealed))
         if revealed >= Double(length) { lineFinished() }
+    }
+
+    /// Auto: once the line is shown and its voice has ended, waits as the CONFIG's auto
+    /// speed says, then reads on.
+    private func autoAdvance(_ line: CatSystemLine) {
+        guard autoMode, presentedViewController == nil else { lineDoneAt = nil; return }
+        let length = (line.text as NSString).length
+        guard revealed >= Double(length), !audio.isVoicePlaying else { lineDoneAt = nil; return }
+        let now = CACurrentMediaTime()
+        guard let done = lineDoneAt else { lineDoneAt = now; return }
+        if now - done >= settings.autoWait(letters: length) {
+            lineDoneAt = nil
+            readOn()
+        }
     }
 
     private func lineFinished() {
@@ -673,6 +924,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     @objc private func tapped(_ recognizer: UITapGestureRecognizer) {
         guard presentedViewController == nil else { return }
         let point = recognizer.location(in: stage)
+        if movie != nil {
+            // A tap skips the movie.
+            endMovie()
+            return
+        }
         if fes != nil {
             titleTap(point)
             return
@@ -686,19 +942,25 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
                 lineFinished()
                 return
             }
-            // Reads on: the voice stops, as in the game.
-            audio.stopVoice()
-            self.line = nil
-            keyWait.stopAnimating()
-            keyWait.isHidden = true
-            pump()
+            readOn()
         } else if CACurrentMediaTime() < waitUntil {
             // A tap cuts a wait or a crossfade short.
             waitUntil = 0
             picture.removeAllAnimations()
             stageRenderer?.endCrossfade()
+            planeStage.finishMotions()
             pump()
         }
+    }
+
+    /// Leaves the line on screen for the story's next: the voice stops, as in the game.
+    private func readOn() {
+        audio.stopVoice()
+        line = nil
+        lineDoneAt = nil
+        keyWait.stopAnimating()
+        keyWait.isHidden = true
+        pump()
     }
 
     @objc private func showMenu() {
@@ -709,18 +971,42 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         }
         alert.addAction(UIAlertAction(title: "Load", style: .default) { [weak self] _ in self?.showLoad() })
         if story != nil {
+            alert.addAction(UIAlertAction(title: autoMode ? "Auto: On" : "Auto: Off", style: .default) { [weak self] _ in
+                guard let self else { return }
+                self.autoMode.toggle()
+                self.lineDoneAt = nil
+                self.flash(self.autoMode ? "Auto" : "Auto Off")
+            })
             alert.addAction(UIAlertAction(title: "Backlog", style: .default) { [weak self] _ in self?.showBacklog() })
             alert.addAction(UIAlertAction(title: "Title", style: .default) { [weak self] _ in
                 self?.autosave()
                 self?.startTitle(skipLogo: true)
             })
         }
+        alert.addAction(UIAlertAction(title: "Config", style: .default) { [weak self] _ in self?.showConfig() })
         alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { [weak self] _ in self?.leave() })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.popoverPresentationController?.sourceView = view
         alert.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
         alert.popoverPresentationController?.permittedArrowDirections = []
         present(alert, animated: true)
+    }
+
+    private func showConfig() {
+        guard presentedViewController == nil else { return }
+        let host = UIHostingController(rootView: CatSystemConfig(settings: settings, onChange: { [weak self] new in
+            guard let self else { return }
+            self.settings = new
+            self.applySettings()
+            self.settings.save(to: self.saves)
+        }, onClose: { [weak self] in self?.dismiss(animated: true) }))
+        host.overrideUserInterfaceStyle = .dark
+        present(host, animated: true)
+    }
+
+    private func applySettings() {
+        audio.setVolumes(music: Float(settings.music), voice: Float(settings.voice),
+                         effects: Float(settings.effects), system: Float(settings.system))
     }
 
     @objc private func showBacklog() {
@@ -749,6 +1035,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private func leave() {
         guard !leaving else { return }
         leaving = true
+        stopMovie()
         autosave()
         displayLink?.invalidate()
         displayLink = nil
@@ -798,6 +1085,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             return
         }
         NSLog("CatSystem: loaded %@ (scene %@, line %d)", save.file, save.scene, save.messageIndex)
+        stopMovie()
         fes = nil
         startingStory = false
         audio.stopAll()
@@ -809,6 +1097,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         shownCast = nil
         emoteStage?.reset(player.cast, time: CACurrentMediaTime())
         faceStage?.reset(player.faces, time: CACurrentMediaTime())
+        planeStage.reset(player.planes)
+        transitionRule = nil
         present(force: true)
         musicName = player.bgm
         if let music = player.bgm { audio.playMusic(music, game: game, fadeFrames: 30) }
@@ -851,11 +1141,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         return image
     }
 
-    static func cgImage(_ frame: HGImage.Frame) -> CGImage? {
+    nonisolated static func cgImage(_ frame: HGImage.Frame) -> CGImage? {
         cgImage(frame.rgba, width: frame.width, height: frame.height, opaque: false)
     }
 
-    static func cgImage(_ rgba: [UInt8], width: Int, height: Int, opaque: Bool) -> CGImage? {
+    nonisolated static func cgImage(_ rgba: [UInt8], width: Int, height: Int, opaque: Bool) -> CGImage? {
         guard width > 0, height > 0, rgba.count >= width * height * 4,
               let provider = CGDataProvider(data: Data(rgba) as CFData) else { return nil }
         let info: CGImageAlphaInfo = opaque ? .noneSkipLast : .last

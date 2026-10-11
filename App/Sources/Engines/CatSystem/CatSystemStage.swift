@@ -2,22 +2,81 @@ import CatSystemKit
 import Metal
 import QuartzCore
 
-/// The story's screen, drawn with Metal every frame: the planes under the characters (one
-/// picture, made on the CPU when they change), the E-mote characters (CatSystemKit's
-/// `EmoteGPU`, posed by `EmoteStage` for this moment), then the planes over them. A change
-/// of scene crossfades from the last frame drawn. The drawable is the stage's size on
-/// screen, so characters are drawn at the screen's resolution, not the game's 1280×720.
+/// What the story's Metal screen needs that takes a moment to make (shaders compiled from
+/// source), made off the main thread when the game opens.
+final class CatSystemStageResources: @unchecked Sendable {
+    let gpu: EmoteGPU
+    let wipePipeline: MTLRenderPipelineState
+    let sampler: MTLSamplerState
+
+    private init(gpu: EmoteGPU, wipePipeline: MTLRenderPipelineState, sampler: MTLSamplerState) {
+        self.gpu = gpu
+        self.wipePipeline = wipePipeline
+        self.sampler = sampler
+    }
+
+    static func make() -> CatSystemStageResources? {
+        guard let device = MTLCreateSystemDefaultDevice(), let gpu = EmoteGPU(device: device, pixelFormat: .bgra8Unorm),
+              let library = try? device.makeLibrary(source: shaders, options: nil) else { return nil }
+        let d = MTLRenderPipelineDescriptor()
+        d.vertexFunction = library.makeFunction(name: "wipeVertex")
+        d.fragmentFunction = library.makeFunction(name: "wipeFragment")
+        let a = d.colorAttachments[0]!
+        a.pixelFormat = .bgra8Unorm
+        a.isBlendingEnabled = true
+        a.rgbBlendOperation = .add; a.alphaBlendOperation = .add
+        a.sourceRGBBlendFactor = .one; a.sourceAlphaBlendFactor = .one
+        a.destinationRGBBlendFactor = .oneMinusSourceAlpha; a.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        let s = MTLSamplerDescriptor()
+        s.minFilter = .linear; s.magFilter = .linear
+        s.sAddressMode = .clampToEdge; s.tAddressMode = .clampToEdge
+        guard let pipeline = try? device.makeRenderPipelineState(descriptor: d),
+              let sampler = device.makeSamplerState(descriptor: s) else { return nil }
+        return CatSystemStageResources(gpu: gpu, wipePipeline: pipeline, sampler: sampler)
+    }
+
+    /// A rule wipe: the last frame drawn over the new one, gone where the rule picture's
+    /// grey is below the wipe's progress (dark parts first), with a soft edge `vague` wide.
+    private static let shaders = """
+    #include <metal_stdlib>
+    using namespace metal;
+    struct VOut { float4 position [[position]]; float2 uv; };
+    vertex VOut wipeVertex(uint vid [[vertex_id]]) {
+        float2 c = float2(vid & 1, vid >> 1);
+        VOut out;
+        out.position = float4(c.x * 2 - 1, 1 - c.y * 2, 0, 1);
+        out.uv = c;
+        return out;
+    }
+    fragment float4 wipeFragment(VOut in [[stage_in]], constant float2 &p [[buffer(0)]],
+                                 texture2d<float> last [[texture(0)]], texture2d<float> rule [[texture(1)]],
+                                 sampler s [[sampler(0)]]) {
+        float r = rule.sample(s, in.uv).r;
+        float shown = saturate((p.x * (1 + p.y) - r) / p.y);
+        return last.sample(s, in.uv) * (1 - shown);
+    }
+    """
+}
+
+/// The story's screen, drawn with Metal every frame: the planes under the characters (each
+/// picture or colour a textured rectangle, placed, scaled, faded and shaken for this moment
+/// by `PlaneStage`), the E-mote characters (CatSystemKit's `EmoteGPU`, posed by
+/// `EmoteStage`), then the planes over them. A change of scene crossfades from the last
+/// frame drawn, or wipes through a rule picture (`rwipe wipe04a`). The drawable is the
+/// stage's size on screen, so characters are drawn at the screen's resolution, not the
+/// game's 1280×720.
 @MainActor
 final class CatSystemStageRenderer {
     let layer = CAMetalLayer()
     private let gpu: EmoteGPU
+    private let resources: CatSystemStageResources
     private let queue: MTLCommandQueue
-    private var below: MTLTexture?
-    private var above: MTLTexture?
     private var current: MTLTexture?
     private var previous: MTLTexture?
     private var fadeStart = 0.0
     private var fadeLength = 0.0
+    /// The rule picture of the transition under way (nil: a crossfade).
+    private var rule: MTLTexture?
     private let gameWidth = 1280, gameHeight = 720
     /// When each model's textures became ready, if a frame had to wait for them (-1 while
     /// waiting).
@@ -30,12 +89,12 @@ final class CatSystemStageRenderer {
     nonisolated(unsafe) private var gpuSum = 0.0
     nonisolated(unsafe) private var gpuCount = 0
 
-    init?() {
-        guard let device = MTLCreateSystemDefaultDevice(), let gpu = EmoteGPU(device: device, pixelFormat: .bgra8Unorm),
-              let queue = device.makeCommandQueue() else { return nil }
-        self.gpu = gpu
+    init?(resources: CatSystemStageResources) {
+        guard let queue = resources.gpu.device.makeCommandQueue() else { return nil }
+        self.resources = resources
+        gpu = resources.gpu
         self.queue = queue
-        layer.device = device
+        layer.device = gpu.device
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
         layer.isOpaque = true
@@ -43,32 +102,61 @@ final class CatSystemStageRenderer {
         setUpFaceLayer()
     }
 
-    /// The planes as pictures (1280×720 RGBA): `below` opaque, `above` premultiplied (nil
-    /// when nothing is over the characters).
-    func setPlanes(below: [UInt8], above: [UInt8]?) {
-        self.below = texture(below)
-        self.above = above.flatMap(texture)
+    // MARK: Planes
+
+    /// A plane's picture or colour as drawn this frame: a rectangle in game pixels (it may
+    /// reach past the screen), faded to `alpha` (0–1).
+    struct PlaneDrawing {
+        var texture: MTLTexture
+        var x: Double, y: Double, width: Double, height: Double
+        var alpha: Double
     }
 
-    /// A new texture each time (the GPU may still be reading the last one).
-    private func texture(_ rgba: [UInt8]) -> MTLTexture? {
-        guard rgba.count >= gameWidth * gameHeight * 4 else { return nil }
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: gameWidth, height: gameHeight, mipmapped: false)
+    /// A picture as a texture: RGBA, premultiplied (`HGImage.Frame.premultipliedRGBA`) unless
+    /// it is opaque.
+    func texture(rgba: [UInt8], width: Int, height: Int, premultiplied: Bool = true) -> MTLTexture? {
+        guard width > 0, height > 0, rgba.count >= width * height * 4 else { return nil }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
         d.usage = .shaderRead
         d.storageMode = .shared
         let t = gpu.device.makeTexture(descriptor: d)
-        rgba.withUnsafeBytes { t?.replace(region: MTLRegionMake2D(0, 0, gameWidth, gameHeight), mipmapLevel: 0,
-                                         withBytes: $0.baseAddress!, bytesPerRow: gameWidth * 4) }
+        rgba.withUnsafeBytes { t?.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
+                                           withBytes: $0.baseAddress!, bytesPerRow: width * 4) }
         return t
     }
 
-    /// From the next frame, the screen crossfades from the last frame drawn over `seconds`.
-    func crossfade(seconds: Double) {
+    /// A 1×1 texture of a colour (`0xAARRGGBB`), premultiplied, for colour planes.
+    func texture(color: UInt32) -> MTLTexture? {
+        let a = UInt32(color >> 24)
+        func c(_ shift: UInt32) -> UInt8 { UInt8(((color >> shift & 0xFF) * a + 127) / 255) }
+        return texture(rgba: [c(16), c(8), c(0), UInt8(a)], width: 1, height: 1)
+    }
+
+    /// A rule picture's grey levels as a texture.
+    func ruleTexture(grey: [UInt8], width: Int, height: Int) -> MTLTexture? {
+        guard width > 0, height > 0, grey.count >= width * height else { return nil }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r8Unorm, width: width, height: height, mipmapped: false)
+        d.usage = .shaderRead
+        d.storageMode = .shared
+        let t = gpu.device.makeTexture(descriptor: d)
+        grey.withUnsafeBytes { t?.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
+                                           withBytes: $0.baseAddress!, bytesPerRow: width) }
+        return t
+    }
+
+    // MARK: Transitions
+
+    /// From the next frame, the screen crossfades from the last frame drawn over `seconds`,
+    /// or wipes by `rule` (a rule picture's texture) when one is given.
+    func transition(seconds: Double, rule: MTLTexture? = nil) {
         guard seconds > 0, current != nil else { return }
         swap(&previous, &current)
         fadeStart = CACurrentMediaTime()
         fadeLength = seconds
+        self.rule = rule
     }
+
+    func crossfade(seconds: Double) { transition(seconds: seconds) }
 
     func endCrossfade() { fadeLength = 0 }
 
@@ -82,12 +170,15 @@ final class CatSystemStageRenderer {
         return gpu.device.makeTexture(descriptor: d)
     }
 
-    /// Draws a frame with `drawings` (from `EmoteStage`).
-    func render(_ drawings: [EmoteStage.Drawing]) {
+    // MARK: Frames
+
+    /// Draws a frame: `below` (the planes under the characters, in order), `drawings` (from
+    /// `EmoteStage`), then `above`.
+    func render(below: [PlaneDrawing], _ drawings: [EmoteStage.Drawing], above: [PlaneDrawing]) {
         let started = CACurrentMediaTime()
         let size = layer.drawableSize
         let width = Int(size.width), height = Int(size.height)
-        guard width > 0, height > 0, let below else { return }
+        guard width > 0, height > 0 else { return }
         current = target(current, width: width, height: height)
         guard let current, let buffer = queue.makeCommandBuffer() else { return }
         let s = Double(width) / Double(gameWidth)
@@ -117,9 +208,15 @@ final class CatSystemStageRenderer {
             characters.append((prepared, Float(d.alpha), group))
         }
 
-        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: Self.pass(current, clear: true)) else { return }
+        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: Self.pass(current, clear: true, black: true)) else { return }
         let full = SIMD4<Float>(0, 0, Float(width), Float(height))
-        gpu.drawQuad(below, encoder: encoder, width: width, height: height, rect: full)
+        func plane(_ p: PlaneDrawing) {
+            guard p.alpha > 0.002 else { return }
+            gpu.drawQuad(p.texture, encoder: encoder, width: width, height: height,
+                         rect: SIMD4(Float(p.x * s), Float(p.y * s), Float(p.width * s), Float(p.height * s)),
+                         opacity: Float(min(1, p.alpha)))
+        }
+        below.forEach(plane)
         for c in characters {
             if let group = c.group {
                 gpu.drawQuad(group, encoder: encoder, width: width, height: height, rect: full,
@@ -128,7 +225,7 @@ final class CatSystemStageRenderer {
                 gpu.draw(c.prepared, encoder: encoder, width: width, height: height)
             }
         }
-        if let above { gpu.drawQuad(above, encoder: encoder, width: width, height: height, rect: full) }
+        above.forEach(plane)
         encoder.endEncoding()
 
         if let drawable = layer.nextDrawable(), let present = buffer.makeRenderCommandEncoder(descriptor: Self.pass(drawable.texture, clear: false)) {
@@ -136,10 +233,18 @@ final class CatSystemStageRenderer {
             let now = CACurrentMediaTime()
             if fadeLength > 0, let previous, previous.width == width, previous.height == height {
                 let t = (now - fadeStart) / fadeLength
-                if t < 1 {
-                    gpu.drawQuad(previous, encoder: present, width: width, height: height, rect: full, opacity: Float(1 - t))
-                } else {
+                if t >= 1 {
                     fadeLength = 0
+                } else if let rule {
+                    var p = SIMD2<Float>(Float(t), 0.12)
+                    present.setRenderPipelineState(resources.wipePipeline)
+                    present.setFragmentBytes(&p, length: 8, index: 0)
+                    present.setFragmentTexture(previous, index: 0)
+                    present.setFragmentTexture(rule, index: 1)
+                    present.setFragmentSamplerState(resources.sampler, index: 0)
+                    present.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+                } else {
+                    gpu.drawQuad(previous, encoder: present, width: width, height: height, rect: full, opacity: Float(1 - t))
                 }
             }
             present.endEncoding()
@@ -162,9 +267,9 @@ final class CatSystemStageRenderer {
                 defer { self.gpuSum = 0; self.gpuCount = 0 }
                 return (self.gpuSum, self.gpuCount)
             }
-            NSLog("CatSystem: %d frames in %.1f s, CPU %.2f ms a frame, GPU %.2f ms, %d characters, %dx%d",
+            NSLog("CatSystem: %d frames in %.1f s, CPU %.2f ms a frame, GPU %.2f ms, %d characters, %d planes, %dx%d",
                   framesTimed, started - lastReport, cpuTotal / Double(max(1, framesTimed)) * 1000,
-                  gpuSum / Double(max(1, gpuCount)) * 1000, drawings.count, width, height)
+                  gpuSum / Double(max(1, gpuCount)) * 1000, drawings.count, below.count + above.count, width, height)
             cpuTotal = 0
             framesTimed = 0
             lastReport = started
@@ -214,11 +319,11 @@ final class CatSystemStageRenderer {
         buffer.commit()
     }
 
-    private static func pass(_ texture: MTLTexture, clear: Bool) -> MTLRenderPassDescriptor {
+    private static func pass(_ texture: MTLTexture, clear: Bool, black: Bool = false) -> MTLRenderPassDescriptor {
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = texture
         pass.colorAttachments[0].loadAction = clear ? .clear : .dontCare
-        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: clear ? 0 : 1)
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: clear && !black ? 0 : 1)
         pass.colorAttachments[0].storeAction = .store
         return pass
     }
