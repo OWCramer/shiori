@@ -1,5 +1,6 @@
 import CatSystemKit
 import CoreText
+import GameController
 import SwiftUI
 import UIKit
 
@@ -16,8 +17,13 @@ import UIKit
 ///
 /// Input as on the PC: a tap or click reads on or presses what is under it; a right click,
 /// a two-finger tap or Escape hides the window (or backs out of a screen); the wheel (or a
-/// two-finger swipe down) opens the backlog; Ctrl held skips; Enter and Space read on. A
-/// two-finger hold leaves the game. On iPad, the game's cursor is drawn at the pointer.
+/// two-finger swipe down) opens the backlog; Ctrl held skips; Enter and Space read on. The
+/// arrow keys move a highlight between the buttons of the game's screens (as the pointer
+/// lights them; Enter presses) and, in the story, along the window's buttons (left and
+/// right). A controller plays the same way: the d-pad moves, A reads on or presses, B is
+/// the right click, Y (or LB) the backlog, RB or RT held skips, Menu opens CONFIG, Options
+/// asks to leave. A two-finger hold leaves the game. On iPad, the game's cursor is drawn at
+/// the pointer.
 final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDelegate, UIPointerInteractionDelegate {
     private let gameFolder: URL
     private let onExit: () -> Void
@@ -40,6 +46,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private var ruleTextures: [String: MTLTexture] = [:]
     /// The next transition's rule picture (`rwipe wipe04a 40`), if it is a wipe.
     private var transitionRule: String?
+    /// The next transition's largest mosaic block (`rwmos 60 60 1`), if it is a mosaic.
+    private var transitionMosaic: Int?
+    /// Emotion marks by the characters' heads (`particle3 … em_note …`).
+    private let particles = ParticleStage()
     private let audio = CatSystemAudio()
     private var displayLink: CADisplayLink?
     private var leaving = false
@@ -90,12 +100,22 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private var transitionEnds: CFTimeInterval = 0
     private var waitUntil: CFTimeInterval = 0
     private var line: CatSystemLine?
+    /// The story waits for a click (the line's click wait). A line ending `\@` shows at
+    /// once and the scene goes on while it is read (its voice, expressions and marks) up to
+    /// its click wait.
+    private var atInput = false
+    /// A click came before the line's click wait: what is left of it runs at once, and the
+    /// story reads on when it gets there.
+    private var hurrying = false
     private var lineScene = ""
     private var lineIndex = 0
     private var revealed = 0.0
     /// The story's state while the line on screen shows (what a save keeps).
     private var lineSnapshot: ScenePlayer.Snapshot?
+    /// The lines read, each with the place to go back to (the backlog's jump back): the
+    /// last 200, as Luca keeps.
     private var backlog: [CatSystemLine] = []
+    private static let backlogLimit = 200
     private var musicName: String?
     private var images: [String: HGImage] = [:]
     private var imageOrder: [String] = []
@@ -240,6 +260,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
+        // The controller drives the game (see `pad(_:)`); the launcher behind gets nothing.
+        ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
+        #if DEBUG
+        scheduleDebugInput()
+        #endif
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -645,6 +670,9 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         stageRenderer?.layer.isHidden = true
         emoteStage?.reset([:], time: 0)
         faceStage?.reset([:], time: 0)
+        particles.reset()
+        atInput = false
+        hurrying = false
         stageRenderer?.renderFaces([])
         audio.stopAll()
         musicName = nil
@@ -780,6 +808,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         guard let game else { return }
         let player = ScenePlayer(game: game, variables: variables)
         player.language = storyLanguage
+        player.emote = emote
         do { try player.start(scene) } catch {
             fail("The story couldn't start", error)
             return
@@ -791,10 +820,14 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         shownCast = nil
         transitionFrames = nil
         transitionRule = nil
+        transitionMosaic = nil
         planeStage.reset([:])
+        particles.reset()
         waitUntil = 0
         backlog = []
         line = nil
+        atInput = false
+        hurrying = false
         windowHiddenByPlayer = false
         refreshButtons()
     }
@@ -806,17 +839,17 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     // MARK: Story
 
     private func storyFrame() {
-        if movie != nil {
-            return
-        } else if let line {
+        if movie != nil { return }
+        if let line {
             revealLine()
             if skipping {
                 skipLine(line)
             } else {
                 autoAdvance(line)
             }
-        } else if CACurrentMediaTime() >= waitUntil || skipping {
-            if skipping { waitUntil = 0; stageRenderer?.endCrossfade(); planeStage.finishMotions() }
+        }
+        if !atInput, movie == nil, CACurrentMediaTime() >= waitUntil || skipping || hurrying {
+            if skipping || hurrying { waitUntil = 0; stageRenderer?.endCrossfade(); planeStage.finishMotions() }
             pump()
         }
         drawStage()
@@ -847,11 +880,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private func drawStage() {
         guard story != nil, let stageRenderer, let emoteStage, !stageRenderer.layer.isHidden else { return }
         let now = CACurrentMediaTime()
-        emoteStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted)
+        emoteStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted, envelope: audio.voiceEnvelope)
         let planes = planeDrawings(stageRenderer, at: now)
-        stageRenderer.render(below: planes.below, emoteStage.drawings(at: now), above: planes.above)
+        stageRenderer.render(below: planes.below, emoteStage.drawings(at: now), marks: markDrawings(stageRenderer, at: now), above: planes.above)
         if let faceStage {
-            faceStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted)
+            faceStage.setVoice(audio.isVoicePlaying ? audio.voiceName : nil, startedAt: audio.voiceStarted, envelope: audio.voiceEnvelope)
             stageRenderer.renderFaces(faceStage.drawings(at: now))
         }
     }
@@ -859,7 +892,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     /// Runs the story until it shows a line or waits.
     private func pump() {
         var budget = 4000
-        while budget > 0, let story, line == nil, movie == nil, screen == nil, CACurrentMediaTime() >= waitUntil || skipping {
+        while budget > 0, let story, !atInput, movie == nil, screen == nil, CACurrentMediaTime() >= waitUntil || skipping || hurrying {
             budget -= 1
             let event: ScenePlayer.Event?
             do { event = try story.next() } catch {
@@ -874,6 +907,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             case .end: storyEnded(); return
             case .scene(let name): NSLog("CatSystem: scene %@", name)
             case .missingScene: break
+            case .input: reachedInput()
             }
         }
     }
@@ -891,7 +925,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         switch verb {
         case "wait":
             present()
-            if skipping { break }
+            if skipping || hurrying { break }
             if words.count >= 2, let frames = Int(words[1]) {
                 waitUntil = now + Double(frames) / 60
             } else if words.count == 1 {
@@ -901,11 +935,20 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             // `rwipe wipe04a 40`: a wipe through the rule picture (`wipedef`, 40 frames).
             transitionFrames = words.count >= 3 ? Int(words[2]) ?? 40 : 40
             transitionRule = words.count >= 2 ? words[1] : nil
-        case "rdraw", "rwmos":
-            // `rdraw 60`: the next drawing crossfades over its frames (`drawdef`, 15);
-            // `rwmos` (a mosaic) is a crossfade here.
+            transitionMosaic = nil
+        case "rdraw":
+            // `rdraw 60`: the next drawing crossfades over its frames (`drawdef`, 15).
             transitionFrames = words.count >= 2 ? Int(words[1]) ?? 15 : 15
             transitionRule = nil
+            transitionMosaic = nil
+        case "rwmos":
+            // `rwmos 60 60 1`: the next drawing comes through a mosaic over 60 frames, its
+            // blocks growing to 60 pixels at the middle (into and out of daydreams).
+            transitionFrames = words.count >= 2 ? Int(words[1]) ?? 60 : 60
+            transitionMosaic = words.count >= 3 ? Int(words[2]) ?? 60 : 60
+            transitionRule = nil
+        case "particle", "particle2", "particle3":
+            particles.command(text, time: now) { [weak self] bank in self?.emoteStage?.place(bank: bank, at: now) }
         case "pl":
             planeMotion(words, text: text, story: story, time: now)
         case "bgm":
@@ -1045,8 +1088,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         let frames = force || skipping ? 0 : transitionFrames ?? (planesChanged ? 15 : 20)
         let transitionRuleName = transitionRule
         let rule = force ? nil : transitionRule.flatMap { ruleTexture($0, renderer) }
+        let mosaic = force ? nil : transitionMosaic.map(Double.init)
         transitionFrames = nil
         transitionRule = nil
+        transitionMosaic = nil
         if renderer.layer.isHidden {
             renderer.layer.isHidden = false
         } else if frames > 0 {
@@ -1056,8 +1101,9 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             let slow = UserDefaults.standard.double(forKey: "ShioriCatSystemSlowTransitions")
             if slow > 0 { seconds *= slow }
             #endif
-            renderer.transition(seconds: seconds, rule: rule)
+            renderer.transition(seconds: seconds, rule: rule, mosaic: mosaic)
             if rule != nil { NSLog("CatSystem: wipe %@ over %.2f s", transitionRuleName ?? "?", seconds) }
+            if let mosaic { NSLog("CatSystem: mosaic to %.0f px over %.2f s", mosaic, seconds) }
         }
         transitionEnds = CACurrentMediaTime() + Double(frames) / 60
         liftCover()
@@ -1134,6 +1180,20 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         return texture
     }
 
+    /// The emotion marks at `time`, each its picture centred on its place, scaled and faded.
+    private func markDrawings(_ renderer: CatSystemStageRenderer, at time: Double) -> [CatSystemStageRenderer.PlaneDrawing] {
+        guard !particles.isEmpty else { return [] }
+        let sprites = particles.sprites(at: time) { [weak self] bank in self?.emoteStage?.place(bank: bank, at: time) }
+        return sprites.compactMap { sprite in
+            guard let frame = image(sprite.texture)?.frames.first,
+                  let texture = planeTexture(sprite.texture.lowercased(), renderer, make: {
+                      renderer.texture(rgba: frame.premultipliedRGBA(), width: frame.width, height: frame.height, premultiplied: true)
+                  }) else { return nil }
+            let w = Double(frame.width) * sprite.scale, h = Double(frame.height) * sprite.scale
+            return .init(texture: texture, x: sprite.x - w / 2, y: sprite.y - h / 2, width: w, height: h, alpha: sprite.alpha)
+        }
+    }
+
     /// A rule picture (`wipe04a`) as a texture of its grey levels.
     private func ruleTexture(_ name: String, _ renderer: CatSystemStageRenderer) -> MTLTexture? {
         let key = name.lowercased()
@@ -1156,14 +1216,30 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         readBefore = readLines.contains(scene: message.scene, index: message.index)
         readLines.insert(scene: message.scene, index: message.index)
         let nameID = message.originalSpeaker.flatMap { speakerTable[$0] }
-        display(CatSystemLine(speaker: message.speaker, text: message.text, voice: message.voice, nameID: nameID))
+        hurrying = false
+        atInput = !message.continues
+        var shown = CatSystemLine(speaker: message.speaker, text: message.text, voice: message.voice, nameID: nameID)
+        shown.save = lineSnapshot.map { CatSystemSave(date: Date(), snapshot: $0, speaker: shown.speaker, text: shown.text,
+                                                      voice: shown.voice, messageIndex: lineIndex, scene: lineScene, nameID: nameID) }
+        display(shown)
         if let voice = message.voice, !skipping { audio.playVoice(voice, game: game) }
+    }
+
+    /// The click wait of a line that went on after showing (`\@`).
+    private func reachedInput() {
+        atInput = true
+        if hurrying {
+            hurrying = false
+            leaveLine()
+        } else {
+            updateKeyWait()
+        }
     }
 
     private func display(_ shown: CatSystemLine) {
         line = shown
         backlog.append(shown)
-        if backlog.count > 300 { backlog.removeFirst(backlog.count - 300) }
+        if backlog.count > Self.backlogLimit { backlog.removeFirst(backlog.count - Self.backlogLimit) }
         revealed = skipping ? Double((shown.text as NSString).length) : 0
         lineVoiced = shown.voice != nil
         keyWait.stopAnimating()
@@ -1235,13 +1311,13 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         guard revealed < Double(length) else { return }
         revealed = min(Double(length), settings.lettersPerSecond.map { revealed + $0 / 60 } ?? Double(length))
         setText(revealing: Int(revealed))
-        if revealed >= Double(length) { lineFinished() }
+        if revealed >= Double(length) { updateKeyWait() }
     }
 
     /// Auto: once the line is shown and its voice has ended, waits as the CONFIG's auto
     /// speed says (`startup.xml`'s `autopriset`), then reads on.
     private func autoAdvance(_ line: CatSystemLine) {
-        guard autoMode, screen == nil else { lineDoneAt = nil; return }
+        guard autoMode, screen == nil, atInput else { lineDoneAt = nil; return }
         let length = (line.text as NSString).length
         guard revealed >= Double(length), !audio.isVoicePlaying else { lineDoneAt = nil; return }
         let now = CACurrentMediaTime()
@@ -1252,9 +1328,12 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         }
     }
 
-    private func lineFinished() {
-        keyWait.isHidden = false
-        keyWait.startAnimating()
+    /// The key-wait paw: shown once the line is out and the story waits for a click.
+    private func updateKeyWait() {
+        let waiting = line.map { atInput && revealed >= Double(($0.text as NSString).length) } ?? false
+        guard waiting != !keyWait.isHidden else { return }
+        keyWait.isHidden = !waiting
+        if waiting { keyWait.startAnimating() } else { keyWait.stopAnimating() }
     }
 
     private func setWindow(visible: Bool, frames: Int) {
@@ -1359,7 +1438,11 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     /// The pointer over the window's buttons: the one under it lights up, with its help
     /// balloon (`DISPHELP`, while the CONFIG's help is on: `$961`).
     private func hoverWindow(at point: CGPoint?) {
-        let button = point.flatMap(windowButton(at:))
+        highlightWindowButton(point.flatMap(windowButton(at:)))
+    }
+
+    /// Lights one of the window's buttons (the pointer's or the keys'), or none.
+    private func highlightWindowButton(_ button: WindowButton?) {
         guard button?.index != hoveredButton else { return }
         if let old = hoveredButton, windowButtons.indices.contains(old) {
             windowButtons[old].hovered = false
@@ -1442,7 +1525,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     }
 
     /// A tap, a click, Enter or Space.
-    private func primaryAction(at point: CGPoint?, pointer: Bool) {
+    private func primaryAction(at point: CGPoint?, pointer: Bool, pressLit: Bool = true) {
         if movie != nil {
             // A tap skips the movie.
             endMovie()
@@ -1468,6 +1551,13 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             press(button)
             return
         }
+        // Enter (or A) with a window button lit (by the keys, the pad or the pointer) presses it.
+        if point == nil, pressLit, let i = hoveredButton, windowButtons.indices.contains(i),
+           windowButtons[i].visible, windowButtons[i].enabled, window.alpha > 0.5 {
+            press(windowButtons[i])
+            return
+        }
+        if point != nil { highlightWindowButton(nil) }
         if skipMode {
             skipMode = false
             refreshButtons()
@@ -1482,7 +1572,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             if revealed < Double(length) {
                 revealed = Double(length)
                 setText(revealing: length)
-                lineFinished()
+                updateKeyWait()
                 return
             }
             readOn()
@@ -1517,12 +1607,29 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     /// Leaves the line on screen for the story's next: the voice stops, unless the CONFIG
     /// says voices carry on after a click (`contvoice`).
     private func readOn() {
+        guard atInput else {
+            // The line's own motions are still playing: they finish now, and the story reads
+            // on at its click wait.
+            hurrying = true
+            waitUntil = 0
+            stageRenderer?.endCrossfade()
+            planeStage.finishMotions()
+            emoteStage?.finishMotions()
+            pump()
+            return
+        }
+        leaveLine()
+        pump()
+    }
+
+    /// The line on screen is done with: its voice stops (unless CONFIG's `contvoice`).
+    private func leaveLine() {
         if settings.value("contvoice") == 0 || skipping { audio.stopVoice() }
         line = nil
+        atInput = false
         lineDoneAt = nil
         keyWait.stopAnimating()
         keyWait.isHidden = true
-        pump()
     }
 
     @objc private func openBacklog() {
@@ -1541,6 +1648,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
+        leaveAlert = alert
         present(alert, animated: true)
     }
 
@@ -1554,6 +1662,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         displayLink?.invalidate()
         displayLink = nil
         audio.stopAll()
+        ControllerInput.gameReceiver = nil
         OrientationLock.set(.all, in: view.window?.windowScene)
         onExit()
     }
@@ -1613,7 +1722,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         if let player = screen ?? fes {
             player.scroll(up: up)
         } else if story != nil, movie == nil {
-            if up { openBacklog() } else if line != nil { primaryAction(at: nil, pointer: true) }
+            if up { openBacklog() } else if line != nil { primaryAction(at: nil, pointer: true, pressLit: false) }
         }
     }
 
@@ -1663,22 +1772,178 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     private static let handledKeys: Set<UIKeyboardHIDUsage> = [
         .keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar, .keyboardUpArrow, .keyboardDownArrow,
-        .keyboardLeftControl, .keyboardRightControl, .keyboardDeleteOrBackspace,
+        .keyboardLeftArrow, .keyboardRightArrow, .keyboardLeftControl, .keyboardRightControl, .keyboardDeleteOrBackspace,
     ]
 
     /// Escape (or Backspace) as a right click; Enter and Space read on (or press the button
-    /// under the pointer); the arrows as the wheel; Ctrl held skips.
+    /// lit); the arrows move between buttons (see `arrow`); Ctrl held skips.
     private func keyDown(_ key: UIKeyboardHIDUsage) {
         guard presentedViewController == nil else { return }
         switch key {
         case .keyboardEscape, .keyboardDeleteOrBackspace: secondaryAction()
         case .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar: primaryAction(at: nil, pointer: true)
-        case .keyboardUpArrow: wheel(up: true)
-        case .keyboardDownArrow: wheel(up: false)
+        case .keyboardUpArrow: arrow(.up)
+        case .keyboardDownArrow: arrow(.down)
+        case .keyboardLeftArrow: arrow(.left)
+        case .keyboardRightArrow: arrow(.right)
         case .keyboardLeftControl, .keyboardRightControl: controlHeld = story != nil && screen == nil
         default: break
         }
     }
+
+    /// An arrow key or the d-pad. On the game's screens the highlight moves between their
+    /// buttons (`FESPlayer.moveFocus`: the `#KEYBLOCK` buttons where a screen names them, a
+    /// slider's knob left and right), and up or down past the last one turns the wheel (the
+    /// save screen's pages, the backlog's lines). In the story, left and right move along
+    /// the window's buttons, up opens the backlog and down reads on, as the wheel does.
+    private func arrow(_ direction: FESPlayer.Direction) {
+        guard movie == nil else { return }
+        if let player = screen ?? fes {
+            let moved = player.moveFocus(direction)
+            #if DEBUG
+            NSLog("CatSystem: arrow %@ on %@: %@", "\(direction)", player.stack.joined(separator: " > "), moved ? "moved" : "nothing that way")
+            #endif
+            if !moved, direction == .up || direction == .down {
+                player.scroll(up: direction == .up)
+            }
+            return
+        }
+        guard story != nil else { return }
+        switch direction {
+        case .left, .right:
+            guard !windowHiddenByPlayer, window.alpha > 0.5 else { return }
+            // In reading order: the top row, then the bottom one.
+            let row = windowButtons.filter { $0.visible && $0.enabled }
+                .sorted { (Int($0.view.frame.minY / 20), $0.view.frame.minX) < (Int($1.view.frame.minY / 20), $1.view.frame.minX) }
+            guard !row.isEmpty else { return }
+            let at = row.firstIndex { $0.index == hoveredButton }
+            let next = at.map { min(row.count - 1, max(0, $0 + (direction == .right ? 1 : -1))) } ?? (direction == .right ? 0 : row.count - 1)
+            highlightWindowButton(row[next])
+        case .up:
+            highlightWindowButton(nil)
+            wheel(up: true)
+        case .down:
+            highlightWindowButton(nil)
+            wheel(up: false)
+        }
+    }
+
+    // MARK: Controller
+
+    private enum PadKey: Hashable { case up, down, left, right, a, b, y, lb, rb, menu }
+
+    private var padHeld: Set<PadKey> = []
+    private var padRepeatAt: [PadKey: CFTimeInterval] = [:]
+    private var padOptionsDown = false
+    private var leaveAlert: UIAlertController?
+
+    /// The controller, read every frame: the d-pad (or left stick) as the arrow keys, held
+    /// directions repeating; A as Enter; B as the right click; Y and LB the backlog (on a
+    /// screen, the wheel up); RB or RT held skips in the story (on a screen, the wheel down);
+    /// Menu opens CONFIG in the story (on a screen, backs out); Options asks to leave, and on
+    /// that question A leaves and B stays.
+    private func pad(_ pad: GCExtendedGamepad) {
+        let options = pad.buttonOptions?.isPressed ?? false
+        defer { padOptionsDown = options }
+        if let alert = leaveAlert, presentedViewController === alert {
+            if pad.buttonA.isPressed, !padHeld.contains(.a) {
+                alert.dismiss(animated: true) { [weak self] in self?.leave() }
+            } else if pad.buttonB.isPressed, !padHeld.contains(.b) {
+                alert.dismiss(animated: true)
+            }
+            padHeld = pad.buttonA.isPressed ? [.a] : pad.buttonB.isPressed ? [.b] : []
+            return
+        }
+        guard presentedViewController == nil, !leaving else { return }
+        if options, !padOptionsDown {
+            padHeld.removeAll()
+            controlHeld = false
+            confirmLeave()
+            return
+        }
+        let stick = pad.leftThumbstick
+        let threshold: Float = 0.55
+        let pressed: [PadKey: Bool] = [
+            .up: pad.dpad.up.isPressed || stick.yAxis.value > threshold,
+            .down: pad.dpad.down.isPressed || stick.yAxis.value < -threshold,
+            .left: pad.dpad.left.isPressed || stick.xAxis.value < -threshold,
+            .right: pad.dpad.right.isPressed || stick.xAxis.value > threshold,
+            .a: pad.buttonA.isPressed,
+            .b: pad.buttonB.isPressed,
+            .y: pad.buttonY.isPressed,
+            .lb: pad.leftShoulder.isPressed,
+            .rb: pad.rightShoulder.isPressed || pad.rightTrigger.isPressed,
+            .menu: pad.buttonMenu.isPressed,
+        ]
+        let now = CACurrentMediaTime()
+        for (key, isDown) in pressed {
+            let wasDown = padHeld.contains(key)
+            if isDown, !wasDown {
+                padHeld.insert(key)
+                padRepeatAt[key] = now + 0.35
+                padPress(key, down: true)
+            } else if isDown, [.up, .down, .left, .right].contains(key), let at = padRepeatAt[key], now >= at {
+                padRepeatAt[key] = now + 0.11
+                padPress(key, down: true)
+            } else if !isDown, wasDown {
+                padHeld.remove(key)
+                padRepeatAt[key] = nil
+                padPress(key, down: false)
+            }
+        }
+    }
+
+    private func padPress(_ key: PadKey, down: Bool) {
+        if key == .rb, !down { controlHeld = false; return }
+        guard down else { return }
+        // The pad, like the keys, hides the iPad's pointer highlight.
+        pointerHovering = false
+        let onScreen = screen != nil || fes != nil
+        switch key {
+        case .up: arrow(.up)
+        case .down: arrow(.down)
+        case .left: arrow(.left)
+        case .right: arrow(.right)
+        case .a: primaryAction(at: nil, pointer: true)
+        case .b: secondaryAction()
+        case .y, .lb: if onScreen { wheel(up: true) } else { openBacklog() }
+        case .rb: if onScreen { wheel(up: false) } else { controlHeld = story != nil }
+        case .menu:
+            if onScreen { secondaryAction() } else if story != nil, movie == nil { windowAction(.config) }
+        }
+    }
+
+    #if DEBUG
+    /// `-ShioriCatSystemInput "4:down;4.5:return;9:pad-a"`: keys (`up`, `down`, `left`,
+    /// `right`, `return`, `escape`) and pad buttons (`pad-a`, `pad-b`, `pad-y`, `pad-menu`,
+    /// `pad-down` …) at seconds from launch, to check the keys and the pad in the simulator.
+    private func scheduleDebugInput() {
+        let script = UserDefaults.standard.string(forKey: "ShioriCatSystemInput") ?? ""
+        let keys: [String: UIKeyboardHIDUsage] = [
+            "up": .keyboardUpArrow, "down": .keyboardDownArrow, "left": .keyboardLeftArrow, "right": .keyboardRightArrow,
+            "return": .keyboardReturnOrEnter, "escape": .keyboardEscape,
+        ]
+        let pads: [String: PadKey] = [
+            "pad-up": .up, "pad-down": .down, "pad-left": .left, "pad-right": .right, "pad-a": .a, "pad-b": .b,
+            "pad-y": .y, "pad-lb": .lb, "pad-rb": .rb, "pad-menu": .menu,
+        ]
+        for step in script.split(separator: ";") {
+            let parts = step.split(separator: ":")
+            guard parts.count == 2, let delay = Double(parts[0]) else { continue }
+            let name = String(parts[1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                NSLog("CatSystem: debug input %@", name)
+                if let key = keys[name] {
+                    self.keyDown(key)
+                } else if let key = pads[name] {
+                    self.padPress(key, down: true)
+                    if key == .rb { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.padPress(.rb, down: false) } }
+                }
+            }
+        }
+    }
+    #endif
 
     // MARK: The game's screens over the story
 
@@ -1703,8 +1968,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             player.setVariable(801, 1)
             script = "config"
         case .backlog:
-            // The backlog can't take the story back to a line (no rollback in Shiori).
-            player.suppressed = ["ret", "message"]
+            // Its jump-back buttons take the story back to a line (`exit -2`, the line in
+            // `$518`): each line read keeps its place.
             script = "hist_b"
         }
         do { try player.start(script) } catch {
@@ -1737,6 +2002,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         draw(player, into: screenLayer, drawn: &screenDrawn, opaque: false)
         guard let code = player.rootExitCode else { return }
         let kind = screenKind
+        let jumpTo = player.variables[518]
         closeScreen()
         switch kind {
         case .saveLoad:
@@ -1745,8 +2011,21 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             } else if code == -3 {
                 leave()
             }
-        case .config, .backlog: break
+        case .backlog:
+            if code == -2, let index = jumpTo { jumpBack(to: index) }
+        case .config: break
         }
+    }
+
+    /// The backlog's jump back: the story as it was when line `index` showed, the lines
+    /// after it gone from the backlog.
+    private func jumpBack(to index: Int) {
+        guard backlog.indices.contains(index), let save = backlog[index].save else {
+            NSLog("CatSystem: no place kept for backlog line %d", index)
+            return
+        }
+        NSLog("CatSystem: back to backlog line %d of %d (scene %@)", index, backlog.count, save.scene)
+        load(save, keeping: Array(backlog[..<index]))
     }
 
     private func closeScreen() {
@@ -1988,10 +2267,12 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         try? slots.write(save, slot: CatSystemSlots.autoSlot, thumbnail: stageRenderer.flatMap { _ in takeThumbnail() })
     }
 
-    private func load(_ save: CatSystemSave) {
+    /// Picks the story up at a save (or a backlog line: `keeping` the lines before it).
+    private func load(_ save: CatSystemSave, keeping earlier: [CatSystemLine] = []) {
         guard let game else { return }
         let player = ScenePlayer(game: game)
         player.language = storyLanguage
+        player.emote = emote
         do { try player.restore(save.snapshot) } catch {
             fail("Couldn't load", error)
             return
@@ -2003,9 +2284,15 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         startingStory = false
         audio.stopAll()
         story = player
-        backlog = []
+        backlog = earlier
         transitionFrames = nil
+        transitionMosaic = nil
+        particles.reset()
         waitUntil = 0
+        hurrying = false
+        // A line that went on after showing (`\@`) goes on from where it was saved; older
+        // saves were all made at the click wait.
+        atInput = !(save.snapshot.beforeInput ?? false)
         shownPlanes = nil
         shownCast = nil
         autoMode = false
@@ -2024,7 +2311,9 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         windowHiddenByPlayer = false
         windowWanted = true
         let nameID = save.nameID
-        display(CatSystemLine(speaker: save.speaker, text: save.text, voice: save.voice, nameID: nameID))
+        var shown = CatSystemLine(speaker: save.speaker, text: save.text, voice: save.voice, nameID: nameID)
+        shown.save = save
+        display(shown)
         setWindow(visible: true, frames: 0)
         if let voice = save.voice { audio.playVoice(voice, game: game) }
         applySettings()

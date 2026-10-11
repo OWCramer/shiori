@@ -94,6 +94,11 @@ final class CatSystemAudio {
             NSLog("CatSystem: voice %@ (%.1f s)", name, Double(buffer.frameLength) / buffer.format.sampleRate)
             self.voiceStarted = CACurrentMediaTime()
             self.voiceName = name
+            // Its loudness per 1/60 s, for the mouths of voices without `.lv` levels.
+            if let samples = buffer.floatChannelData?[0] {
+                self.voiceEnvelope = EmoteStage.envelope(UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength)),
+                                                         rate: buffer.format.sampleRate)
+            }
             self.voiceEnds = CACurrentMediaTime() + Double(buffer.frameLength) / buffer.format.sampleRate
         }
     }
@@ -101,6 +106,8 @@ final class CatSystemAudio {
     /// The voice playing and when it began (for lip sync).
     private(set) var voiceName: String?
     private(set) var voiceStarted: CFTimeInterval = 0
+    /// The voice's loudness (RMS) per 1/60 s.
+    private(set) var voiceEnvelope: [Float] = []
 
     func stopVoice() {
         _ = request("voice")
@@ -108,6 +115,7 @@ final class CatSystemAudio {
         voice = nil
         voiceEnds = 0
         voiceName = nil
+        voiceEnvelope = []
     }
 
     /// A sound effect on a channel (`se 0 se2041`, or a system screen's `se1`).

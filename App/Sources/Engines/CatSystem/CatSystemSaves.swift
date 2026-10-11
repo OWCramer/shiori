@@ -277,4 +277,6 @@ struct CatSystemLine {
     var text: String
     var voice: String?
     var nameID: Int?
+    /// The story as it was when the line showed, for the backlog's jump back.
+    var save: CatSystemSave?
 }
