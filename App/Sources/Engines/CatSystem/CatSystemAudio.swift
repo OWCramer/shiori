@@ -31,15 +31,20 @@ final class CatSystemAudio {
         channel.hasPrefix("sys-") ? systemVolume : effectVolume
     }
 
-    /// Takes new volumes (the CONFIG screen) for what is playing now too.
-    func setVolumes(music: Float, voice: Float, effects: Float, system: Float) {
+    /// The CONFIG's per-character voice volume for a voice file (0…1).
+    var voiceLevel: (String) -> Float = { _ in 1 }
+
+    /// Takes new volumes (the CONFIG screen) for what is playing now too; `master` scales
+    /// everything.
+    func setVolumes(master: Float = 1, music: Float, voice: Float, effects: Float, system: Float) {
+        engine.mainMixerNode.outputVolume = master
         musicVolume = music
         voiceVolume = voice
         effectVolume = effects
         systemVolume = system
         fades.removeAll { !$0.stop }
         self.music?.volume = music
-        self.voice?.volume = voice
+        self.voice?.volume = voice * (voiceName.map(voiceLevel) ?? 1)
         for (channel, node) in self.effects {
             node.volume = volume(forEffect: channel) * (effectLevels[channel]?.to ?? 1)
         }
@@ -85,7 +90,7 @@ final class CatSystemAudio {
         let ticket = request("voice")
         decode(name, game: game) { [weak self] buffer in
             guard let self, self.requested["voice"] == ticket, let buffer else { return }
-            self.voice = self.play(buffer, loop: false, volume: self.voiceVolume, fadeFrames: 0)
+            self.voice = self.play(buffer, loop: false, volume: self.voiceVolume * self.voiceLevel(name), fadeFrames: 0)
             NSLog("CatSystem: voice %@ (%.1f s)", name, Double(buffer.frameLength) / buffer.format.sampleRate)
             self.voiceStarted = CACurrentMediaTime()
             self.voiceName = name

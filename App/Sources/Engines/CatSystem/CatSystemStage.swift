@@ -276,6 +276,28 @@ final class CatSystemStageRenderer {
         }
     }
 
+    /// The last frame drawn (the story without the message window), scaled to a save's
+    /// thumbnail: what the game's save screen shows in a slot.
+    func snapshot(width: Int, height: Int) -> CGImage? {
+        guard let current, let buffer = queue.makeCommandBuffer() else { return nil }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+        d.usage = [.renderTarget, .shaderRead]
+        d.storageMode = .shared
+        guard let target = gpu.device.makeTexture(descriptor: d),
+              let encoder = buffer.makeRenderCommandEncoder(descriptor: Self.pass(target, clear: true, black: true)) else { return nil }
+        gpu.drawQuad(current, encoder: encoder, width: width, height: height, rect: SIMD4(0, 0, Float(width), Float(height)))
+        encoder.endEncoding()
+        buffer.commit()
+        buffer.waitUntilCompleted()
+        var bgra = [UInt8](repeating: 0, count: width * height * 4)
+        target.getBytes(&bgra, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+        guard let provider = CGDataProvider(data: Data(bgra) as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+
     // MARK: Faces
 
     /// The message window's face box (`fmpl`): the window's left 262×260 (the game's
