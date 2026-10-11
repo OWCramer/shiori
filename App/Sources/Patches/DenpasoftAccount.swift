@@ -49,13 +49,15 @@ final class DenpasoftAccount: NSObject {
         return configuration
     }
 
-    /// The download for a Denpasoft product the patch list names, if the account has it.
-    func download(forProductURL url: String) -> Download? {
-        guard let slug = Self.slug(url) else { return nil }
-        if let match = downloads.first(where: { $0.productSlug == slug }) { return match }
+    /// The account's files for a Denpasoft product the patch list names (a product can carry
+    /// several, such as one per store version).
+    func downloads(forProductURL url: String) -> [Download] {
+        guard let slug = Self.slug(url) else { return [] }
+        let bySlug = downloads.filter { $0.productSlug == slug }
+        if !bySlug.isEmpty { return bySlug }
         // Without a product link on the Downloads page, match the name the slug was made from.
         let key = slug.replacingOccurrences(of: "-", with: "")
-        return downloads.first { Self.normalised($0.productName) == key }
+        return downloads.filter { Self.normalised($0.productName) == key }
     }
 
     static func slug(_ url: String) -> String? {

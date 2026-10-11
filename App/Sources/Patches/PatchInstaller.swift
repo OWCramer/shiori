@@ -71,7 +71,8 @@ final class PatchInstaller {
         installed[appID]?.first { $0.id == id }
     }
 
-    func install(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL) {
+    /// `chosenFile` names which of a product's files to install, when a shop account has several.
+    func install(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL, chosenFile: String? = nil) {
         guard tasks[appID] == nil else { return }
         jobs[appID] = Job(patchID: patch.id, name: patch.name,
                           phase: .downloading(written: 0, total: patch.totalSize ?? 0, part: 1, parts: patch.files.count))
@@ -85,7 +86,7 @@ final class PatchInstaller {
                 #endif
             }
             do {
-                try await self?.run(patch, appID: appID, gameFolder: gameFolder)
+                try await self?.run(patch, appID: appID, gameFolder: gameFolder, chosenFile: chosenFile)
                 self?.jobs[appID] = nil
             } catch is CancellationError {
                 self?.jobs[appID] = nil
@@ -139,13 +140,13 @@ final class PatchInstaller {
         }
     }
 
-    private func run(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL) async throws {
+    private func run(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL, chosenFile: String?) async throws {
         let fm = FileManager.default
         try fm.createDirectory(at: Self.downloads, withIntermediateDirectories: true)
         var downloaded: [(url: URL, name: String)] = []
         for (n, file) in patch.files.enumerated() {
             let partial = Self.downloads.appendingPathComponent("\(appID)-\(patch.id)-\(n).part")
-            let result = try await downloadFile(file, to: partial, appID: appID, part: n + 1, parts: patch.files.count)
+            let result = try await downloadFile(file, to: partial, appID: appID, part: n + 1, parts: patch.files.count, chosenFile: chosenFile)
             try Task.checkCancellation()
             jobs[appID]?.phase = .checking
             if let expected = file.sha256, expected != result.sha256 {
@@ -169,19 +170,23 @@ final class PatchInstaller {
         // A file now belongs to this patch; earlier patches no longer remove it.
         for i in records.indices { records[i].files.removeAll { mine.contains($0) } }
         records.removeAll { $0.id == patch.id }
-        records.append(InstalledPatch(id: patch.id, name: patch.name, version: patch.version,
+        records.append(InstalledPatch(id: patch.id, name: patch.name, version: chosenFile ?? patch.version,
                                       fingerprint: patch.fingerprint, installedAt: Date(), files: written.sorted()))
         try Self.write(records, to: gameFolder)
         for item in downloaded { try? fm.removeItem(at: item.url) }
     }
 
-    private func downloadFile(_ file: PatchListStore.Patch.File, to partial: URL, appID: UInt32, part: Int, parts: Int) async throws -> PatchDownloader.Result {
+    private func downloadFile(_ file: PatchListStore.Patch.File, to partial: URL, appID: UInt32, part: Int, parts: Int,
+                              chosenFile: String? = nil) async throws -> PatchDownloader.Result {
         #if os(iOS)
         // A Denpasoft product: downloaded through the player's signed-in Denpasoft session.
         if file.host == "store", file.url.contains("denpasoft.com") {
             let account = DenpasoftAccount.shared
             await account.refresh()
-            guard let item = account.download(forProductURL: file.url) else { throw DenpasoftAccount.Failure.notInAccount }
+            let items = account.downloads(forProductURL: file.url)
+            guard let item = items.first(where: { $0.fileName == chosenFile }) ?? items.first else {
+                throw DenpasoftAccount.Failure.notInAccount
+            }
             let saved = try await account.fetch(item, to: partial) { [weak self] written, total in
                 self?.jobs[appID]?.phase = .downloading(written: written, total: total, part: part, parts: parts)
             }

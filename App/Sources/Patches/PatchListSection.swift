@@ -25,9 +25,17 @@ struct PatchListSection: View {
 
     private enum Prompt: Identifiable {
         case install(PatchListStore.Patch)
+        /// A file from a shop account (Denpasoft), by its file name.
+        case installFile(PatchListStore.Patch, String)
         case remove(PatchListStore.Patch)
-        var patch: PatchListStore.Patch { switch self { case let .install(p), let .remove(p): p } }
-        var id: String { switch self { case let .install(p): "i-\(p.id)"; case let .remove(p): "r-\(p.id)" } }
+        var patch: PatchListStore.Patch { switch self { case let .install(p), let .installFile(p, _), let .remove(p): p } }
+        var id: String {
+            switch self {
+            case let .install(p): "i-\(p.id)"
+            case let .installFile(p, f): "f-\(p.id)-\(f)"
+            case let .remove(p): "r-\(p.id)"
+            }
+        }
     }
 
     private var patches: [PatchListStore.Patch] { patchList.patches(for: appID) }
@@ -70,6 +78,10 @@ struct PatchListSection: View {
                 Button(installedVersion(patch) == nil ? "Download and Install" : "Update") {
                     installer.install(patch, appID: appID, gameFolder: gameFolder)
                 }
+            case let .installFile(patch, file):
+                Button(installedVersion(patch) == nil ? "Download and Install" : "Replace") {
+                    installer.install(patch, appID: appID, gameFolder: gameFolder, chosenFile: file)
+                }
             case let .remove(patch):
                 Button("Remove", role: .destructive) {
                     try? installer.remove(patch.id, appID: appID, gameFolder: gameFolder)
@@ -79,6 +91,7 @@ struct PatchListSection: View {
         } message: { prompt in
             switch prompt {
             case let .install(patch): Text(confirmationMessage(patch))
+            case let .installFile(patch, file): Text("Installs \(file.isEmpty ? "the file" : file) from your Denpasoft downloads. " + confirmationMessage(patch))
             case .remove: Text("Only this patch's files are deleted; saves and other patches stay.")
             }
         }
@@ -86,7 +99,7 @@ struct PatchListSection: View {
 
     private var promptTitle: String {
         switch prompt {
-        case let .install(patch): "Install \(patch.name)?"
+        case let .install(patch), let .installFile(patch, _): "Install \(patch.name)?"
         case let .remove(patch): "Remove \(patch.name)?"
         case nil: ""
         }
@@ -150,6 +163,17 @@ struct PatchListSection: View {
                 action(patch)
             }
             badges(patch)
+            #if os(iOS)
+            if let url = denpasoftProduct(patch), denpasoft.isSignedIn {
+                let files = denpasoft.downloads(forProductURL: url)
+                if let installed = installedVersion(patch)?.version, files.count > 1 {
+                    Text("Installed: \(installed)").font(.caption).foregroundStyle(.secondary)
+                } else if !files.isEmpty {
+                    Text("In your Denpasoft downloads: " + files.map { $0.fileName.isEmpty ? $0.productName : $0.fileName }.joined(separator: ", "))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            #endif
             if let job = installer.jobs[appID], job.patchID == patch.id { jobView(job) }
             if let notes = patch.notes, !notes.isEmpty {
                 #if os(tvOS)
@@ -187,8 +211,24 @@ struct PatchListSection: View {
                 .disabled(busy)
         } else if let denpasoftURL = denpasoftProduct(patch) {
             #if os(iOS)
-            if denpasoft.isSignedIn, denpasoft.download(forProductURL: denpasoftURL) != nil {
-                Button("Install", systemImage: "arrow.down.circle") { prompt = .install(patch) }
+            let files = denpasoft.isSignedIn ? denpasoft.downloads(forProductURL: denpasoftURL) : []
+            if files.count > 1 {
+                // Denpasoft can carry more than one file for a product: the player picks.
+                Menu {
+                    Section("Your Denpasoft downloads") {
+                        ForEach(files, id: \.url) { file in
+                            Button(file.fileName.isEmpty ? file.productName : file.fileName) {
+                                prompt = .installFile(patch, file.fileName)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Install", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.glass).font(.caption)
+                .disabled(busy)
+            } else if let file = files.first {
+                Button("Install", systemImage: "arrow.down.circle") { prompt = .installFile(patch, file.fileName) }
                     .buttonStyle(.glass).font(.caption)
                     .disabled(busy)
             } else {
@@ -310,7 +350,7 @@ struct PatchListSection: View {
         if !patch.official { parts.append("This is a community patch, not one from the game's publisher.") }
         if patch.verified == nil { parts.append("Nobody has checked it in Shiori yet; if the game misbehaves, remove it from here.") }
         if denpasoftProduct(patch) != nil {
-            parts.append("It downloads from your Denpasoft account.")
+            // The installFile message already says where it comes from.
         } else if patch.files.contains(where: { $0.sha256 == nil }) {
             parts.append("The list has no checksum for it yet, so the download can't be checked.")
         }
