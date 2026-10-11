@@ -167,7 +167,7 @@ struct PatchListSection: View {
             if let url = denpasoftProduct(patch), denpasoft.isSignedIn {
                 let files = denpasoft.downloads(forProductURL: url)
                 if let installed = installedVersion(patch)?.version, files.count > 1 {
-                    Text("Installed: \(installed)").font(.caption).foregroundStyle(.secondary)
+                    Text("Installed: \(DenpasoftAccount.cleanFileName(installed))").font(.caption).foregroundStyle(.secondary)
                 } else if !files.isEmpty {
                     Text("In your Denpasoft downloads: " + files.enumerated().map { fileLabel($1, index: $0) }.joined(separator: ", "))
                         .font(.caption).foregroundStyle(.secondary)

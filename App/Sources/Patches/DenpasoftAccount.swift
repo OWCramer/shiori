@@ -60,6 +60,14 @@ final class DenpasoftAccount: NSObject {
         return downloads.filter { Self.normalised($0.productName) == key }
     }
 
+    /// The download button's label is "Download <file> (patch)"; the file name is the middle.
+    static func cleanFileName(_ label: String) -> String {
+        var name = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.lowercased().hasPrefix("download ") { name = String(name.dropFirst("download ".count)) }
+        if let range = name.range(of: #"\s*\([^)]*\)$"#, options: .regularExpression) { name.removeSubrange(range) }
+        return name
+    }
+
     static func slug(_ url: String) -> String? {
         guard let range = url.range(of: "/product/") ?? url.range(of: "/products/") else { return nil }
         return url[range.upperBound...].split(whereSeparator: { "/?#".contains($0) }).first.map(String.init)
@@ -172,7 +180,7 @@ final class DenpasoftAccount: NSObject {
             guard let href = row["href"] as? String, let url = URL(string: href) else { return nil }
             let product = row["product"] as? String
             return Download(productSlug: product.flatMap(Self.slug), productName: row["name"] as? String ?? "",
-                            fileName: row["file"] as? String ?? "", url: url)
+                            fileName: Self.cleanFileName(row["file"] as? String ?? ""), url: url)
         }
         return Page(signedOut: object["signedOut"] as? Bool ?? true, saysEmpty: object["saysEmpty"] as? Bool ?? false,
                     downloads: downloads)
