@@ -117,7 +117,11 @@ private struct DenpasoftSection: View {
     var body: some View {
         Section {
             if account.isSignedIn {
-                LabeledContent("Patches in your downloads", value: "\(account.downloads.count)")
+                LabeledContent("Patches in your downloads") {
+                    if account.isLoading { ProgressView() } else { Text("\(account.downloads.count)") }
+                }
+                Button("Refresh Downloads") { Task { await account.refresh(force: true) } }
+                    .disabled(account.isLoading)
                 Button("Sign Out", role: .destructive) { Task { await account.signOut() } }
             } else {
                 Button("Sign In to Denpasoft") { signingIn = true }

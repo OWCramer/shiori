@@ -81,7 +81,11 @@ final class DenpasoftAccount: NSObject {
             downloads = []
             return
         }
-        downloads = html.downloads
+        // The list renders after the page loads: an empty read keeps what was there, unless the
+        // page says there are no downloads at all.
+        if !html.downloads.isEmpty || html.saysEmpty || downloads.isEmpty {
+            downloads = html.downloads
+        }
         loadedAt = Date()
     }
 
@@ -105,6 +109,7 @@ final class DenpasoftAccount: NSObject {
 
     private struct Page {
         var signedOut: Bool
+        var saysEmpty: Bool
         var downloads: [Download]
     }
 
@@ -115,12 +120,18 @@ final class DenpasoftAccount: NSObject {
     private func load(_ url: URL) async -> Page? {
         reader.navigationDelegate = self
         reader.load(URLRequest(url: url))
-        for _ in 0..<40 {
-            try? await Task.sleep(for: .milliseconds(500))
+        // Wait for the page (and any Cloudflare check), then for the downloads list, which the
+        // page fills in after it loads (up to about 12 s).
+        for _ in 0..<60 {
+            try? await Task.sleep(for: .milliseconds(200))
             guard !reader.isLoading else { continue }
-            let title = (try? await reader.evaluateJavaScript("document.title") as? String) ?? ""
-            if title.contains("Just a moment") { continue }
-            break
+            let state = (try? await reader.evaluateJavaScript("""
+                (document.title.includes('Just a moment') ? 'challenge' :
+                 location.pathname.startsWith('/account/login') ? 'login' :
+                 document.querySelector('a[href*="download_file="]') ? 'list' :
+                 /no downloads|haven't (bought|purchased)|nothing here/i.test(document.body ? document.body.innerText : '') ? 'empty' : 'wait')
+                """) as? String) ?? "wait"
+            if state == "list" || state == "login" || state == "empty" { break }
         }
         let script = """
         (() => {
@@ -128,19 +139,29 @@ final class DenpasoftAccount: NSObject {
           const onLogin = location.pathname.startsWith('/account/login');
           const loginForm = !!document.querySelector('input[type=password]');
           const signedOut = onLogin || (loginForm && !document.querySelector('a[href*="logout"]'));
-          const rows = [];
-          for (const a of document.querySelectorAll('a[href*="download_file="]')) {
-            let box = a;
-            for (let i = 0; i < 6 && box.parentElement; i++) {
-              if (box.querySelector('a[href*="/product/"]') || box.tagName === 'TR') break;
-              box = box.parentElement;
-            }
-            const product = box.querySelector('a[href*="/product/"]');
-            const name = (product ? product.innerText : (box.innerText || '')).trim().split('\\n')[0];
-            rows.push({ href: a.href, file: (a.innerText || a.getAttribute('download') || '').trim(),
-                        product: product ? product.href : null, name });
-          }
-          return JSON.stringify({ signedOut, rows });
+          const saysEmpty = /no downloads|haven't (bought|purchased)|nothing here/i.test(text);
+          const links = [...document.querySelectorAll('a[href*="download_file="]')];
+          const label = (el) => el ? ((el.innerText || '').trim() || el.getAttribute('aria-label') || el.title ||
+                                      (el.querySelector('img') && el.querySelector('img').alt) || '').trim() : '';
+          const junk = /^(download|downloads|install|get|open|view|\\d+(\\.\\d+)? ?(kb|mb|gb)|zip|7z|rar)$/i;
+          const rows = links.map(a => {
+            // The file's own row: climb while the parent holds only this download link.
+            let row = a;
+            while (row.parentElement && row.parentElement.querySelectorAll('a[href*="download_file="]').length === 1 &&
+                   row.parentElement !== document.body) row = row.parentElement;
+            // The product card around it: climb until a product link is inside.
+            let card = row;
+            while (card && !card.querySelector('a[href*="/product/"]') && card !== document.body) card = card.parentElement;
+            const productLinks = card ? [...card.querySelectorAll('a[href*="/product/"]')] : [];
+            const product = productLinks[0] || null;
+            const heading = card && card.querySelector('h1,h2,h3,h4,h5,strong');
+            const productName = productLinks.map(label).find(t => t) || label(heading) || '';
+            const lines = (row.innerText || '').split('\\n').map(t => t.trim())
+              .filter(t => t && !junk.test(t) && t !== productName);
+            const file = label(a) && !junk.test(label(a)) ? label(a) : (a.getAttribute('download') || lines[0] || '');
+            return { href: a.href, file, product: product ? product.href : null, name: productName };
+          });
+          return JSON.stringify({ signedOut, saysEmpty, rows });
         })()
         """
         guard let json = try? await reader.evaluateJavaScript(script) as? String,
@@ -153,7 +174,8 @@ final class DenpasoftAccount: NSObject {
             return Download(productSlug: product.flatMap(Self.slug), productName: row["name"] as? String ?? "",
                             fileName: row["file"] as? String ?? "", url: url)
         }
-        return Page(signedOut: object["signedOut"] as? Bool ?? true, downloads: downloads)
+        return Page(signedOut: object["signedOut"] as? Bool ?? true, saysEmpty: object["saysEmpty"] as? Bool ?? false,
+                    downloads: downloads)
     }
 
     // MARK: Downloading through the session

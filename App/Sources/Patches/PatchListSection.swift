@@ -169,7 +169,7 @@ struct PatchListSection: View {
                 if let installed = installedVersion(patch)?.version, files.count > 1 {
                     Text("Installed: \(installed)").font(.caption).foregroundStyle(.secondary)
                 } else if !files.isEmpty {
-                    Text("In your Denpasoft downloads: " + files.map { $0.fileName.isEmpty ? $0.productName : $0.fileName }.joined(separator: ", "))
+                    Text("In your Denpasoft downloads: " + files.enumerated().map { fileLabel($1, index: $0) }.joined(separator: ", "))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -216,8 +216,8 @@ struct PatchListSection: View {
                 // Denpasoft can carry more than one file for a product: the player picks.
                 Menu {
                     Section("Your Denpasoft downloads") {
-                        ForEach(files, id: \.url) { file in
-                            Button(file.fileName.isEmpty ? file.productName : file.fileName) {
+                        ForEach(Array(files.enumerated()), id: \.element.url) { index, file in
+                            Button(fileLabel(file, index: index)) {
                                 prompt = .installFile(patch, file.fileName)
                             }
                         }
@@ -323,6 +323,14 @@ struct PatchListSection: View {
         }
         return "\(patch.by) · via \(site)"
     }
+
+    #if os(iOS)
+    private func fileLabel(_ file: DenpasoftAccount.Download, index: Int) -> String {
+        if !file.fileName.isEmpty { return file.fileName }
+        if !file.productName.isEmpty { return "\(file.productName) (file \(index + 1))" }
+        return "File \(index + 1)"
+    }
+    #endif
 
     /// The Denpasoft product page of a patch Denpasoft sells or gives away.
     private func denpasoftProduct(_ patch: PatchListStore.Patch) -> String? {

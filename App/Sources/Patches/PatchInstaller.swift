@@ -156,13 +156,15 @@ final class PatchInstaller {
             downloaded.append((result.file, file.name ?? result.name))
         }
 
+        let shopFile = chosenFile.flatMap { $0.isEmpty ? nil : $0 } ?? (patch.files.first?.host == "store" ? downloaded.first?.name : nil)
         jobs[appID]?.phase = .installing(fraction: 0)
         let install = patch.install
         let progress: @Sendable (Double) -> Void = { fraction in
             Task { @MainActor [weak self] in self?.jobs[appID]?.phase = .installing(fraction: fraction) }
         }
+        let parts = downloaded
         let written = try await Task.detached(priority: .userInitiated) {
-            try Self.unpackAndPlace(downloaded, gameFolder: gameFolder, into: install?.into, strip: install?.strip, progress: progress)
+            try Self.unpackAndPlace(parts, gameFolder: gameFolder, into: install?.into, strip: install?.strip, progress: progress)
         }.value
 
         var records = Self.read(gameFolder)
@@ -170,7 +172,7 @@ final class PatchInstaller {
         // A file now belongs to this patch; earlier patches no longer remove it.
         for i in records.indices { records[i].files.removeAll { mine.contains($0) } }
         records.removeAll { $0.id == patch.id }
-        records.append(InstalledPatch(id: patch.id, name: patch.name, version: chosenFile ?? patch.version,
+        records.append(InstalledPatch(id: patch.id, name: patch.name, version: shopFile ?? patch.version,
                                       fingerprint: patch.fingerprint, installedAt: Date(), files: written.sorted()))
         try Self.write(records, to: gameFolder)
         for item in downloaded { try? fm.removeItem(at: item.url) }
@@ -192,7 +194,9 @@ final class PatchInstaller {
             }
             let size = ((try? FileManager.default.attributesOfItem(atPath: saved.path)[.size]) as? Int64) ?? 0
             let hash = try await Task.detached { try PatchDownloader.sha256(of: saved) }.value
-            return PatchDownloader.Result(file: saved, name: saved.lastPathComponent, size: size, sha256: hash)
+            // Saved as "<partial>-<server's file name>": the label is the server's name.
+            let served = saved.lastPathComponent.components(separatedBy: ".part-").last ?? saved.lastPathComponent
+            return PatchDownloader.Result(file: saved, name: served, size: size, sha256: hash)
         }
         #endif
         let sources = [(file.host, file.url)] + (file.mirrors ?? []).map { ($0.host, $0.url) }
