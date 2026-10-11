@@ -129,6 +129,12 @@ struct RootView: View {
                 }
             }
             #if !os(tvOS)
+            .fullScreenCover(item: $games.catSystemSession) { session in
+                CoveredGame(art: session.cover) { firstFrame in
+                    CatSystemGameView(gameFolder: session.folder, onFirstFrame: firstFrame) { games.catSystemSession = nil }
+                        .ignoresSafeArea()
+                }
+            }
             .fullScreenCover(item: $games.kirikiriSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
                     KiriKiriGameView(gameFolder: session.folder, appID: session.appID, onFirstFrame: firstFrame) {

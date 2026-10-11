@@ -539,7 +539,7 @@ struct GameDetailView: View {
     /// game's cloud rules name its savedata folder (not when it writes the cloud through Steam's API).
     private var engineUsesSteamCloud: Bool {
         switch record?.engine?.engine {
-        case "artemis", "luca": false
+        case "artemis", "luca", "catsystem2": false
         case "kirikiri", "siglus": games.steamCloudMapped[appID] == true
         default: true
         }
@@ -562,7 +562,7 @@ struct GameDetailView: View {
                     }
                     if let engine = record?.engine {
                         GlassChip(EngineDetection.displayName(for: engine.engine), systemImage: "gearshape.2",
-                                  tint: [RenPyEngine.id, "artemis", "kirikiri", "siglus", "luca"].contains(engine.engine) ? .green : .orange)
+                                  tint: [RenPyEngine.id, "artemis", "kirikiri", "siglus", "luca", "catsystem2"].contains(engine.engine) ? .green : .orange)
                             .glassEffectID("engine", in: glassNamespace)
                         // Artemis reads keyboard, mouse and touch only. (KiriKiri games take a
                         // controller as their keyboard: see KiriKiriGameViewController.pad.)

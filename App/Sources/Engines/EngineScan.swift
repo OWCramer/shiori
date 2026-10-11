@@ -34,6 +34,9 @@ enum Playability: Equatable {
     init(_ engine: EngineMatch?) {
         guard let engine else { self = .unknownEngine; return }
         if ["artemis", "kirikiri", "siglus", "luca"].contains(engine.engine) { self = .playable; return }
+        #if !os(tvOS)
+        if engine.engine == "catsystem2" { self = .playable; return }
+        #endif
         guard engine.engine == RenPyEngine.id else {
             self = .unsupportedEngine(EngineDetection.displayName(for: engine.engine))
             return

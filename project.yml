@@ -25,6 +25,8 @@ packages:
     path: Packages/SiglusKit
   LucaKit:
     path: Packages/LucaKit
+  CatSystemKit:
+    path: Packages/CatSystemKit
 targets:
   Shiori:
     type: application
@@ -106,6 +108,9 @@ targets:
         product: CSiglus
       - package: LucaKit
         product: LucaKit
+      # CatSystem2 (NEKOPARA Vol. 3), Shiori's own interpreter. iPhone and iPad only for now.
+      - package: CatSystemKit
+        product: CatSystemKit
       # siglus_rs, the SiglusEngine runtime (MPL-2.0), as one dynamic framework
       # (Scripts/siglus/build-ios-framework.sh). Exports only the engine's C interface.
       - framework: Vendor/ShioriSiglus.xcframework
@@ -158,7 +163,7 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: App/Sources
-        excludes: ["Engines/KiriKiri/**", "Engines/Siglus/**"]
+        excludes: ["Engines/KiriKiri/**", "Engines/Siglus/**", "Engines/CatSystem/**"]
       - path: App/Resources
         excludes: ["SiglusFonts/**", "Assets.xcassets/**"]
       - path: App/TV
