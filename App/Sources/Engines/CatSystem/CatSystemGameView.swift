@@ -8,12 +8,15 @@ import UIKit
 /// kcScripts to the first scene, and `ScenePlayer` plays the story. Pictures are composited
 /// at the game's 1280×720 and shown in a Core Animation layer, letterboxed; waits, fades and
 /// `rwipe` become crossfades. The message window is the game's art with the text set in the
-/// game's own font (GenJyuu Gothic X, from `font/`). E-mote characters aren't drawn yet.
+/// game's own font (GenJyuu Gothic X, from `font/`). E-mote characters are drawn by
+/// CatSystemKit's `EmoteCast` in their scene pose (still; their idle motions, blinking and lip
+/// sync aren't played yet).
 final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDelegate {
     private let gameFolder: URL
     private let onExit: () -> Void
     private var onFirstFrame: (() -> Void)?
     private var game: CatSystemGame?
+    private var emote: EmoteCast?
     private let audio = CatSystemAudio()
     private var displayLink: CADisplayLink?
     private var leaving = false
@@ -38,6 +41,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     // Story
     private var story: ScenePlayer?
     private var shownPlanes: [Int: ScenePlayer.Plane]?
+    private var shownCast: [Int: ScenePlayer.Character]?
     /// The next crossfade's length in frames (`rwipe`, `pl N fade`), else the game's default.
     private var transitionFrames: Int?
     private var transitionEnds: CFTimeInterval = 0
@@ -182,6 +186,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     private func opened(_ game: CatSystemGame) {
         self.game = game
+        emote = EmoteCast(game: game)
         buildWindow(game)
         #if DEBUG
         // `-ShioriCatSystemLoad latest`: loads the newest save straight away (unattended runs).
@@ -269,6 +274,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         line = nil
         lineSnapshot = nil
         shownPlanes = nil
+        shownCast = nil
         audio.stopAll()
         musicName = nil
         setWindow(visible: false, frames: 0)
@@ -377,6 +383,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         audio.stopAll()
         story = player
         shownPlanes = nil
+        shownCast = nil
         transitionFrames = nil
         waitUntil = 0
         backlog = []
@@ -477,9 +484,10 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     /// Shows the planes as they are now, crossfading from what was shown.
     private func present(force: Bool = false) {
-        guard let story, force || story.planes != shownPlanes else { return }
+        guard let story, force || story.planes != shownPlanes || story.cast != shownCast else { return }
         shownPlanes = story.planes
-        let rgba = story.render(width: Int(stageSize.width), height: Int(stageSize.height), characters: false) { [weak self] name in
+        shownCast = story.cast
+        let rgba = story.render(width: Int(stageSize.width), height: Int(stageSize.height), emote: emote) { [weak self] name in
             self?.image(name)
         }
         let frames = force ? 0 : transitionFrames ?? 15
@@ -707,6 +715,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         transitionFrames = nil
         waitUntil = 0
         shownPlanes = nil
+        shownCast = nil
         present(force: true)
         musicName = player.bgm
         if let music = player.bgm { audio.playMusic(music, game: game, fadeFrames: 30) }
