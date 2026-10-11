@@ -13,8 +13,12 @@ enum OrientationLock {
         for window in scene?.windows ?? [] {
             window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
         }
-        scene?.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+        // UIKit calls the error handler on a background queue (when the request times out while
+        // the main thread is busy), so it must not be main-actor isolated, or the isolation check traps.
+        scene?.requestGeometryUpdate(.iOS(interfaceOrientations: mask), errorHandler: OrientationLock.ignoreError)
     }
+
+    nonisolated private static func ignoreError(_ error: any Error) {}
 }
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
