@@ -232,6 +232,7 @@ final class KiriKiriGameViewController: UIViewController {
         KiriKiriRuntime.handlePlatformRequests(engine)
         #if os(iOS)
         syncCursor()
+        layoutCursor()
         #endif
         var texture: UInt64 = 0, width: UInt32 = 0, height: UInt32 = 0, serial: UInt64 = 0
         if engine_get_godot_native_frame_texture(engine, &texture, &width, &height, &serial) == ENGINE_RESULT_OK,
@@ -339,10 +340,11 @@ final class KiriKiriGameViewController: UIViewController {
     // MARK: Game cursor
 
     /// Follows the pointer with the game's cursor (its hotspot on the pointer), at the size
-    /// the game's art is drawn.
+    /// the game's art is drawn. Pointer moves only record where the pointer is; the cursor is
+    /// placed once a frame (`frame`), so it steps evenly with the picture. Placed on each move,
+    /// it jumped by several moves at once whenever a long engine frame held them up.
     private func moveCursor(to location: CGPoint) {
         pointerLocation = location
-        layoutCursor()
     }
 
     private func layoutCursor() {
