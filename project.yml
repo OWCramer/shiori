@@ -80,6 +80,9 @@ targets:
         # Export compliance (the user, 2026-10-10): encryption only for HTTPS, Steam sign-in and
         # decrypting owned game content, all exempt; App Store Connect stops asking per upload.
         ITSAppUsesNonExemptEncryption: false
+        # SDL (in the Ren'Py runtimes) links CoreBluetooth for controllers, so App Store Connect
+        # asks for a purpose string (ITMS-90683) even though Shiori never asks for Bluetooth.
+        NSBluetoothAlwaysUsageDescription: Shiori uses Bluetooth only to talk to game controllers you connect, so you can play with them.
     # iCloud Documents container that mirrors each game's saves/ (SaveSync).
     entitlements:
       path: App/Shiori.entitlements
@@ -197,6 +200,9 @@ targets:
         GCSupportsControllerUserInteraction: true
         LSApplicationCategoryType: public.app-category.adventure-games
         ITSAppUsesNonExemptEncryption: false
+        # SDL (in the Ren'Py runtimes) links CoreBluetooth for controllers, so App Store Connect
+        # asks for a purpose string (ITMS-90683) even though Shiori never asks for Bluetooth.
+        NSBluetoothAlwaysUsageDescription: Shiori uses Bluetooth only to talk to game controllers you connect, so you can play with them.
     entitlements:
       # No iCloud Documents: tvOS doesn't offer them (2026-10-12: with an account in Xcode the
       # tvOS profile still grants only the container id, no ubiquity container or

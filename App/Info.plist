@@ -30,6 +30,8 @@
 	<string>public.app-category.adventure-games</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Shiori uses Bluetooth only to talk to game controllers you connect, so you can play with them.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
