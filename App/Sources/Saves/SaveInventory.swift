@@ -48,8 +48,9 @@ struct SaveInventory: Codable, Equatable, Sendable {
         let lower = name.lowercased()
         switch engine {
         case "renpy":
-            // `1-1-LT1.save`, `auto-3-LT1.save`, `quick-1-LT1.save`; not `persistent`.
-            return lower.hasSuffix(".save")
+            // `1-1-LT1.save`, `auto-3-LT1.save`, `quick-1-LT1.save`; not `persistent`, nor
+            // the `_reload-*` scratch save Ren'Py writes to reload and on leaving.
+            return lower.hasSuffix(".save") && !lower.hasPrefix("_")
         case "artemis":
             // The game's own save files (`save.dat`, `autosave.dat`, numbered ones); not
             // `system.dat` (settings) or Shiori's `global.json` and `read.json`.
@@ -62,8 +63,9 @@ struct SaveInventory: Codable, Equatable, Sendable {
             // `0001.sav`, `save001.sav`; not `global.sav`, `config.sav` or `read.sav`.
             return lower.range(of: #"^(save)?\d+\.sav$"#, options: .regularExpression) != nil
         case "luca":
-            // `luca-01.json` (slot 0 is the autosave); not settings, extras or read lines.
-            return lower.range(of: #"^luca-\d+\.json$"#, options: .regularExpression) != nil
+            // `luca-01.json` (slot 0 is the autosave) and `luca-quick.json`; not settings,
+            // extras or read lines.
+            return lower.range(of: #"^luca-(\d+|quick)\.json$"#, options: .regularExpression) != nil
         case "catsystem2":
             // Slots, the quick and auto saves, and saves from before there were slots; not
             // `shiori-settings.json` or `shiori-read.json`.
