@@ -5,11 +5,12 @@ import SwiftUI
 struct HomeHeroArt: View {
     let game: LibraryGame
     let wide: Bool
+    var topInset: CGFloat = 0
 
     var body: some View {
         // The game page's banner at the game page's height, so it's cropped the same way.
         HeroArtwork(game: game)
-            .frame(height: GameHeroHeader.standardHeight)
+            .frame(height: GameHeroHeader.standardHeight + topInset)
             .backgroundExtensionEffect()
             .overlay {
                 LinearGradient(stops: [.init(color: .clear, location: 0.15), .init(color: .black.opacity(0.45), location: 0.5), .init(color: .black.opacity(0.8), location: 1)],

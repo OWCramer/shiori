@@ -5,6 +5,8 @@ import SwiftUI
 /// page when tapped, with its actions on glass below the logo.
 struct HomeHero: View {
     let game: LibraryGame
+    /// How far the art reaches up under the status bar.
+    var topInset: CGFloat = 0
     @Environment(GameLibrary.self) private var games
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -27,7 +29,7 @@ struct HomeHero: View {
         let wide = sizeClass == .regular
         let alignment: HorizontalAlignment = wide ? .leading : .center
         NavigationLink(value: game) {
-            HomeHeroArt(game: game, wide: wide)
+            HomeHeroArt(game: game, wide: wide, topInset: topInset)
         }
         .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")

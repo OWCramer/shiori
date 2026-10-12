@@ -12,6 +12,8 @@ struct HomeView: View {
     @Environment(ShellModel.self) private var shell
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var path: [LibraryGame] = []
+    /// The top safe area (status bar, Dynamic Island), which the hero's art reaches up under.
+    @State private var topInset: CGFloat = 0
 
     var body: some View {
         let shelves = HomeShelves(library: steam.library, games: games, curation: curation,
@@ -21,7 +23,7 @@ struct HomeView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: ShowcaseMetrics.shelfSpacing) {
                     if let featured = shelves.featured {
-                        HomeHero(game: featured)
+                        HomeHero(game: featured, topInset: topInset)
                     }
                     if !shelves.continuePlaying.isEmpty {
                         HomeShelf(title: "Continue Playing", subtitle: "Played or saved most recently") {
@@ -49,10 +51,13 @@ struct HomeView: View {
                         HomeVisualNovels(games: shelves.visualNovels)
                     }
                 }
-                .padding(.top, shelves.featured == nil ? 8 : 0)
+                .padding(.top, shelves.featured == nil ? 8 : -topInset)
                 .padding(.bottom, ShowcaseMetrics.shelfSpacing)
             }
-            .ignoresSafeArea(edges: shelves.featured == nil ? [] : .top)
+            // The scroll view keeps the top safe area, so pull-to-refresh's spinner sits below
+            // the Dynamic Island; the content is pulled up by that much instead, so the hero's
+            // art still starts at the top of the screen.
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .overlay {
                 if shelves.isEmpty { HomePlaceholder() }
             }
