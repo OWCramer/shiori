@@ -15,8 +15,9 @@ enum KiriKiriRuntime {
     static let log = Logger(subsystem: "com.owencramer.vnhub", category: "KiriKiri")
     private static var started = false
 
-    /// Opens the game in `gameFolder/base`. Saves go to `saves/`, the engine's logs and cache
-    /// to Caches, so `base/` stays as Steam delivered it.
+    /// Opens the game in `gameFolder`: `base/` with `patch/` laid over it (prepareRoot). Saves
+    /// go to `saves/`, the engine's logs and cache to Caches, so `base/` stays as Steam
+    /// delivered it.
     static func open(gameFolder: URL, appID: UInt32, width: UInt32, height: UInt32) throws -> engine_handle_t {
         if !started {
             guard shiori_krkr_install_services() == ENGINE_RESULT_OK.rawValue else {
@@ -34,10 +35,10 @@ enum KiriKiriRuntime {
         try? AVAudioSession.sharedInstance().setActive(true)
 
         let fileManager = FileManager.default
-        let base = gameFolder.appendingPathComponent("base", isDirectory: true)
         let saves = gameFolder.appendingPathComponent("saves", isDirectory: true)
         let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)", isDirectory: true)
+        let root = try prepareRoot(gameFolder: gameFolder, in: caches)
         let writable = caches.appendingPathComponent("writable", isDirectory: true)
         let cache = caches.appendingPathComponent("cache", isDirectory: true)
         for folder in [saves, writable, cache] {
@@ -52,7 +53,7 @@ enum KiriKiriRuntime {
             setenv("AETHERKIRI_CX_SCHEME", scheme.path, 1)
         } else {
             unsetenv("AETHERKIRI_CX_SCHEME")
-            switch KiriKiriArchiveCheck.unhandledEncryption(base: base) {
+            switch KiriKiriArchiveCheck.unhandledEncryption(base: root) {
             case .cx:
                 throw Failure(errorDescription: "This game's archives use CxDec encryption, and GARbro's database doesn't list this title yet (or Shiori couldn't download it).")
             case .hx:
@@ -88,15 +89,35 @@ enum KiriKiriRuntime {
         // sizes the surface to the game and goes back to composed frames (useGameSize).
         setOption(handle, ENGINE_OPTION_FRAME_OUTPUT, ENGINE_FRAME_OUTPUT_RAW_SOURCE)
         engine_set_surface_size(handle, width, height)
-        let opened = base.path.withCString { engine_open_game(handle, $0, nil) }
+        let opened = root.path.withCString { engine_open_game(handle, $0, nil) }
         drainLogs(handle)
         guard opened == ENGINE_RESULT_OK else {
             let message = engine_get_last_error(handle).map { String(cString: $0) } ?? ""
             engine_destroy(handle)
             throw Failure(errorDescription: message.isEmpty ? "The game didn't open (\(opened.rawValue))." : message)
         }
-        log.notice("Opened \(base.lastPathComponent, privacy: .public) at \(width)x\(height)")
+        log.notice("Opened \(gameFolder.lastPathComponent, privacy: .public) at \(width)x\(height)")
         return handle
+    }
+
+    /// The folder the engine opens: links to everything in `base/` with `patch/` laid over it
+    /// (spec, Game folders and patching), rebuilt each launch since patches may have changed.
+    /// A loose file in `patch/` sits in the game's root, where KiriKiri finds a file before
+    /// looking in its archives; `patch.xp3`, `patch2.xp3`... (KiriKiri's own patch archives,
+    /// mounted after the game's and so over them) replace or join the game's own. `savedata`
+    /// isn't linked: the engine saves to `saves/` (AETHERKIRI_DATA_PATH).
+    static func prepareRoot(gameFolder: URL, in caches: URL) throws -> URL {
+        let fileManager = FileManager.default
+        let base = gameFolder.appendingPathComponent("base", isDirectory: true)
+        let patch = gameFolder.appendingPathComponent("patch", isDirectory: true)
+        let root = caches.appendingPathComponent("game", isDirectory: true)
+        if fileManager.fileExists(atPath: root.path) {
+            try fileManager.removeItem(at: root)
+        }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try LayeredGameRoot.overlay(base: base, patch: fileManager.fileExists(atPath: patch.path) ? patch : nil,
+                                    into: root, skipping: ["savedata", "krkr2.log"])
+        return root
     }
 
     static func close(_ handle: engine_handle_t) {

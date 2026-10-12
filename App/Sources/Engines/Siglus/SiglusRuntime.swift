@@ -38,7 +38,7 @@ enum SiglusRuntime {
             try fileManager.removeItem(at: root.appendingPathComponent(name))
         }
         let patch = gameFolder.appendingPathComponent("patch", isDirectory: true)
-        try overlay(base: base, patch: fileManager.fileExists(atPath: patch.path) ? patch : nil, into: root,
+        try LayeredGameRoot.overlay(base: base, patch: fileManager.fileExists(atPath: patch.path) ? patch : nil, into: root,
                     skipping: engineFiles.union(["savedata"]))
         try fileManager.createSymbolicLink(at: root.appendingPathComponent("savedata"), withDestinationURL: saves)
         // Games ask for MS Gothic, a Windows font, and lay text out in its fixed half-width
@@ -80,42 +80,5 @@ enum SiglusRuntime {
             if let match = available.first(where: { $0.uppercased() == code }) { return match }
         }
         return available.sorted().first
-    }
-
-    /// Links `base`'s entries into `destination`, with `patch`'s entries in their place where
-    /// both have one (folders present in both are merged one level further down).
-    private static func overlay(base: URL, patch: URL?, into destination: URL, skipping: Set<String> = []) throws {
-        let fileManager = FileManager.default
-        func entries(_ folder: URL?) -> [String: URL] {
-            guard let folder, let names = try? fileManager.contentsOfDirectory(atPath: folder.path) else { return [:] }
-            var result: [String: URL] = [:]
-            for name in names where !name.hasPrefix(".") {
-                result[name.lowercased()] = folder.appendingPathComponent(name)
-            }
-            return result
-        }
-        func isFolder(_ url: URL) -> Bool {
-            var folder: ObjCBool = false
-            return fileManager.fileExists(atPath: url.path, isDirectory: &folder) && folder.boolValue
-        }
-        let baseEntries = entries(base)
-        let patchEntries = entries(patch)
-        for (key, baseURL) in baseEntries where !skipping.contains(key) {
-            let target = destination.appendingPathComponent(baseURL.lastPathComponent)
-            if let patchURL = patchEntries[key] {
-                if isFolder(baseURL), isFolder(patchURL) {
-                    try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
-                    try overlay(base: baseURL, patch: patchURL, into: target)
-                } else {
-                    try fileManager.createSymbolicLink(at: target, withDestinationURL: patchURL)
-                }
-            } else {
-                try fileManager.createSymbolicLink(at: target, withDestinationURL: baseURL)
-            }
-        }
-        for (key, patchURL) in patchEntries where baseEntries[key] == nil && !skipping.contains(key) {
-            try fileManager.createSymbolicLink(at: destination.appendingPathComponent(patchURL.lastPathComponent),
-                                               withDestinationURL: patchURL)
-        }
     }
 }

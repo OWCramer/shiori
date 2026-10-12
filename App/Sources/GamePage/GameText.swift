@@ -32,6 +32,7 @@ enum GameText {
         case let .unsupportedEngine(name): return "\(name) games can be downloaded and patched, but not played in Shiori yet."
         case .unknownEngine: return "Shiori doesn't recognise this game's engine."
         case .onlineGame: return OnlineGames.explanation
+        case let .notOnThisDevice(reason): return reason
         }
     }
 

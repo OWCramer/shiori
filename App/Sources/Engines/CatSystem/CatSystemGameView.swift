@@ -342,13 +342,16 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     /// background while the logo shows.
     private func open() {
         let base = base
+        // patch/ shadows base/: loose files first, then replacement or extra .int archives.
+        let patchFolder = gameFolder.appendingPathComponent("patch", isDirectory: true)
+        let patch = FileManager.default.fileExists(atPath: patchFolder.path) ? patchFolder : nil
         let cache = URL.cachesDirectory.appendingPathComponent("CatSystem/\(gameFolder.lastPathComponent)", isDirectory: true)
         let keyFile = cache.appendingPathComponent("namekey")
         let settings = settings
         Task.detached(priority: .userInitiated) {
             let started = CACurrentMediaTime()
             let known = (try? String(contentsOf: keyFile, encoding: .utf8)).flatMap { UInt32($0.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16) }
-            let result = Result { try CatSystemGame(root: base, nameKey: known) }
+            let result = Result { try CatSystemGame(root: base, patch: patch, nameKey: known) }
             guard case .success(let game) = result else {
                 await MainActor.run { [weak self] in
                     if case .failure(let error) = result { self?.fail("This game can't start", error) }

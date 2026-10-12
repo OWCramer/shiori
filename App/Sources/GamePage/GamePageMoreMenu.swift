@@ -69,6 +69,9 @@ struct GamePageMoreMenu: View {
             }
         }
         if state.installedEngine != nil {
+            if let engine = state.installedEngine, !engine.isEmpty {
+                Button("Controls…", systemImage: "hand.tap", action: showControls)
+            }
             if state.installedEngine == "artemis" {
                 Button("Browse Archives", systemImage: "archivebox", action: browseArchives)
             }
@@ -95,6 +98,10 @@ struct GamePageMoreMenu: View {
     private func openFolder() { openInFiles(games.folder(appID: appID, name: game.name)) }
     private func removePatches() { model.confirmingRemovePatches = true }
     private func delete() { model.confirmingDelete = true }
+    private func showControls() {
+        guard case let .installed(record) = games.status(for: appID), let engine = record.engine?.engine else { return }
+        ControlsGuide.shared.show(engine: engine, gameName: game.name)
+    }
 
     private func chooseBranch(_ branch: String) { model.chooseBranch(branch, game: game, games: games) }
 }

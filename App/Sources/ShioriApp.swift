@@ -21,6 +21,9 @@ struct ShioriApp: App {
         PressFilter.install()
         #endif
         APIKeyStore.steamGridDB.migrateToSynced()
+        #if os(iOS)
+        WhatsNew.shared.checkAtLaunch() // Before the library cache is written: tells an update from a first install.
+        #endif
         SyncedPreferences.reload() // Loads (and migrates) the synced per-game choices now.
         // Other downloads (covers for the game runtime, SteamGridDB lookups) use URLCache.
         URLCache.shared = URLCache(memoryCapacity: 16 << 20, diskCapacity: 128 << 20)
@@ -155,6 +158,9 @@ struct RootView: View {
                 }
             }
             #endif
+            #if os(iOS)
+            .modifier(OnboardingSheets())
+            #endif
             .overlay {
                 if let appID = games.endingSession {
                     SessionEndingView(game: steam.library.first { $0.appID == appID })
@@ -262,11 +268,14 @@ enum DebugAutomation {
         }
         // `-ShioriKiriKiriGame <folder in Documents>` opens a KiriKiri game folder (one holding
         // base/) without Steam: for running the engine on a Mac (Designed for iPad).
+        // Not on Apple TV, which has no KiriKiri game view (the session would open nothing).
+        #if !os(tvOS)
         if let name = defaults.string(forKey: "ShioriKiriKiriGame"), !done.contains("kirikiri") {
             done.insert("kirikiri")
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             games.kirikiriSession = .init(appID: 0, folder: documents.appendingPathComponent(name, isDirectory: true))
         }
+        #endif
         // `-ShioriImportPatch <file in tmp/> -ShioriPatchGame <appid>` imports a patch.
         if let name = defaults.string(forKey: "ShioriImportPatch"), !done.contains("import"),
            let appID = UInt32(exactly: defaults.integer(forKey: "ShioriPatchGame")), appID != 0,
