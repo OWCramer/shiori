@@ -56,7 +56,6 @@ struct HomeView: View {
             .overlay {
                 if shelves.isEmpty { HomePlaceholder() }
             }
-            .refreshable { await steam.loadLibrary() }
             .background {
                 if let featured = shelves.featured { GameBackdrop(game: featured) } else { Color.black.ignoresSafeArea() }
             }
