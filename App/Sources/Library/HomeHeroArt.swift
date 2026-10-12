@@ -4,9 +4,7 @@ import SwiftUI
 /// Home's lead artwork, as the TV app's show pages have it: the banner clean at the top
 /// (the game page's crop), and below it the art extended downward, mirrored and blurred
 /// (`backgroundExtensionEffect`), into a soft region that holds the line on the game and
-/// its actions (the logo stays on the banner). The art pans with the device's tilt
-/// (`HeroParallax`), drawn a little wider than the screen so no edge shows; the extension
-/// is made from the panned art, so it moves with it.
+/// its actions (the logo stays on the banner).
 struct HomeHeroArt: View {
     let game: LibraryGame
     /// Height of the banner itself (the game page's).
@@ -15,18 +13,12 @@ struct HomeHeroArt: View {
     let extensionHeight: CGFloat
     /// How far Home is pulled past its top.
     var overscroll: CGFloat = 0
-    let parallax: HeroParallax
 
     var body: some View {
-        let range = HeroParallax.range
-        let shift = parallax.tilt * range
         StretchyHeader(height: bannerHeight + extensionHeight, overscroll: overscroll) {
             // The extension fills the bottom safe-area padding with the art's mirrored,
             // blurred edge; the banner keeps its own frame above it.
             HeroArtwork(game: game)
-                .padding(.horizontal, -range)
-                // A render-only shift, so a tilt doesn't lay the art out again every frame.
-                .visualEffect { content, _ in content.offset(x: shift) }
                 .backgroundExtensionEffect()
                 .safeAreaPadding(.bottom, extensionHeight)
                 .overlay {

@@ -88,6 +88,13 @@ struct GameHeroHeader: View {
     /// art the same way.
     static let standardHeight: CGFloat = 400
 
+    /// The banner's height in a screen this tall: the standard 400 points, shorter on short
+    /// screens (an iPhone in landscape), where it also shows more of the wide art across.
+    static func height(forViewport viewport: CGFloat) -> CGFloat {
+        guard viewport > 0, viewport < 600 else { return standardHeight }
+        return max(200, min(standardHeight, (viewport * 0.55).rounded()))
+    }
+
     var game: LibraryGame
     var subtitle: String
     var height: CGFloat = Self.standardHeight

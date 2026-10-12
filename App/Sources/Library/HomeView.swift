@@ -13,6 +13,7 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var path: [LibraryGame] = []
     @State private var overscroll: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
         let shelves = HomeShelves(library: steam.library, games: games, curation: curation,
@@ -22,7 +23,7 @@ struct HomeView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: ShowcaseMetrics.shelfSpacing) {
                     if let featured = shelves.featured {
-                        HomeHero(game: featured, overscroll: overscroll)
+                        HomeHero(game: featured, viewportHeight: viewportHeight, overscroll: overscroll)
                     }
                     if !shelves.continuePlaying.isEmpty {
                         HomeShelf(title: "Continue Playing", subtitle: "Played or saved most recently") {
@@ -55,6 +56,7 @@ struct HomeView: View {
             }
             .ignoresSafeArea(edges: shelves.featured == nil ? [] : .top)
             .scrollOverscroll($overscroll)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
             .overlay {
                 if shelves.isEmpty { HomePlaceholder() }
             }

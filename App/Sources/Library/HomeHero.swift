@@ -5,12 +5,11 @@ import SwiftUI
 /// page when tapped, with its actions on glass below the logo.
 struct HomeHero: View {
     let game: LibraryGame
+    /// The height Home has on screen, for the banner's height.
+    var viewportHeight: CGFloat = 0
     var overscroll: CGFloat = 0
     @Environment(GameLibrary.self) private var games
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var parallax = HeroParallax()
 
     private var record: GameRecord? {
         if case let .installed(record) = games.status(for: game.appID) { record } else { nil }
@@ -31,15 +30,19 @@ struct HomeHero: View {
     /// hero to about two-thirds of an iPhone screen. iPad's line fits on one row, so its
     /// region is shorter and the actions sit close under the banner.
     private func extensionHeight(wide: Bool) -> CGFloat {
-        wide ? 150 : 180
+        // Short screens (an iPhone in landscape): the line fits on one row, so less room.
+        if viewportHeight > 0, viewportHeight < 600 { return 120 }
+        return wide ? 150 : 180
     }
+
+    private var bannerHeight: CGFloat { GameHeroHeader.height(forViewport: viewportHeight) }
 
     var body: some View {
         let wide = sizeClass == .regular
         let alignment: HorizontalAlignment = wide ? .leading : .center
         NavigationLink(value: game) {
-            HomeHeroArt(game: game, bannerHeight: GameHeroHeader.standardHeight,
-                        extensionHeight: extensionHeight(wide: wide), overscroll: overscroll, parallax: parallax)
+            HomeHeroArt(game: game, bannerHeight: bannerHeight,
+                        extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
         }
         .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")
@@ -48,10 +51,9 @@ struct HomeHero: View {
         // buttons take their own. The logo stays on the banner; the line and the actions sit
         // in the extended region under it, as on the TV app's show pages.
         .overlay(alignment: .top) {
-            let banner = GameHeroHeader.standardHeight
+            let banner = bannerHeight
             VStack(alignment: alignment, spacing: 0) {
-                ParallaxLogo(game: game, parallax: parallax, maxWidth: wide ? 420 : 300, maxHeight: wide ? 150 : 110,
-                             alignment: alignment)
+                GameLogo(game: game, maxWidth: wide ? 420 : 300, maxHeight: wide ? 150 : 110, alignment: alignment)
                     .shadow(color: .black.opacity(0.6), radius: 8)
                     .frame(maxWidth: .infinity, alignment: wide ? .bottomLeading : .bottom)
                     .frame(height: banner - 20, alignment: .bottom)
@@ -73,15 +75,6 @@ struct HomeHero: View {
             }
             .padding(.horizontal, wide ? ShowcaseMetrics.wideMargin : ShowcaseMetrics.margin)
         }
-        // Motion only while Home shows and the app is active, never with Reduce Motion.
-        .onAppear(perform: updateMotion)
-        .onDisappear(perform: parallax.stop)
-        .onChange(of: scenePhase) { updateMotion() }
-        .onChange(of: reduceMotion) { updateMotion() }
-    }
-
-    private func updateMotion() {
-        if scenePhase == .active, !reduceMotion { parallax.start() } else { parallax.stop() }
     }
 }
 #endif

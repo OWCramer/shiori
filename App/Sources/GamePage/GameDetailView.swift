@@ -17,6 +17,7 @@ struct GameDetailView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var model: GamePageModel
     @State private var overscroll: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
     /// Scrolled past the banner: the navigation bar gets its background, so the sections
     /// don't run under the title.
     @State private var pastHero = false
@@ -49,11 +50,14 @@ struct GameDetailView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// The banner's height for this screen (shorter on short screens).
+    private var bannerHeight: CGFloat { GameHeroHeader.height(forViewport: viewportHeight) }
+
     var body: some View {
         let margin = sizeClass == .regular ? GamePageMetrics.wideMargin : GamePageMetrics.margin
         ScrollView {
             VStack(spacing: 22) {
-                GameHeroHeader(game: game, subtitle: metaLine, overscroll: overscroll)
+                GameHeroHeader(game: game, subtitle: metaLine, height: bannerHeight, overscroll: overscroll)
                 VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
                     GamePageActionRow(game: game, model: model)
                     GamePagePlaySections(game: game, record: record, model: model)
@@ -65,8 +69,9 @@ struct GameDetailView: View {
             .padding(.bottom, 40)
         }
         .scrollOverscroll($overscroll)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
         .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > GameHeroHeader.standardHeight - 120
+            geometry.contentOffset.y + geometry.contentInsets.top > GameHeroHeader.height(forViewport: geometry.containerSize.height) - 120
         } action: { _, past in
             pastHero = past
         }
