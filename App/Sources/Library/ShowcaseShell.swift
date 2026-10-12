@@ -148,9 +148,12 @@ struct ShowcaseShell: View {
         .modifier(DownloadAccessory(game: accessoryGame, open: openDownloads))
         .environment(shell)
         .focusedSceneValue(shell)
-        .sheet(isPresented: $shell.showingSettings) { SettingsScreen() }
-        .sheet(isPresented: $shell.showingAddGame) { AddVisualNovelView() }
+        .sheet(isPresented: $shell.showingSettings) { SettingsScreen().environment(shell) }
+        .sheet(isPresented: $shell.showingAddGame) { AddVisualNovelView().environment(shell) }
         .sheet(item: $shell.collectionSheet) { sheet in
+            // Sheets don't reliably carry the shell's environment; Add to Collection reads
+            // the shell (its New Collection… swaps sheets), which crashed without it.
+            Group {
             switch sheet {
             case let .addTo(games): AddToCollectionView(games: games)
             case let .new(games):
@@ -160,6 +163,8 @@ struct ShowcaseShell: View {
                 }
             case let .edit(id): CollectionEditorSheet(collectionID: id)
             }
+            }
+            .environment(shell)
         }
         .preferredColorScheme(.dark)
         .task(id: installedFolders.keys.sorted()) { refreshSaves() }
