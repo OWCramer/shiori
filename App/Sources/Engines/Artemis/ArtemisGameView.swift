@@ -134,6 +134,11 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         history.direction = .down
         history.fingersOnly()
         view.addGestureRecognizer(history)
+        // The shared two-finger swipes (spec, Touch): right skips, up toggles auto, down the
+        // backlog, as in every engine.
+        view.addSwipe(.right, fingers: 2, target: self, action: #selector(swipedSkip(_:)))
+        view.addSwipe(.up, fingers: 2, target: self, action: #selector(swipedAuto(_:)))
+        view.addSwipe(.down, fingers: 2, target: self, action: #selector(showBacklog(_:)))
         // A trackpad or mouse plays like the PC: the pointer rolls buttons over, a secondary
         // click is the right button, and scrolling up (the wheel) opens the backlog.
         view.addSecondaryClick(target: self, action: #selector(rightClick(_:)))
@@ -184,14 +189,21 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         } catch {
             NSLog("Artemis: couldn't start: %@", String(describing: error))
         }
-        // Artemis games have no controller support (the engine reads keyboard, mouse and
-        // touch only): keep the pad away from the launcher and say so when it's used.
+        #if os(iOS)
+        // The engine reads keyboard, mouse and touch only, so the pad plays the mouse: the left
+        // stick moves a pointer, the d-pad jumps it between buttons, A clicks (see `pad(_:)`).
+        stickPointer.attach(to: view)
+        ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
+        #else
+        // On Apple TV the pad comes as UIKit presses (the remote's pointer); keep it away from
+        // the launcher and say so when it's used.
         ControllerInput.unsupportedGame = { [weak self] in self?.showControllerNotice() }
         if GCController.current?.extendedGamepad != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 MainActor.assumeIsolated { self?.showControllerNotice() }
             }
         }
+        #endif
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             // The game's slots are its own (saved from its screens); what it keeps between
             // them (the g. variables) is written now.
@@ -212,6 +224,20 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 RunLoop.main.add(timer, forMode: .common)
                 continue
             }
+            #if os(iOS)
+            // `seconds:key-down`, `seconds:pad-a` (`pad-rb` holds for a second): the keys and
+            // the pad, to check them in the simulator.
+            if parts.count == 2, let delay = Double(parts[0]), let input = DebugInput(String(parts[1])) {
+                let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        NSLog("Artemis: scripted %@", String(parts[1]))
+                        self?.debugInput(input)
+                    }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                continue
+            }
+            #endif
             let xy = parts.count == 2 ? parts[1].split(separator: ",").compactMap { Double($0) } : []
             guard parts.count == 2, let delay = Double(parts[0]), xy.count == 2 else { continue }
             let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
@@ -232,19 +258,193 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     #if os(iOS)
     override var canBecomeFirstResponder: Bool { true }
 
-    /// Escape is the PC's right-click (the menu, or back out of a screen). Other keys aren't the
-    /// game's yet: a tap reads on at a place on the stage, which a key doesn't have.
+    /// The PC's keys: Enter and Space read on (or press the button the arrows picked), the
+    /// arrows run the game's own arrow-key handlers or move between buttons, Ctrl held skips,
+    /// Escape is the right click (the menu, or back out of a screen), Page Up the backlog.
+    private static let gameKeys: Set<UIKeyboardHIDUsage> = [
+        .keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar,
+        .keyboardUpArrow, .keyboardDownArrow, .keyboardLeftArrow, .keyboardRightArrow,
+        .keyboardLeftControl, .keyboardRightControl, .keyboardPageUp, .keyboardPageDown,
+    ]
+
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let (keys, rest) = presses.splitKeys { $0 == .keyboardEscape }
-        if !keys.isEmpty {
-            if backlogView != nil { closeBacklog() } else { player?.rightClick() }
-        }
+        let (keys, rest) = presses.splitKeys { Self.gameKeys.contains($0) }
+        for key in keys { keyDown(key) }
         if !rest.isEmpty { super.pressesBegan(rest, with: event) }
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let (_, rest) = presses.splitKeys { $0 == .keyboardEscape }
+        let (keys, rest) = presses.splitKeys { Self.gameKeys.contains($0) }
+        for key in keys where key == .keyboardLeftControl || key == .keyboardRightControl { holdSkip(false) }
         if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        pressesEnded(presses, with: event)
+    }
+
+    private func keyDown(_ key: UIKeyboardHIDUsage) {
+        guard presentedViewController == nil else { return }
+        switch key {
+        case .keyboardEscape: back()
+        case .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar: decide()
+        case .keyboardUpArrow: arrow(dx: 0, dy: -1, key: "38")
+        case .keyboardDownArrow: arrow(dx: 0, dy: 1, key: "40")
+        case .keyboardLeftArrow: arrow(dx: -1, dy: 0, key: "37")
+        case .keyboardRightArrow: arrow(dx: 1, dy: 0, key: "39")
+        case .keyboardLeftControl, .keyboardRightControl: holdSkip(true)
+        case .keyboardPageUp: presentBacklog()
+        case .keyboardPageDown: closeBacklog()
+        default: break
+        }
+    }
+
+    /// Enter, Space or A: the button the pointer is on, or a click on nothing (read on).
+    private func decide() {
+        if backlogView != nil { closeBacklog(); return }
+        if let videoFinished {
+            stopVideo()
+            videoFinished()
+            return
+        }
+        guard let player else { return }
+        if stickPointer.isShown {
+            let point = stageLayer.convert(stickPointer.location, from: view.layer)
+            if player.focusTargets().contains(where: { $0.insetBy(dx: -4, dy: -4).contains(point) }) {
+                player.tap(at: point)
+                return
+            }
+        }
+        player.decide()
+    }
+
+    /// Escape, B: closes Shiori's backlog, or the right click.
+    private func back() {
+        if backlogView != nil { closeBacklog() } else { player?.rightClick() }
+    }
+
+    /// Ctrl or RB held: skip, read or not (the engine's control skip), until let go.
+    private func holdSkip(_ on: Bool) {
+        guard let player else { return }
+        if on { player.setSkipMode(true, force: true) } else if player.forceSkip { player.setSkipMode(false) }
+    }
+
+    /// An arrow key or the d-pad: the game's own handler for that key if it set one (Ne no
+    /// Kami's up and down open its backlog), else the pointer jumps to the nearest button
+    /// that way, which rolls over as under the mouse.
+    private func arrow(dx: Int, dy: Int, key: String) {
+        guard backlogView == nil, let player else { return }
+        if player.press(key: key) { return }
+        let targets = player.focusTargets().map { stageLayer.convert($0, to: view.layer) }
+        guard !targets.isEmpty else { return }
+        let centres = targets.map { CGPoint(x: $0.midX, y: $0.midY) }
+        var next: CGPoint?
+        if stickPointer.isShown {
+            let from = stickPointer.location
+            var best = CGFloat.infinity
+            for p in centres {
+                let along = (p.x - from.x) * CGFloat(dx) + (p.y - from.y) * CGFloat(dy)
+                let across = dx != 0 ? abs(p.y - from.y) : abs(p.x - from.x)
+                guard along > 4 else { continue }
+                if along + across * 2.5 < best { best = along + across * 2.5; next = p }
+            }
+        } else {
+            next = centres.sorted { abs($0.y - $1.y) > 8 ? $0.y < $1.y : $0.x < $1.x }.first
+        }
+        guard let next else { return }
+        stickPointer.place(at: next, in: view.bounds)
+        player.hover(at: stageLayer.convert(next, from: view.layer))
+    }
+
+    #if DEBUG
+    private enum DebugInput {
+        case key(UIKeyboardHIDUsage), pad(GamePadReader.Button)
+
+        init?(_ name: String) {
+            let keys: [String: UIKeyboardHIDUsage] = [
+                "key-up": .keyboardUpArrow, "key-down": .keyboardDownArrow, "key-left": .keyboardLeftArrow,
+                "key-right": .keyboardRightArrow, "key-enter": .keyboardReturnOrEnter, "key-escape": .keyboardEscape,
+                "key-ctrl": .keyboardLeftControl, "key-pageup": .keyboardPageUp,
+            ]
+            let pads: [String: GamePadReader.Button] = [
+                "pad-up": .up, "pad-down": .down, "pad-left": .left, "pad-right": .right, "pad-a": .a, "pad-b": .b,
+                "pad-x": .x, "pad-y": .y, "pad-lb": .lb, "pad-rb": .rb, "pad-menu": .menu, "pad-options": .options,
+            ]
+            if let key = keys[name] { self = .key(key) } else if let pad = pads[name] { self = .pad(pad) } else { return nil }
+        }
+    }
+
+    private func debugInput(_ input: DebugInput) {
+        switch input {
+        case .key(let key):
+            keyDown(key)
+            if key == .keyboardLeftControl {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.holdSkip(false) }
+            }
+        case .pad(let button):
+            if button == .options {
+                presentLeaveQuestion()
+                return
+            }
+            padButton(button, down: true)
+            if button == .rb {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.padButton(.rb, down: false) }
+            }
+        }
+    }
+    #endif
+
+    // MARK: Controller
+
+    private var padReader = GamePadReader()
+    private var lastPad: CFTimeInterval?
+    private let stickPointer = StickPointer()
+    private weak var leaveAlert: UIAlertController?
+
+    /// The pad as the PC's mouse and keys: the left stick moves a pointer (rolling buttons
+    /// over), the d-pad jumps it between buttons, A clicks (or reads on), B is the right
+    /// click, Y and LB the backlog, RB or RT held skips, X toggles auto, Menu the right
+    /// click's menu, Options asks to leave (there A leaves, B stays).
+    private func pad(_ pad: GCExtendedGamepad) {
+        let now = CACurrentMediaTime()
+        let dt = min(0.05, now - (lastPad ?? now))
+        lastPad = now
+        if let alert = leaveAlert, presentedViewController === alert {
+            for (button, down) in padReader.read(pad) where down {
+                if button == .a { alert.dismiss(animated: true) { [weak self] in self?.leave() } }
+                if button == .b { alert.dismiss(animated: true) }
+            }
+            return
+        }
+        guard presentedViewController == nil, let player else {
+            padReader.absorb(pad)
+            return
+        }
+        if backlogView == nil, stickPointer.move(x: pad.leftThumbstick.xAxis.value, y: pad.leftThumbstick.yAxis.value,
+                                                 dt: dt, in: view.bounds) {
+            player.hover(at: stageLayer.convert(stickPointer.location, from: view.layer))
+        }
+        for (button, down) in padReader.read(pad, stick: false) {
+            padButton(button, down: down)
+        }
+    }
+
+    private func padButton(_ button: GamePadReader.Button, down: Bool) {
+        guard let player else { return }
+        if button == .rb { holdSkip(down) }
+        guard down else { return }
+        switch button {
+        case .up: arrow(dx: 0, dy: -1, key: "38")
+        case .down: arrow(dx: 0, dy: 1, key: "40")
+        case .left: arrow(dx: -1, dy: 0, key: "37")
+        case .right: arrow(dx: 1, dy: 0, key: "39")
+        case .a: decide()
+        case .b, .menu: back()
+        case .x: if backlogView == nil { player.setAutoMode(!player.autoMode) }
+        case .y, .lb: if backlogView != nil { closeBacklog() } else { presentBacklog() }
+        case .options: presentLeaveQuestion()
+        case .rb: break
+        }
     }
     #endif
 
@@ -431,6 +631,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         let point = pointer?.location ?? recognizer.location(in: view)
         #else
         let point = recognizer.location(in: view)
+        stickPointer.hide()
         #endif
         let stagePoint = stageLayer.convert(point, from: view.layer)
         if player?.traceWaits == true { NSLog("Artemis: tap at stage %.0f,%.0f", stagePoint.x, stagePoint.y) }
@@ -438,10 +639,21 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     }
 
     @objc private func askToLeave(_ recognizer: UILongPressGestureRecognizer) {
-        guard recognizer.state == .began, presentedViewController == nil else { return }
-        let alert = UIAlertController(title: "Leave the game?", message: "Progress since your last save is lost.", preferredStyle: .alert)
+        guard recognizer.state == .began else { return }
+        presentLeaveQuestion()
+    }
+
+    private func presentLeaveQuestion() {
+        guard presentedViewController == nil else { return }
+        let message = GCController.current?.extendedGamepad != nil
+            ? "Progress since your last save is lost. Ⓐ Leave, Ⓑ Keep Playing."
+            : "Progress since your last save is lost."
+        let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
+        #if os(iOS)
+        leaveAlert = alert
+        #endif
         present(alert, animated: true)
     }
 
@@ -573,6 +785,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 
     @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
         guard backlogView == nil, recognizer.state == .began || recognizer.state == .changed else { return }
+        stickPointer.hide()
         player?.hover(at: stagePoint(recognizer))
     }
 
@@ -609,6 +822,12 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         player.setSkipMode(!player.skipMode)
     }
 
+    @objc private func swipedAuto(_ recognizer: UISwipeGestureRecognizer) {
+        if backlogView != nil { return }
+        guard let player else { return }
+        player.setAutoMode(!player.autoMode)
+    }
+
     @objc private func heldForAuto(_ recognizer: UILongPressGestureRecognizer) {
         if backlogView != nil { return }
         guard recognizer.state == .began, let player else { return }
@@ -634,6 +853,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         displayLink = nil
         audio.stopAll()
         ControllerInput.unsupportedGame = nil
+        ControllerInput.gameReceiver = nil
         #if os(iOS)
         requestOrientations(.all)
         #endif
