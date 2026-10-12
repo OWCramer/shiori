@@ -87,8 +87,16 @@ enum SteamCloudSync {
 
     /// Global switch for writing to Steam Cloud (Settings). On by default since the user enabled
     /// uploads on 2026-10-07; every replaced cloud file is backed up locally first.
+    /// Never in the simulator: it's signed in to the user's real account, and test saves made
+    /// there must not replace his PC saves (dry runs still work there).
     static var uploadsEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: "steamCloudUploads") as? Bool ?? true }
+        get {
+            #if targetEnvironment(simulator)
+            false
+            #else
+            UserDefaults.standard.object(forKey: "steamCloudUploads") as? Bool ?? true
+            #endif
+        }
         set { UserDefaults.standard.set(newValue, forKey: "steamCloudUploads") }
     }
 

@@ -736,12 +736,9 @@ final class GameLibrary {
         shiori_renpy_restore_hub()
         let background = UIApplication.shared.beginBackgroundTask(withName: "Save sync after game")
         Task {
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await self.finishSteamCloudSession(appID: appID) }
-                group.addTask { try? await Task.sleep(for: .seconds(20)) }
-                await group.next()
-                group.cancelAll()
-            }
+            // At most 20 s: a task group would wait for a slow upload even after cancelAll,
+            // so race the upload against a timer and go on with whichever finishes first.
+            await Self.firstOf(seconds: 20) { await self.finishSteamCloudSession(appID: appID) }
             pushRunningGameSaves()
             log.notice("Session \(appID) closed after save sync (game status \(status))")
             UIApplication.shared.endBackgroundTask(background)
@@ -750,6 +747,27 @@ final class GameLibrary {
     }
 
     /// Synchronous iCloud push for the Ren'Py game that just quit, before Shiori exits.
+    /// Runs `work`, returning when it finishes or after `seconds`, whichever comes first
+    /// (the work carries on in the background if the time runs out).
+    nonisolated static func firstOf(seconds: Double, _ work: @escaping @Sendable () async -> Void) async {
+        final class Once: @unchecked Sendable {
+            private let lock = NSLock()
+            private var done = false
+            func claim() -> Bool { lock.withLock { defer { done = true }; return !done } }
+        }
+        let once = Once()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            Task {
+                await work()
+                if once.claim() { continuation.resume() }
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                if once.claim() { continuation.resume() }
+            }
+        }
+    }
+
     func pushRunningGameSaves() {
         guard let appID = playingAppID else { return }
         guard isCloudSaveEnabled(appID), case let .installed(record) = statuses[appID] else { return }
