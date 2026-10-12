@@ -285,6 +285,10 @@ def _gestures():
     def ensure_keymap():
         keymap = state["keymap"]
         if keymap is None:
+            # A binding with no keys: Shiori queues it by name. Unregistered, Ren'Py parses the
+            # name as a key ("Invalid key specifier shiori_history") when the game's own
+            # screens map events, which crashed Ren'Py 6/7 games at their main menu.
+            renpy.config.keymap.setdefault("shiori_history", [])
             keymap = renpy.display.behavior.Keymap(shiori_history=history)
             state["keymap"] = keymap
         underlay = renpy.config.underlay
