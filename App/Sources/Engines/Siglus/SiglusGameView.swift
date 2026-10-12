@@ -420,7 +420,7 @@ final class SiglusGameViewController: UIViewController {
     /// Siglus has no key for auto mode (siglus_rs takes it from the game's own syscom calls):
     /// the game's window button turns it on.
     @objc private func swipedAuto() {
-        GameNotice.show("Auto is the AUTO button on the game's message window.", in: view)
+        GameNotice.show("Use the AUTO button on the message window.", in: view)
     }
 
     @objc private func scrollBack(_ recognizer: UISwipeGestureRecognizer) {
@@ -561,7 +561,7 @@ final class SiglusGameViewController: UIViewController {
     private func presentLeaveQuestion() {
         // Honest about what leaving keeps: the place where the game could save it now.
         let kept = canSavePlace
-            ? "Your place is saved to the game's Load screen as you leave."
+            ? "Your place is saved to the Load screen."
             : "Progress since your last save is lost."
         let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)

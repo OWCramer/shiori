@@ -955,7 +955,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
                 // skip anything at all.
                 readMode = .normal
                 if linesSkipped == 0 {
-                    show(.acquired("Skip passes lines you've already read. To skip new lines too, choose All under OPTIONS › Basic › Skip."))
+                    show(.acquired("Skip stops at unread lines. Change it in OPTIONS › Basic › Skip."))
                 }
             } else if player.isWaitingForClick {
                 linesSkipped += 1

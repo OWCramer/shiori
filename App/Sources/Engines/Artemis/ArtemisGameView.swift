@@ -660,7 +660,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         // Honest about what leaving keeps: the place where the game allows it (Shiori's
         // resume save, offered when the game next starts), else only the game's own saves.
         let kept = player?.canSaveResume == true
-            ? "Your place is kept: Shiori offers to resume here next time."
+            ? "Your place is kept."
             : "Progress since your last save is lost."
         let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
@@ -705,7 +705,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     private func showControllerNotice() {
         guard controllerNotice == nil else { return }
         let label = UILabel()
-        label.text = "This game doesn't support controllers. Use touch to play."
+        label.text = "This game doesn't support controllers."
         label.font = .preferredFont(forTextStyle: .subheadline)
         label.textColor = .white
         label.textAlignment = .center
@@ -932,7 +932,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         UserDefaults.standard.set(date.timeIntervalSince1970, forKey: resumeOfferedKey)
         let when = date.formatted(.relative(presentation: .named))
         let alert = UIAlertController(title: "Resume where you left off?",
-                                      message: "Your place from \(when) is kept."
+                                      message: "Saved \(when)."
                                           + (GCController.current?.extendedGamepad != nil ? " Ⓐ Resume, Ⓑ Not Now." : ""),
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Not Now", style: .cancel))

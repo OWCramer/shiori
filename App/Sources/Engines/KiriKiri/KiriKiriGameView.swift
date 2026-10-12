@@ -686,7 +686,7 @@ final class KiriKiriGameViewController: UIViewController {
     private func presentLeaveQuestion() {
         // Honest about what leaving keeps: the place, where the game can resume it.
         let kept = evaluate(Self.canKeepPlaceTJS) == "1"
-            ? "Your place is kept: the game resumes there next time."
+            ? "Your place is kept."
             : "Progress since your last save is lost."
         let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)

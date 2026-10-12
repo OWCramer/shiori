@@ -255,7 +255,7 @@ struct SessionEndingView: View {
                 Text("Saving your progress…")
                     .font(.headline)
                     .foregroundStyle(.white)
-                Text("Shiori closes when your saves are up. Reopen it to play again.")
+                Text("Shiori closes when it's done.")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)

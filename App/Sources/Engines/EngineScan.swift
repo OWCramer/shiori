@@ -95,7 +95,7 @@ enum Playability: Equatable {
     static func unsupportedMessage(_ engine: EngineMatch?, appID: UInt32) -> String? {
         if OnlineGames.contains(appID) { return OnlineGames.explanation }
         if let unity = unityBuild(engine) {
-            return "Built with \(unity). Shiori doesn't play Unity games; they can be downloaded and patched here."
+            return "Built with \(unity). Unity games can be downloaded and patched, not played."
         }
         return nil
     }

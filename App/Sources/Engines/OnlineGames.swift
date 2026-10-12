@@ -16,5 +16,5 @@ enum OnlineGames {
     static func contains(_ appID: UInt32) -> Bool { all[appID] != nil }
 
     static let badge = "Online game"
-    static let explanation = "An online game that runs on its publisher's servers, so Shiori can't play it. It has an official iOS app on the App Store."
+    static let explanation = "Runs on its publisher's servers, so Shiori can't play it. Get the official app on the App Store."
 }

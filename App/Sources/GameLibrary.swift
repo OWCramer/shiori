@@ -945,7 +945,7 @@ final class GameLibrary {
     func playBlocker(appID: UInt32) -> String? {
         guard let record = record(for: appID) else { return "Not downloaded." }
         if let message = Playability.unsupportedMessage(record.engine, appID: appID) { return message }
-        guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
+        guard let engine = record.engine else { return "Shiori didn't recognise this game's engine." }
         #if os(tvOS)
         // Their game views aren't in the tvOS app: a session would open nothing.
         if Playability.iOSOnlyEngines.contains(engine.engine) { return Playability.notOnAppleTVMessage(engine.engine) }
@@ -959,7 +959,7 @@ final class GameLibrary {
             #endif
         }
         guard engine.engine == RenPyEngine.id else {
-            return "Downloaded, not playable yet: \(EngineDetection.displayName(for: engine.engine)) isn't supported."
+            return "\(EngineDetection.displayName(for: engine.engine)) isn't supported yet."
         }
         return RenPyEngine.incompatibility(engine)
     }

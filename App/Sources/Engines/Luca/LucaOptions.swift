@@ -309,7 +309,7 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
             slider("Text Speed", settings.textSpeed) { $0.textSpeed = $1 }
             slider("Wait Time Per Character", settings.autoWaitPerLetter) { $0.autoWaitPerLetter = $1 }
             slider("Base Wait Time", settings.autoBaseWait) { $0.autoBaseWait = $1 }
-            note("The two waits set how long Auto mode pauses after each line.")
+            note("How long Auto pauses after each line.")
         case .sound:
             slider("Music", settings.music) { $0.music = $1 }
             slider("Sound Effects", settings.effects) { $0.effects = $1 }
@@ -318,13 +318,13 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
         case .voice:
             voicePage()
         case .keyboard, .mouse:
-            note("These settings are for a keyboard and mouse on PC. On iPhone and iPad the game is played by touch; see the Touch page.")
+            note("For keyboard and mouse on PC. See Touch for touch controls.")
         case .touch:
             note("Tap — read on.   Flick up — System Menu.   Flick down — Message Log.")
-            note("SKIP and AUTO beside the message window race ahead or read on by themselves; tap anywhere to stop.")
+            note("SKIP and AUTO are beside the message window. Tap anywhere to stop.")
             note("VOICE plays the line's voice again.   Two-finger tap — System Menu.   Two-finger hold — leave the game.")
         case .system:
-            note("Shiori plays the game full screen at the device's own resolution.")
+            note("Full screen at the device's resolution.")
         }
     }
 

@@ -314,7 +314,7 @@ struct LauncherView: View {
         items.append(.init("Details", "info.circle") { detail = game })
         if status != .notInstalled {
             items.append(.init("Delete…", "trash", destructive: true) {
-                menu = LauncherMenu(title: "Delete \(game.name)?", subtitle: "Removes the game's folder, including patches and saves.", items: [
+                menu = LauncherMenu(title: "Delete \(game.name)?", subtitle: "Its patches and saves are deleted too.", items: [
                     .init("Delete", "trash", destructive: true) { games.delete(appID: game.appID, name: game.name) },
                     .init("Cancel", "xmark") {},
                 ])

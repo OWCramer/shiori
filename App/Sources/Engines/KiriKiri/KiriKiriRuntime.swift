@@ -55,7 +55,7 @@ enum KiriKiriRuntime {
             unsetenv("AETHERKIRI_CX_SCHEME")
             switch KiriKiriArchiveCheck.unhandledEncryption(base: root) {
             case .cx:
-                throw Failure(errorDescription: "This game's archives use CxDec encryption, and GARbro's database doesn't list this title yet (or Shiori couldn't download it).")
+                throw Failure(errorDescription: "This game's CxDec encryption isn't in GARbro's database yet, or the database couldn't download.")
             case .hx:
                 throw Failure(errorDescription: "This game's archives use KiriKiri Z's Hx encryption, which Shiori can't open yet.")
             case nil:

@@ -271,13 +271,13 @@ final class SteamModel {
         switch state {
         case .loggedOn: return nil
         case .connecting, .reconnecting:
-            return showsOffline ? "Can't reach Steam right now. Shiori keeps trying." : "Reconnecting to Steam…"
+            return showsOffline ? "Can't reach Steam. Retrying…" : "Reconnecting to Steam…"
         case .connectedAnonymously: return "Not signed in to Steam."
         case .signedOut:
             if let resumeError { return resumeError }
             if hasStoredSession, !showsOffline { return "Reconnecting to Steam…" }
             if let connectionError { return "Can't reach Steam: \(connectionError)" }
-            return hasStoredSession ? "Can't reach Steam right now." : "Not signed in to Steam."
+            return hasStoredSession ? "Can't reach Steam." : "Not signed in to Steam."
         }
     }
 
