@@ -32,6 +32,17 @@ enum Playability: Equatable {
     case unknownEngine
     /// A server-backed game (OnlineGames), whatever it's built with.
     case onlineGame
+    /// An engine Shiori plays elsewhere but not on this device (KiriKiri, Siglus and
+    /// CatSystem2 on Apple TV), with the sentence saying so.
+    case notOnThisDevice(String)
+
+    /// Engines whose runtimes aren't built for Apple TV yet (their game views are left out
+    /// of the tvOS app), so Play is never offered there.
+    static let iOSOnlyEngines: Set<String> = ["kirikiri", "siglus", "catsystem2"]
+
+    static func notOnAppleTVMessage(_ engine: String) -> String {
+        "\(EngineDetection.displayName(for: engine)) games play on an iPhone or iPad, not on Apple TV yet."
+    }
 
     /// For a particular game: online games first, then by engine.
     init(_ engine: EngineMatch?, appID: UInt32) {
@@ -41,10 +52,13 @@ enum Playability: Equatable {
 
     init(_ engine: EngineMatch?) {
         guard let engine else { self = .unknownEngine; return }
-        if ["artemis", "kirikiri", "siglus", "luca"].contains(engine.engine) { self = .playable; return }
-        #if !os(tvOS)
-        if engine.engine == "catsystem2" { self = .playable; return }
+        #if os(tvOS)
+        if Self.iOSOnlyEngines.contains(engine.engine) {
+            self = .notOnThisDevice(Self.notOnAppleTVMessage(engine.engine))
+            return
+        }
         #endif
+        if ["artemis", "kirikiri", "siglus", "luca", "catsystem2"].contains(engine.engine) { self = .playable; return }
         guard engine.engine == RenPyEngine.id else {
             self = .unsupportedEngine(EngineDetection.displayName(for: engine.engine))
             return

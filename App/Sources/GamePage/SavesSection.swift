@@ -17,13 +17,7 @@ struct SavesSection: View {
 
     /// Artemis, Luca and CatSystem2 saves are Shiori's own format; KiriKiri's and Siglus's are
     /// the PC's, and sync when the game's cloud rules name its save folder.
-    private var engineUsesSteamCloud: Bool {
-        switch record.engine?.engine {
-        case "artemis", "luca", "catsystem2": false
-        case "kirikiri", "siglus": games.steamCloudMapped[appID] == true
-        default: true
-        }
-    }
+    private var engineUsesSteamCloud: Bool { games.usesSteamCloud(appID) }
 
     var body: some View {
         GamePageSection(title: "Saves", footer: footer) {

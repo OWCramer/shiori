@@ -366,10 +366,28 @@ final class GameLibrary {
         if enabled { Task { await pullSteamCloud(appID: appID) } }
     }
 
+    /// Whether this game's saves are the PC's own files, so Steam Cloud may sync them at all:
+    /// Artemis, Luca and CatSystem2 save in Shiori's own format (a PC save pulled over them,
+    /// or one of theirs pushed over a PC save, would break both); KiriKiri and Siglus only
+    /// when the game's cloud rules name the save folder. Every Steam Cloud pull and push
+    /// checks it, whatever asked (Sync Now, the launcher, the TV page, catch-up, leaving).
+    func usesSteamCloud(_ appID: UInt32) -> Bool {
+        guard case let .installed(record) = statuses[appID] else { return false }
+        switch record.engine?.engine {
+        case "artemis", "luca", "catsystem2": return false
+        case "kirikiri", "siglus": return steamCloudMapped[appID] == true
+        default: return true
+        }
+    }
+
     /// Brings newer Steam Cloud saves down. Read-only towards Steam.
     func pullSteamCloud(appID: UInt32) async {
         // Nothing to bring down for games without Steam Cloud.
         if steamCloudSupport[appID] == false { return }
+        guard usesSteamCloud(appID) else {
+            log.notice("Steam Cloud \(appID): skipped, this game's saves aren't the PC's")
+            return
+        }
         guard isSteamCloudEnabled(appID), case let .installed(record) = statuses[appID] else { return }
         guard case .loggedOn = await session.state else {
             steamCloud[appID] = .failed("Not connected to Steam")
@@ -402,7 +420,7 @@ final class GameLibrary {
     /// successful push is recorded for the next launch's catch-up.
     @discardableResult
     func pushSteamCloud(appID: UInt32) async -> Bool {
-        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID],
+        guard uploadsToSteamCloud(appID), case let .installed(record) = statuses[appID],
               case .loggedOn = await session.state
         else { return false }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
@@ -428,12 +446,7 @@ final class GameLibrary {
     /// game: KiriKiri and Siglus only when the cloud rules name the save folder; Artemis, Luca
     /// and CatSystem2 never (Shiori's own save format).
     func uploadsToSteamCloud(_ appID: UInt32) -> Bool {
-        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID] else { return false }
-        switch record.engine?.engine {
-        case "artemis", "luca", "catsystem2": return false
-        case "kirikiri", "siglus": return steamCloudMapped[appID] == true
-        default: return true
-        }
+        canUploadSteamCloud(appID) && usesSteamCloud(appID)
     }
 
     /// Spec order: Steam Cloud first, then iCloud.
@@ -446,7 +459,7 @@ final class GameLibrary {
     /// For the moment a game quits, just before Shiori exits: upload to Steam Cloud and
     /// tell Steam the session is over, waiting up to `timeout` for it.
     private func finishSteamCloudSession(appID: UInt32) async {
-        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID],
+        guard uploadsToSteamCloud(appID), case let .installed(record) = statuses[appID],
               case .loggedOn = await session.state
         else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
@@ -806,14 +819,11 @@ final class GameLibrary {
         guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
         if let message = Playability.unsupportedMessage(record.engine, appID: appID) { return message }
         guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
-        if engine.engine == "artemis" || engine.engine == "siglus" || engine.engine == "luca" { return nil }
-        if engine.engine == "catsystem2" {
-            #if os(tvOS)
-            return "CatSystem2 games play on an iPhone or iPad, not on Apple TV yet."
-            #else
-            return nil
-            #endif
-        }
+        #if os(tvOS)
+        // Their game views aren't in the tvOS app: a session would open nothing.
+        if Playability.iOSOnlyEngines.contains(engine.engine) { return Playability.notOnAppleTVMessage(engine.engine) }
+        #endif
+        if ["artemis", "siglus", "luca", "catsystem2"].contains(engine.engine) { return nil }
         if engine.engine == "kirikiri" {
             #if targetEnvironment(simulator)
             return "KiriKiri games play on an iPhone or iPad, not in the simulator."

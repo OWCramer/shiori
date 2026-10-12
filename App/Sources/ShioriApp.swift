@@ -254,11 +254,14 @@ enum DebugAutomation {
         }
         // `-ShioriKiriKiriGame <folder in Documents>` opens a KiriKiri game folder (one holding
         // base/) without Steam: for running the engine on a Mac (Designed for iPad).
+        // Not on Apple TV, which has no KiriKiri game view (the session would open nothing).
+        #if !os(tvOS)
         if let name = defaults.string(forKey: "ShioriKiriKiriGame"), !done.contains("kirikiri") {
             done.insert("kirikiri")
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             games.kirikiriSession = .init(appID: 0, folder: documents.appendingPathComponent(name, isDirectory: true))
         }
+        #endif
         // `-ShioriImportPatch <file in tmp/> -ShioriPatchGame <appid>` imports a patch.
         if let name = defaults.string(forKey: "ShioriImportPatch"), !done.contains("import"),
            let appID = UInt32(exactly: defaults.integer(forKey: "ShioriPatchGame")), appID != 0,
