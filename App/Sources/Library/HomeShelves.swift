@@ -17,6 +17,9 @@ struct HomeShelves {
 
     var isEmpty: Bool { featured == nil && visualNovels.isEmpty && downloading.isEmpty }
 
+    /// Continue Playing shows at most this many (after the hero).
+    static let continueLimit = 10
+
     init(library: [LibraryGame], games: GameLibrary, curation: LibraryCuration,
          engineScans: EngineScanStore, history: PlayHistory) {
         var installed: [(game: LibraryGame, record: GameRecord)] = []
@@ -24,24 +27,29 @@ struct HomeShelves {
             if case let .installed(record) = games.status(for: game.appID) { installed.append((game, record)) }
         }
 
+        // Games removed from Continue Playing stay off it (and off the hero) until played again.
         let active = installed
+            .filter { history.isContinuing($0.game.appID) }
             .compactMap { entry in history.lastActivity(entry.game.appID).map { (game: entry.game, date: $0.date) } }
             .sorted { $0.date > $1.date }
             .map(\.game)
         let playable = installed.filter { games.playBlocker(appID: $0.game.appID) == nil }
-        featured = active.first ?? playable.max { $0.record.installedAt < $1.record.installedAt }?.game
+        featured = active.first ?? playable
+            .filter { history.lastActivity($0.game.appID) == nil }
+            .max { $0.record.installedAt < $1.record.installedAt }?.game
         #if DEBUG
         // `-ShioriHomeGame <appid>` leads Home with that game, to compare its banner with the
         // game page's (artwork picks, crops).
         let requested = UserDefaults.standard.integer(forKey: "ShioriHomeGame")
         if requested != 0, let game = library.first(where: { $0.appID == requested }) { featured = game }
         #endif
-        continuePlaying = active.filter { $0.appID != featured?.appID }
+        continuePlaying = Array(active.filter { $0.appID != featured?.appID }.prefix(Self.continueLimit))
 
         let byID = Dictionary(library.map { ($0.appID, $0) }, uniquingKeysWith: { first, _ in first })
         downloading = games.downloadItems.compactMap { byID[$0] }
 
-        let started = Set(active.map(\.appID))
+        // Started games (removed from Continue Playing too) aren't "not started yet".
+        let started = Set(installed.map(\.game.appID).filter { history.lastActivity($0) != nil })
         readyToPlay = playable
             .filter { !started.contains($0.game.appID) && $0.game.appID != featured?.appID }
             .sorted { $0.record.installedAt > $1.record.installedAt }

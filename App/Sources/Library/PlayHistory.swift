@@ -17,13 +17,19 @@ final class PlayHistory {
     /// App ID → the newest file in the game's `saves/` folder; absent when it has none.
     private(set) var latestSave: [UInt32: Date] = [:]
 
+    /// App ID → when it was taken off Continue Playing (any device). Playing or saving it
+    /// again after that puts it back.
+    private(set) var removed: [UInt32: Date] = [:]
+
     private static let account = "playHistory"
+    private static let removedAccount = "continuePlayingRemoved"
     /// Only the most recent launches are kept: Home shows a handful.
     private static let limit = 60
     private var refreshing: Task<Void, Never>?
 
     private init() {
         launches = Self.load()
+        removed = Self.load(account: Self.removedAccount)
         latestSave = Self.loadSaveTimes()
     }
 
@@ -42,6 +48,23 @@ final class PlayHistory {
     func reload() {
         let synced = Self.load()
         if synced != launches { launches = synced }
+        let syncedRemoved = Self.load(account: Self.removedAccount)
+        if syncedRemoved != removed { removed = syncedRemoved }
+    }
+
+    /// Takes the game off Continue Playing (finished, or not playing it now) until it's
+    /// played or saved again.
+    func removeFromContinuePlaying(_ appID: UInt32) {
+        reload()
+        removed[appID] = .now
+        SyncedKeychain.setValue(removed.map { Entry(appID: $0.key, date: $0.value) }, account: Self.removedAccount)
+    }
+
+    /// Whether the game belongs on Continue Playing: played or saved, and not removed since.
+    func isContinuing(_ appID: UInt32) -> Bool {
+        guard let activity = lastActivity(appID) else { return false }
+        guard let removedAt = removed[appID] else { return true }
+        return activity.date > removedAt
     }
 
     /// The most recent of the last launch and the last save, and which it was.
@@ -102,7 +125,7 @@ final class PlayHistory {
         UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: times.map { (String($0.key), $0.value) }), forKey: saveTimesKey)
     }
 
-    private static func load() -> [UInt32: Date] {
+    private static func load(account: String = account) -> [UInt32: Date] {
         let entries = SyncedKeychain.value([Entry].self, account: account) ?? []
         return Dictionary(entries.map { ($0.appID, $0.date) }, uniquingKeysWith: max)
     }

@@ -33,11 +33,17 @@ struct LibraryGameMenuItems: View {
             EmptyView()
         }
         Divider()
+        if PlayHistory.shared.isContinuing(appID) {
+            Button("Remove from Continue Playing", systemImage: "minus.circle", action: removeFromContinuePlaying)
+        }
         Button(isVisualNovel ? "Remove from Visual Novels" : "Add to Visual Novels",
                systemImage: isVisualNovel ? "eye.slash" : "plus.circle", action: toggleVisualNovel)
     }
 
     private func play() { games.play(appID: game.appID) }
+    private func removeFromContinuePlaying() {
+        withAnimation { PlayHistory.shared.removeFromContinuePlaying(game.appID) }
+    }
     private func syncSaves() { Task { await games.syncAllSaveLocations(appID: game.appID) } }
     private func openFolder() { openInFiles(games.folder(appID: game.appID, name: game.name)) }
     private func download() { games.download(game) }
