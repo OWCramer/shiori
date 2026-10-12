@@ -896,6 +896,10 @@ final class GameLibrary {
         guard playBlocker(appID: appID) == nil, tasks[appID] == nil, launching == nil,
               case let .installed(record) = statuses[appID], let engine = record.engine
         else { return }
+        #if os(iOS)
+        // The first game on an engine: its controls first, before the engine takes the screen.
+        if ControlsGuide.shared.interceptPlay(appID: appID, engine: engine.engine, gameName: record.name) { return }
+        #endif
         let folder = folder(appID: appID, name: record.name)
         if ["artemis", "kirikiri", "siglus", "luca", "catsystem2"].contains(engine.engine) {
             // ArtemisKit's saves aren't the PC's format, so no Steam Cloud; iCloud mirrors them.
