@@ -120,6 +120,22 @@ static double FootprintMB(void);
 static int pointerActive;
 __attribute__((visibility("default"), used)) int shiori_renpy_pointer_active(void) { return pointerActive; }
 
+/// A gesture the game's own keymap carries out, taken by the Python bootstrap's periodic
+/// callback (`_gestures` in shiori_main.py): 1 skip (toggle_skip), 2 auto (toggle_afm), 3 the
+/// backlog (the game's history screen), 4 leave (the game's own quit, config.quit_action).
+/// Exported for ctypes.
+static volatile int pendingGesture;
+__attribute__((visibility("default"), used)) int shiori_renpy_take_gesture(void) {
+    int gesture = pendingGesture;
+    pendingGesture = 0;
+    return gesture;
+}
+
+static void QueueGesture(int gesture, NSString *name) {
+    NSLog(@"Shiori gesture: %@", name);
+    pendingGesture = gesture;
+}
+
 @interface ShioriGestures : NSObject <UIGestureRecognizerDelegate>
 @end
 
@@ -153,6 +169,31 @@ __attribute__((visibility("default"), used)) int shiori_renpy_pointer_active(voi
     hide.allowedTouchTypes = @[@(UITouchTypeDirect)];
     hide.delaysTouchesBegan = YES;
     [window addGestureRecognizer:hide];
+
+    // The gestures every engine shares (spec, Touch): two-finger swipes right (skip), up
+    // (auto) and down (the backlog), and a two-finger hold (leave). Two fingers, because a
+    // one-finger swipe is the game's (Ren'Py drags viewports and sliders), and multi-finger
+    // sequences never reach SDL (FilterMultiFingerTouches). The game menu's tap waits for
+    // them to fail, which they do as soon as the fingers lift without moving.
+    UILongPressGestureRecognizer *leave = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(leave:)];
+    leave.numberOfTouchesRequired = 2;
+    leave.minimumPressDuration = 0.8;
+    leave.allowedTouchTypes = @[@(UITouchTypeDirect)];
+    leave.delaysTouchesBegan = YES;
+    [window addGestureRecognizer:leave];
+    [menu requireGestureRecognizerToFail:leave];
+    NSArray *swipes = @[@[@(UISwipeGestureRecognizerDirectionRight), NSStringFromSelector(@selector(skip:))],
+                        @[@(UISwipeGestureRecognizerDirectionUp), NSStringFromSelector(@selector(autoForward:))],
+                        @[@(UISwipeGestureRecognizerDirectionDown), NSStringFromSelector(@selector(history:))]];
+    for (NSArray *entry in swipes) {
+        UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:NSSelectorFromString(entry[1])];
+        swipe.direction = [entry[0] unsignedIntegerValue];
+        swipe.numberOfTouchesRequired = 2;
+        swipe.allowedTouchTypes = @[@(UITouchTypeDirect)];
+        swipe.delaysTouchesBegan = YES;
+        [window addGestureRecognizer:swipe];
+        [menu requireGestureRecognizerToFail:swipe];
+    }
 
     UIHoverGestureRecognizer *hover = [[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(hovered:)];
     hover.delegate = self;
@@ -193,6 +234,14 @@ __attribute__((visibility("default"), used)) int shiori_renpy_pointer_active(voi
     }
 }
 
+- (void)skip:(UISwipeGestureRecognizer *)recognizer { QueueGesture(1, @"skip"); }
+- (void)autoForward:(UISwipeGestureRecognizer *)recognizer { QueueGesture(2, @"auto"); }
+- (void)history:(UISwipeGestureRecognizer *)recognizer { QueueGesture(3, @"backlog"); }
+
+- (void)leave:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateBegan) QueueGesture(4, @"leave (the game's quit)");
+}
+
 - (void)hideText:(UILongPressGestureRecognizer *)recognizer {
     if (recognizer.state == UIGestureRecognizerStateBegan) {
         NSLog(@"Shiori gesture: hide text (%.0f MB)", FootprintMB());
@@ -204,7 +253,8 @@ __attribute__((visibility("default"), used)) int shiori_renpy_pointer_active(voi
 
 #if DEBUG
 /// Replays input from the `SHIORI_INPUT` environment variable: `;`-separated steps of
-/// `<seconds>:<x>,<y>` (tap at window points), `<seconds>:esc`, `:enter` or `:h`,
+/// `<seconds>:<x>,<y>` (tap at window points), `<seconds>:esc`, `:enter`, `:h`, `:padN`, or a
+/// shared gesture (`:skip`, `:auto`, `:history`, `:quit`),
 /// timed from game start. Simulator testing only.
 static void ScheduleScriptedInput(void) {
     const char *script = getenv("SHIORI_INPUT");
@@ -228,7 +278,13 @@ static void ScheduleScriptedInput(void) {
                 [NSRunLoop.mainRunLoop addTimer:release forMode:NSRunLoopCommonModes];
                 return;
             }
-                        if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"] || [action isEqualToString:@"h"]) {
+            // `skip`, `auto`, `history`, `quit`: the shared gestures, as if swiped or held.
+            NSDictionary *gestures = @{@"skip": @1, @"auto": @2, @"history": @3, @"quit": @4};
+            if (gestures[action]) {
+                QueueGesture([gestures[action] intValue], action);
+                return;
+            }
+            if ([action isEqualToString:@"esc"] || [action isEqualToString:@"enter"] || [action isEqualToString:@"h"]) {
                 PressKey([action isEqualToString:@"esc"] ? ScancodeEscape : [action isEqualToString:@"h"] ? ScancodeH : ScancodeReturn);
                 return;
             }

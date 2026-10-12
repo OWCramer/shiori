@@ -92,6 +92,10 @@ final class SiglusGameViewController: UIViewController {
         leave.minimumPressDuration = 0.8
         leave.delaysTouchesBegan = true
         view.addGestureRecognizer(leave)
+        // The shared two-finger swipes (spec, Touch): right skips (Ctrl held down until the next
+        // touch), up is auto, which Siglus games keep on their own window button.
+        view.addSwipe(.right, fingers: 2, target: self, action: #selector(swipedSkip)).delaysTouchesBegan = true
+        view.addSwipe(.up, fingers: 2, target: self, action: #selector(swipedAuto)).delaysTouchesBegan = true
         #if os(iOS)
         // Fingers only, so a trackpad's clicks aren't held back; the trackpad plays like the
         // PC's mouse: hover moves it, a secondary click is the right button, scrolling turns
@@ -113,10 +117,14 @@ final class SiglusGameViewController: UIViewController {
     #if os(iOS)
     override var canBecomeFirstResponder: Bool { true }
 
-    /// A hardware keyboard's keys go to the engine as the PC's (Escape, Enter, Space, arrows, Ctrl).
+    /// A hardware keyboard's keys go to the engine as the PC's (Escape, Enter, Space, arrows,
+    /// Ctrl); Page Up turns the wheel up (the backlog).
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil }
-        for key in keys { if let code = key.windowsVirtualKey { padPress(.key(code), down: true) } }
+        let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil || $0 == .keyboardPageUp }
+        for key in keys {
+            if key == .keyboardPageUp { padPress(.wheelUp, down: true) }
+            if let code = key.windowsVirtualKey { padPress(.key(code), down: true) }
+        }
         if !rest.isEmpty { super.pressesBegan(rest, with: event) }
     }
 
@@ -290,6 +298,11 @@ final class SiglusGameViewController: UIViewController {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // A touch ends a skip the swipe started (as letting go of Ctrl does).
+        if skipLatched {
+            releaseSkipLatch()
+            return
+        }
         guard pointerTouch == nil, let touch = touches.first, (event?.allTouches?.count ?? 1) == 1 else { return }
         #if os(iOS)
         // A trackpad's click turns pointer mode on too (hover may not have come first).
@@ -332,6 +345,7 @@ final class SiglusGameViewController: UIViewController {
     }
 
     @objc private func rightClick(_ recognizer: UITapGestureRecognizer) {
+        releaseSkipLatch()
         guard let handle else { return }
         send(phase: 1, at: recognizer.location(in: view))
         pressRightButton(handle)
@@ -373,6 +387,36 @@ final class SiglusGameViewController: UIViewController {
     /// Whether the game drew its own cursor at the last check (it can change per scene).
     private var gameCursorShown = false
 
+    // MARK: Skip and auto
+
+    /// Ctrl held down by a two-finger swipe right: Siglus skips while it's down, until the
+    /// next touch lets it go.
+    private var skipLatched = false
+
+    @objc private func swipedSkip() {
+        guard let handle else { return }
+        if skipLatched {
+            releaseSkipLatch()
+            return
+        }
+        skipLatched = true
+        SiglusRuntime.log.notice("Skip: Ctrl held by the swipe")
+        siglus_ios_key(handle, 0x11, 1)
+        GameNotice.show("Skipping. Tap to stop.", in: view)
+    }
+
+    private func releaseSkipLatch() {
+        guard skipLatched else { return }
+        skipLatched = false
+        if let handle { siglus_ios_key(handle, 0x11, 0) }
+    }
+
+    /// Siglus has no key for auto mode (siglus_rs takes it from the game's own syscom calls):
+    /// the game's window button turns it on.
+    @objc private func swipedAuto() {
+        GameNotice.show("Auto is the AUTO button on the game's message window.", in: view)
+    }
+
     @objc private func scrollBack(_ recognizer: UISwipeGestureRecognizer) {
         guard let handle else { return }
         send(phase: 1, at: recognizer.location(in: view))
@@ -388,6 +432,7 @@ final class SiglusGameViewController: UIViewController {
         case key(Int32)
         case rightClick
         case wheelUp
+        case auto
     }
 
     private var padHeld: Set<PadKey> = []
@@ -426,6 +471,7 @@ final class SiglusGameViewController: UIViewController {
             .key(0x1B): pad.buttonMenu.isPressed, // VK_ESCAPE
             .rightClick: pad.buttonB.isPressed,
             .wheelUp: pad.buttonY.isPressed || pad.leftShoulder.isPressed,
+            .auto: pad.buttonX.isPressed,
         ]
         let now = CACurrentMediaTime()
         for (key, isDown) in pressed {
@@ -463,6 +509,8 @@ final class SiglusGameViewController: UIViewController {
         case .wheelUp:
             guard down else { return }
             siglus_ios_mouse_wheel(handle, 1)
+        case .auto:
+            if down { swipedAuto() }
         }
     }
 
