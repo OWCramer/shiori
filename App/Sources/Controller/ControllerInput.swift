@@ -74,6 +74,11 @@ final class ControllerInput {
         #if DEBUG
         isForced = UserDefaults.standard.bool(forKey: "ShioriControllerMode")
         isSuppressed = UserDefaults.standard.object(forKey: "ShioriControllerMode") != nil && !isForced
+        #if targetEnvironment(simulator)
+        // Simulators see a virtual controller (or the Mac's) and would always open the
+        // launcher; ignore controllers there unless `-ShioriControllerMode YES` asks for it.
+        if !isForced { isSuppressed = true }
+        #endif
         // `-ShioriPadInput "3:right;4:a"` replays pad presses (seconds from launch).
         for step in (UserDefaults.standard.string(forKey: "ShioriPadInput") ?? "").split(separator: ";") {
             let parts = step.split(separator: ":")
