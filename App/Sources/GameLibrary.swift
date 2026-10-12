@@ -456,6 +456,17 @@ final class GameLibrary {
         await syncSaves(appID: appID, direction: .both)
     }
 
+    /// Tells Steam a play session is starting (read-only), logging any other device's
+    /// operation still pending. Sent where leaving the game ends the session with
+    /// `finishSteamCloudSession`.
+    private func sendSteamCloudLaunchIntent(appID: UInt32) async {
+        guard case .loggedOn = await session.state else { return }
+        let pending = (try? await session.cloudLaunchIntent(appID: appID, clientID: SteamCloudSync.clientID)) ?? []
+        for operation in pending {
+            log.notice("Steam Cloud: \(operation.machineName, privacy: .public) is \(operation.description, privacy: .public)")
+        }
+    }
+
     /// For the moment a game quits, just before Shiori exits: upload to Steam Cloud and
     /// tell Steam the session is over, waiting up to `timeout` for it.
     private func finishSteamCloudSession(appID: UInt32) async {
@@ -924,7 +935,11 @@ final class GameLibrary {
                 // Saves left behind here go up before anything is pulled over them.
                 await catchUp(appID: appID)
                 await syncSaves(appID: appID, direction: .pull)
-                if !["artemis", "luca", "catsystem2"].contains(engine.engine), steamCloudMapped[appID] == true { await pullSteamCloud(appID: appID) }
+                if !["artemis", "luca", "catsystem2"].contains(engine.engine), steamCloudMapped[appID] == true {
+                    await pullSteamCloud(appID: appID)
+                    // The session's start, to match finishSteamCloudSession when it's left.
+                    if uploadsToSteamCloud(appID) { await sendSteamCloudLaunchIntent(appID: appID) }
+                }
                 #if !os(tvOS)
                 if engine.engine == "kirikiri" {
                     let runtimeCache = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(folder.lastPathComponent)", isDirectory: true)
@@ -967,12 +982,7 @@ final class GameLibrary {
             // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
             if isSteamCloudEnabled(appID) { launching = (appID, .steamCloud) }
             await pullSteamCloud(appID: appID)
-            if canUploadSteamCloud(appID), case .loggedOn = await session.state {
-                let pending = (try? await session.cloudLaunchIntent(appID: appID, clientID: SteamCloudSync.clientID)) ?? []
-                for operation in pending {
-                    log.notice("Steam Cloud: \(operation.machineName, privacy: .public) is \(operation.description, privacy: .public)")
-                }
-            }
+            if canUploadSteamCloud(appID) { await sendSteamCloudLaunchIntent(appID: appID) }
             if isCloudSaveEnabled(appID) { launching = (appID, .iCloud) }
             await syncSaves(appID: appID, direction: .pull)
             launching = (appID, .starting)
