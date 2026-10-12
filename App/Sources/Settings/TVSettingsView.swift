@@ -80,7 +80,7 @@ struct SettingsView: View {
                     dismiss()
                 }
             } message: {
-                Text("Signs out on all your devices that share this sign-in through iCloud Keychain. Downloaded games stay on this device.")
+                Text("Also signs out your other devices. Downloaded games stay.")
             }
         }
     }

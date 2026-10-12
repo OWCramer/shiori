@@ -36,7 +36,7 @@ struct SettingsAccountSection: View {
         .confirmationDialog("Sign out of Steam?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive, action: signOut)
         } message: {
-            Text("Also signs out devices sharing this sign-in through iCloud Keychain. Downloaded games stay.")
+            Text("Also signs out your other devices. Downloaded games stay.")
         }
     }
 

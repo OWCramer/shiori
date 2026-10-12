@@ -22,7 +22,7 @@ struct CollectionsScreen: View {
                         }
                 }
             } footer: {
-                Text("Suggested from Steam and VNDB. Edits sync through iCloud Keychain.")
+                Text("Edits sync across your devices.")
             }
             if collections.hiddenSuggestionCount > 0 {
                 Section {
