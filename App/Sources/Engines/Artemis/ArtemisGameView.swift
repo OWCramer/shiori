@@ -193,7 +193,12 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             }
         }
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.player?.saveGlobals() }
+            // The game's slots are its own (saved from its screens); what it keeps between
+            // them (the g. variables) is written now.
+            MainActor.assumeIsolated {
+                self?.player?.saveGlobals()
+                NSLog("Artemis: saved globals for the background")
+            }
         }
         startTime = CACurrentMediaTime()
         #if DEBUG
