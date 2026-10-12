@@ -8,13 +8,18 @@ struct PatchesSection: View {
     let model: GamePageModel
     @Environment(GameLibrary.self) private var games
 
+    /// Whether the patch list or Steam has anything for this game; its row collapses if not.
+    @State private var listHasContent = false
+
     private var folder: URL { games.folder(appID: game.appID, name: game.name) }
 
     var body: some View {
         GamePageSection(title: "Patches & DLC",
                         footer: "Files in the game's patch folder replace or add to its own files, and are picked up the next time you play. Shiori never runs anything from a patch.") {
-            PatchListSection(appID: game.appID, gameFolder: folder, onChange: reloadPatches)
-                .padding(.vertical, 12)
+            PatchListSection(appID: game.appID, gameFolder: folder, onChange: reloadPatches,
+                             onContentChange: { listHasContent = $0 })
+                .padding(.vertical, listHasContent ? 12 : 0)
+                .containerValue(\.collapsedRow, !listHasContent)
             PatchFilesRow(files: model.patchFiles)
             if let progress = model.patchImport {
                 GamePageRow {

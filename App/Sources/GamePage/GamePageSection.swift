@@ -17,7 +17,7 @@ struct GamePageSection<Content: View>: View {
                 Group(subviews: content) { rows in
                     ForEach(rows) { row in
                         row
-                        if row.id != rows.last?.id {
+                        if row.id != rows.last?.id, !row.containerValues.collapsedRow {
                             Rectangle()
                                 .fill(.white.opacity(0.14))
                                 .frame(height: 0.5)
@@ -35,4 +35,10 @@ struct GamePageSection<Content: View>: View {
             }
         }
     }
+}
+
+extension ContainerValues {
+    /// A row with nothing to show right now (still kept for its work, like loading), so the
+    /// section draws no separator after it.
+    @Entry var collapsedRow = false
 }

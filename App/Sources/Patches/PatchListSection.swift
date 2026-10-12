@@ -8,6 +8,9 @@ struct PatchListSection: View {
     let gameFolder: URL
     /// Called after a patch is installed or removed, so the card's file list refreshes.
     let onChange: () -> Void
+    /// Told whether the section has anything to show (DLC or patches), so a host can
+    /// collapse its row when it's empty.
+    var onContentChange: (Bool) -> Void = { _ in }
 
     @Environment(PatchListStore.self) private var patchList
     @Environment(PatchInstaller.self) private var installer
@@ -39,6 +42,7 @@ struct PatchListSection: View {
     }
 
     private var patches: [PatchListStore.Patch] { patchList.patches(for: appID) }
+    private var hasContent: Bool { !(dlcs ?? []).isEmpty || !patches.isEmpty }
     private var record: GameRecord? { if case let .installed(record) = games.status(for: appID) { record } else { nil } }
 
     var body: some View {
@@ -62,6 +66,7 @@ struct PatchListSection: View {
             dlcs = try? await steam.session.dlcs(appID: appID)
         }
         .onChange(of: installer.installed[appID]) { onChange() }
+        .onChange(of: hasContent, initial: true) { _, has in onContentChange(has) }
         #if os(iOS)
         .task(id: patches.contains { denpasoftProduct($0) != nil }) {
             if patches.contains(where: { denpasoftProduct($0) != nil }) { await denpasoft.refresh() }
