@@ -187,7 +187,12 @@ struct RootView: View {
             }
             #endif
         } else {
+            #if os(tvOS)
             SignInView()
+            #else
+            SignInScreen()
+                .modifier(DebugCanvas())
+            #endif
         }
     }
 }
