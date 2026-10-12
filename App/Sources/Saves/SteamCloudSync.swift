@@ -1,6 +1,9 @@
 import CryptoKit
 import Foundation
+import os
 import SteamKit
+
+private let log = Logger(subsystem: "com.owencramer.vnhub", category: "steamcloud")
 
 /// Brings a game's Steam Cloud saves into its `saves/` folder. Read-only towards Steam:
 /// this never uploads or deletes anything in the cloud.
@@ -9,7 +12,11 @@ import SteamKit
 /// build keeps saves in `game/saves` (and mirrors them to `%APPDATA%/RenPy/<game>`), and
 /// Shiori runs the game with `--savedir <game>/saves`, so both map onto `saves/`. KiriKiri PC
 /// builds keep saves in `savedata/` beside the exe, which Shiori points at `saves/`
-/// (AETHERKIRI_DATA_PATH).
+/// (AETHERKIRI_DATA_PATH). Siglus keeps them in `savedata/` too.
+///
+/// A folder is often listed once per pattern (Harmonia: `savedata` with `*.sav`, `*.bmp`,
+/// `*.ini`), so rules are grouped by folder (`UFSConfig.saveFolders`) and a file belongs to
+/// the save folder if it matches any of its patterns, both ways.
 enum SteamCloudSync {
     struct Result: Equatable, Sendable {
         var downloaded: [String] = []
@@ -31,10 +38,18 @@ enum SteamCloudSync {
         }
     }
 
-    /// Whether a save rule's files are Ren'Py or KiriKiri saves that belong in `saves/`.
+    /// Whether a save rule's files are Ren'Py, KiriKiri or Siglus saves that belong in `saves/`.
     static func mapsToSaves(_ rule: UFSConfig.SaveRule) -> Bool {
-        let root = rule.root.lowercased()
-        let path = rule.path.lowercased()
+        mapsToSaves(root: rule.root, path: rule.path)
+    }
+
+    static func mapsToSaves(_ folder: UFSConfig.SaveFolder) -> Bool {
+        mapsToSaves(root: folder.root, path: folder.path)
+    }
+
+    static func mapsToSaves(root: String, path: String) -> Bool {
+        let root = root.lowercased()
+        let path = path.lowercased()
         if root == "gameinstall" { return path == "game/saves" || path == "savedata" }
         if root.hasPrefix("winappdata") { return path.hasPrefix("renpy/") }
         return false
@@ -42,14 +57,15 @@ enum SteamCloudSync {
 
     static func pull(session: SteamSession, appID: UInt32, saves: URL, now: Date = .now) async throws -> Result {
         guard let app = try await session.appInfo([appID]).first else { return Result() }
-        let ufs = UFSConfig(app: app)
+        // Every pattern the rules give the save folder (Harmonia's `.sav`, `.bmp` and `.ini`).
+        let folders = UFSConfig(app: app).saveFolders.filter(mapsToSaves)
         let (_, files) = try await session.cloudFiles(appID: appID)
         let fm = FileManager.default
         try fm.createDirectory(at: saves, withIntermediateDirectories: true)
 
         var result = Result()
         for file in files where !file.isDeleted {
-            guard let rule = ufs.rule(for: file), mapsToSaves(rule),
+            guard folders.contains(where: { $0.holds(file) }),
                   !file.name.contains("/"), !file.name.hasPrefix(".")
             else {
                 result.unmapped.append(file.path)
@@ -156,21 +172,22 @@ enum SteamCloudSync {
         guard uploadsEnabled || dryRun else { return PushResult() }
         guard let app = try await session.appInfo([appID]).first else { return PushResult(dryRun: dryRun) }
         let ufs = UFSConfig(app: app)
-        guard let rule = ufs.saveRules.first(where: mapsToSaves) else { return PushResult(dryRun: dryRun) }
+        // Every pattern the rules give the save folder (Harmonia's `.sav`, `.bmp` and `.ini`).
+        guard let folder = ufs.saveFolders.first(where: mapsToSaves) else { return PushResult(dryRun: dryRun) }
         let (_, remoteFiles) = try await session.cloudFiles(appID: appID)
         let remote = Dictionary(
-            remoteFiles.filter { !$0.isDeleted && ufs.rule(for: $0) == rule }.map { ($0.name, $0) },
+            remoteFiles.filter { !$0.isDeleted && folder.holds($0) }.map { ($0.name, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        // Reuse the prefix exactly as Steam already stores it for this rule, if it has one.
-        let prefix = remote.values.first?.prefix ?? canonicalPrefix(for: rule)
+        // Reuse the prefix exactly as Steam already stores it for this folder, if it has one.
+        let prefix = remote.values.first?.prefix ?? canonicalPrefix(for: folder.rules[0])
 
         let fm = FileManager.default
         var uploads: [CloudUpload] = []
         var toBackUp: [CloudFile] = []
         for name in ((try? fm.contentsOfDirectory(atPath: saves.path)) ?? []).sorted() {
             // Ren'Py's _reload saves are scratch files; folders (sync/, conflicts/) aren't saves.
-            guard !name.hasPrefix("_"), !name.hasPrefix("."), matches(name, pattern: rule.pattern) else { continue }
+            guard !name.hasPrefix("_"), !name.hasPrefix("."), folder.matches(name: name) else { continue }
             let url = saves.appendingPathComponent(name)
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
             guard values?.isRegularFile == true, let data = fm.contents(atPath: url.path) else { continue }
@@ -182,10 +199,15 @@ enum SteamCloudSync {
             }
             uploads.append(CloudUpload(path: prefix + name, data: data, timestamp: modified))
         }
-        if let quota = ufs.quota, uploads.reduce(0, { $0 + UInt64($1.data.count) }) > quota {
-            throw SteamError.contentUnavailable("Steam Cloud space for this game (over its quota)")
-        }
         guard !uploads.isEmpty else { return PushResult(dryRun: dryRun) }
+        // Steam limits each app's cloud by files (`maxnumfiles`) and bytes (`quota`). An upload
+        // that would go over either is refused whole, never sent in part.
+        let check = ufs.checkUpload(remote: remoteFiles, uploads: uploads.map { ($0.path, $0.data.count) })
+        guard check.isAllowed else {
+            let error = QuotaExceeded(check: check)
+            log.error("Steam Cloud upload \(appID) refused\(dryRun ? " (dry run)" : "", privacy: .public): \(uploads.count) files, \(error.description, privacy: .public)")
+            throw error
+        }
         if dryRun {
             return PushResult(uploaded: uploads.map { String($0.path.dropFirst(prefix.count)) }, failed: toBackUp.map(\.name), dryRun: true)
         }
@@ -221,9 +243,22 @@ enum SteamCloudSync {
         return "%\(root)%" + (rule.path.isEmpty ? "" : rule.path + "/")
     }
 
-    /// Steam's ufs patterns are shell globs (`*`, `*.save`).
-    static func matches(_ name: String, pattern: String) -> Bool {
-        fnmatch(pattern, name, 0) == 0
+    /// An upload refused because it would take the game's Steam Cloud over its file count or
+    /// byte quota. Nothing was sent.
+    struct QuotaExceeded: LocalizedError, CustomStringConvertible {
+        var check: UFSConfig.QuotaCheck
+
+        var errorDescription: String? {
+            if check.exceedsFileCount, let max = check.maxFiles {
+                return "Not uploaded: Steam Cloud keeps at most \(max) files for this game, and this would make \(check.filesAfter)"
+            }
+            let quota = ByteCountFormatter.string(fromByteCount: Int64(check.quota ?? 0), countStyle: .file)
+            return "Not uploaded: over this game's Steam Cloud space (\(quota))"
+        }
+
+        var description: String {
+            "over Steam Cloud limits: files \(check.filesBefore) -> \(check.filesAfter) of \(check.maxFiles.map(String.init) ?? "any"), bytes \(check.bytesBefore) -> \(check.bytesAfter) of \(check.quota.map(String.init) ?? "any")"
+        }
     }
 
     private static func stamp(_ date: Date) -> String {
