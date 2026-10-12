@@ -102,6 +102,7 @@ enum GameNotice {
     }
 }
 
+#if os(iOS)
 extension UIView {
     /// A swipe with `fingers` fingers (the shared gestures: two-finger swipes right for skip,
     /// up for auto, down for the backlog).
@@ -110,15 +111,12 @@ extension UIView {
         let swipe = UISwipeGestureRecognizer(target: target, action: action)
         swipe.direction = direction
         swipe.numberOfTouchesRequired = fingers
-        #if os(iOS)
         swipe.fingersOnly()
-        #endif
         addGestureRecognizer(swipe)
         return swipe
     }
 }
 
-#if os(iOS)
 /// The arrow keys and the d-pad moving between a screen's controls (Shiori-drawn screens,
 /// Luca's), with the control's own highlight and a ring; Enter or A presses it. The
 /// trackpad's pointer lights the control under it the same way, without the ring.
