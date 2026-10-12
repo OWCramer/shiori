@@ -175,10 +175,19 @@ struct RootView: View {
             }
             .fullScreenCover(item: $games.kirikiriSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
-                    KiriKiriGameView(gameFolder: session.folder, appID: session.appID, onFirstFrame: firstFrame) {
-                        games.kirikiriSession = nil
+                    // Shiori's own KiriKiri engine where the game (or `-ShioriKrkrEngine`) asks
+                    // for it; AetherKrkr otherwise (Phase 23).
+                    if KiriKiriEngineChoice.engine(for: session.appID) == .shiori {
+                        ShioriKrkrGameView(gameFolder: session.folder, onFirstFrame: firstFrame) {
+                            games.kirikiriSession = nil
+                        }
+                        .ignoresSafeArea()
+                    } else {
+                        KiriKiriGameView(gameFolder: session.folder, appID: session.appID, onFirstFrame: firstFrame) {
+                            games.kirikiriSession = nil
+                        }
+                        .ignoresSafeArea()
                     }
-                    .ignoresSafeArea()
                 }
             }
             #endif

@@ -7,6 +7,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST="$REPO/Scripts/privacy/Framework.xcprivacy"
 for xcf in "$REPO"/Vendor/RenPy7.xcframework "$REPO"/Vendor/RenPy8.xcframework \
            "$REPO"/Vendor/ShioriKiriKiri.xcframework "$REPO"/Vendor/ShioriSiglus.xcframework \
+           "$REPO"/Vendor/ShioriKrkr.xcframework \
            "$REPO"/Vendor/renios/MetalANGLE.xcframework; do
     [ -d "$xcf" ] || continue
     for framework in "$xcf"/*/*.framework; do

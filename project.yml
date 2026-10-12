@@ -23,6 +23,8 @@ packages:
     path: Packages/KiriKiriKit
   SiglusKit:
     path: Packages/SiglusKit
+  ShioriKrkrKit:
+    path: Packages/ShioriKrkrKit
   LucaKit:
     path: Packages/LucaKit
   CatSystemKit:
@@ -107,6 +109,15 @@ targets:
       # (Scripts/kirikiri/build-ios-framework.sh). Exports only the engine API.
       - framework: Vendor/ShioriKiriKiri.xcframework
         embed: true
+      # Shiori's own KiriKiri engine (krkrsdl3, clean-room; Phase 23), as one dynamic
+      # framework (Scripts/krkrsdl3/build-framework.sh) exporting only shiorikrkr.h. Embedded
+      # but not linked: it's opened with dlopen when a game starts (its SDL3 links Apple's
+      # OpenGLES, which mustn't load ahead of MetalANGLE).
+      - package: ShioriKrkrKit
+        product: CShioriKrkr
+      - framework: Vendor/ShioriKrkr.xcframework
+        embed: true
+        link: false
       - package: SiglusKit
         product: CSiglus
       - package: LucaKit
@@ -170,7 +181,7 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: App/Sources
-        excludes: ["Engines/KiriKiri/**", "Engines/Siglus/**", "Engines/CatSystem/**"]
+        excludes: ["Engines/KiriKiri/**", "Engines/ShioriKrkr/**", "Engines/Siglus/**", "Engines/CatSystem/**"]
       - path: App/Resources
         excludes: ["SiglusFonts/**", "Assets.xcassets/**"]
       - path: App/TV
