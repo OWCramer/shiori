@@ -9,7 +9,7 @@ struct DenpasoftSection: View {
     var body: some View {
         Section {
             if account.isSignedIn {
-                LabeledContent("Patches in your downloads") {
+                LabeledContent("Patches") {
                     if account.isLoading { ProgressView() } else { Text("\(account.downloads.count)") }
                 }
                 Button("Refresh Downloads") { Task { await account.refresh(force: true) } }
@@ -21,7 +21,7 @@ struct DenpasoftSection: View {
         } header: {
             Text("Denpasoft")
         } footer: {
-            Text("Many of Denpasoft's 18+ patches are free but need an account. Sign in on Denpasoft's own page; Shiori never sees your password, keeps the session on this device, and installs the patches in your Denpasoft downloads from each game's page.")
+            Text("For Denpasoft's 18+ patches. You sign in on Denpasoft's page; Shiori never sees your password.")
         }
         .task { if account.isSignedIn { await account.refresh() } }
     }

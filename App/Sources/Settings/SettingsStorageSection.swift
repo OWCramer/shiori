@@ -61,7 +61,7 @@ struct SettingsStorageSection: View {
         } header: {
             Text("Storage on This \(UIDevice.current.localizedModel)")
         } footer: {
-            Text("Downloaded games are kept out of iCloud device backups; they can always be downloaded again. Delete one from its page.")
+            Text("Games aren't included in iCloud backups.")
         }
     }
 }

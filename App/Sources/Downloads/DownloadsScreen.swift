@@ -64,7 +64,7 @@ struct DownloadsScreen: View {
                         }
                     }
                     if !games.downloadItems.isEmpty {
-                        Label("Downloads keep going in the background while iOS allows it; if iOS stops one, it picks up where it left off when you come back to Shiori.",
+                        Label("If iOS stops a download in the background, it resumes when you return.",
                               systemImage: "info.circle")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -77,8 +77,7 @@ struct DownloadsScreen: View {
             }
             .overlay {
                 if games.downloadItems.isEmpty && patches.jobs.isEmpty {
-                    ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle",
-                                           description: Text("Games and patches you download appear here while they're on their way."))
+                    ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle")
                 }
             }
             .navigationTitle("Downloads")

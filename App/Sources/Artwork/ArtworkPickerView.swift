@@ -62,13 +62,13 @@ struct ArtworkPickerView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .notConfigured:
             ContentUnavailableView("SteamGridDB Isn't Set Up", systemImage: "key.horizontal",
-                                   description: Text("Add a free SteamGridDB API key in Settings to browse alternate artwork."))
+                                   description: Text("Add an API key in Settings."))
         case .unknownGame:
             ContentUnavailableView("Not on SteamGridDB", systemImage: "questionmark.square.dashed",
                                    description: Text("SteamGridDB doesn't have this game."))
         case .empty:
             ContentUnavailableView("No \(kind.displayName) Art", systemImage: "photo.on.rectangle",
-                                   description: Text("SteamGridDB doesn't have any \(kind.displayName.lowercased()) artwork for this game\(includeAdult ? "" : " (adult artwork is hidden)")."))
+                                   description: includeAdult ? nil : Text("Adult artwork is hidden."))
         case let .failed(message):
             ContentUnavailableView {
                 Label("Couldn't Load Artwork", systemImage: "exclamationmark.triangle")
@@ -182,11 +182,11 @@ struct SteamGridDBKeySection: View {
         } footer: {
             switch status {
             case .saved:
-                Text("Key works. Choose artwork from a game's page.")
+                Text("Key saved.")
             case let .failed(message):
                 Text(message).foregroundStyle(.red)
             default:
-                Text("Alternate covers, banners and logos. Get a free key at steamgriddb.com › Preferences › API.")
+                Text("For alternate artwork. Get a free key at steamgriddb.com › Preferences › API.")
             }
         }
     }

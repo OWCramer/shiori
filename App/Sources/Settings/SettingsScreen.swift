@@ -23,8 +23,6 @@ struct SettingsScreen: View {
                     } label: {
                         Label("Collections", systemImage: "square.stack")
                     }
-                } footer: {
-                    Text("Series grouped in Visual Novels and Installed: rename, merge, hide or make your own.")
                 }
                 Section {
                     Toggle(isOn: $uploads) {
@@ -33,7 +31,7 @@ struct SettingsScreen: View {
                 } header: {
                     Text("Saves")
                 } footer: {
-                    Text("Saves always download from Steam Cloud. With uploads on, saves made here go up when a game closes, replacing the PC's copy if it's older; Shiori keeps a backup of every cloud file it replaces. iCloud is set per game, on its page.")
+                    Text("Saves upload when a game closes and replace older copies in Steam Cloud, which Shiori backs up first.")
                 }
                 Section {
                     Toggle(isOn: $metalFX) {
@@ -43,7 +41,7 @@ struct SettingsScreen: View {
                 } header: {
                     Text("Engines")
                 } footer: {
-                    Text("KiriKiri: games like NEKOPARA draw at 1280×720. MetalFX enlarges them to the screen with sharper edges and text; off, Shiori uses a smooth bicubic filter. Applies the next time a game starts.")
+                    Text("Sharpens KiriKiri games drawn at 720p. Applies the next time a game starts.")
                 }
                 DenpasoftSection(signingIn: $signingInToDenpasoft)
                 SteamGridDBKeySection()

@@ -34,7 +34,7 @@ struct SettingsAboutSection: View {
         } header: {
             Text("About Shiori")
         } footer: {
-            Text("Shiori is free software under the GPL-3.0. The compatibility and patch lists are public on GitHub; anyone can add to them.")
+            Text("Shiori is free software under the GPL-3.0.")
         }
     }
 }
