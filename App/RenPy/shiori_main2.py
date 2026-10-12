@@ -456,6 +456,49 @@ def _pointer_cursor():
     renpy.config.periodic_callbacks.append(update)
 
 
+def _gestures():
+    """Shiori's shared gestures (RenPyRuntime.m: two-finger swipes and the two-finger hold),
+    carried out through the game's own keymap so its settings apply: skip and auto toggle as
+    Tab and the auto-forward binding do, the backlog is the game's history screen (rollback
+    where it has none), and leaving asks the game to quit its own way (config.quit_action,
+    with its own question), which closes the app as quitting always has."""
+    import ctypes
+    try:
+        take = ctypes.CDLL(None).shiori_renpy_take_gesture
+    except Exception:
+        return
+    state = {"keymap": None}
+
+    def history():
+        for name in ("history", "text_history", "history_screen"):
+            if renpy.exports.has_screen(name):
+                return renpy.store.ShowMenu(name)()
+        renpy.exports.queue_event("rollback")
+
+    def ensure_keymap():
+        keymap = state["keymap"]
+        if keymap is None:
+            keymap = renpy.display.behavior.Keymap(shiori_history=history)
+            state["keymap"] = keymap
+        underlay = renpy.config.underlay
+        if not any(item is keymap for item in underlay):
+            underlay.append(keymap)
+            renpy.exports.restart_interaction()
+
+    names = {1: "toggle_skip", 2: "toggle_afm", 3: "shiori_history", 4: "quit"}
+
+    def poll():
+        # The game's init has set config.underlay by the time callbacks run.
+        ensure_keymap()
+        name = names.get(take())
+        if name is None:
+            return
+        print("Shiori: gesture %s" % name)
+        renpy.exports.queue_event(name)
+
+    renpy.config.periodic_callbacks.append(poll)
+
+
 def _background_autosave():
     """Leaving the screen (the home gesture, another app): Ren'Py writes its mobile reload
     save (_reload-1, which isn't in the game's slots) and persistent. Shiori also asks for a
@@ -504,6 +547,7 @@ def _import_all():
     _original_import_all()
     _patch_renpy()
     _pointer_cursor()
+    _gestures()
     _background_autosave()
 
 
