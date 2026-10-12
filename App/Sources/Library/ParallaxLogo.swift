@@ -11,7 +11,7 @@ struct ParallaxLogo: View {
 
     var body: some View {
         GameLogo(game: game, maxWidth: maxWidth, maxHeight: maxHeight, alignment: alignment)
-            .offset(x: -parallax.tilt * HeroParallax.range * HeroParallax.logoShare)
+            .visualEffect { [shift = -parallax.tilt * HeroParallax.range * HeroParallax.logoShare] content, _ in content.offset(x: shift) }
     }
 }
 #endif

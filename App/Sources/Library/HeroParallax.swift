@@ -4,9 +4,10 @@ import Observation
 import UIKit
 
 /// Home's hero parallax, as on the TV app: tilting the device pans the banner a little
-/// and floats the logo the other way. Reads the device's attitude (roll, relative to how it
-/// was held when Home appeared, slowly following the hand), smoothed, while Home is on
-/// screen and the app is active; off with Reduce Motion.
+/// and floats the logo the other way. Reads gravity along the screen's own left–right axis
+/// (so landscape tilts the right way), relative to how the device was held when Home appeared
+/// and slowly following the hand, at 60 Hz with smoothing, while Home is on screen and the
+/// app is active; off with Reduce Motion.
 @MainActor @Observable
 final class HeroParallax {
     /// -1 (tilted fully left) … 1 (fully right).
@@ -18,8 +19,10 @@ final class HeroParallax {
 
     @ObservationIgnored private let motion = CMMotionManager()
     @ObservationIgnored private var reference: Double?
-    /// The roll that reads as a full tilt.
-    private static let fullTilt = 0.35
+    /// The sideways gravity (≈ sine of the tilt) that reads as a full tilt: about 20°.
+    private static let fullTilt = 0.34
+    /// The screen's orientation, read when updates start and when it changes.
+    @ObservationIgnored private var orientation: UIInterfaceOrientation = .portrait
 
     /// `-ShioriTilt <-1…1>` (Debug) holds the tilt there, for the simulator, which has no motion.
     private static var forcedTilt: Double? {
@@ -41,10 +44,11 @@ final class HeroParallax {
             return
         }
         reference = nil
-        motion.deviceMotionUpdateInterval = 1.0 / 30
+        orientation = Self.currentOrientation
+        motion.deviceMotionUpdateInterval = 1.0 / 60
         motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
             guard let data else { return }
-            MainActor.assumeIsolated { self?.update(roll: data.attitude.roll) }
+            MainActor.assumeIsolated { self?.update(gravity: data.gravity) }
         }
     }
 
@@ -53,14 +57,38 @@ final class HeroParallax {
         reference = nil
     }
 
-    private func update(roll: Double) {
-        // The neutral position drifts toward the current one, so holding the phone at a new
+    private static var currentOrientation: UIInterfaceOrientation {
+        let scene = UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive } as? UIWindowScene
+        return scene?.effectiveGeometry.interfaceOrientation ?? .portrait
+    }
+
+    /// Gravity along the screen's left–right axis, whichever way the device is turned.
+    private func sideways(_ gravity: CMAcceleration) -> Double {
+        switch orientation {
+        case .landscapeLeft: gravity.y
+        case .landscapeRight: -gravity.y
+        case .portraitUpsideDown: -gravity.x
+        default: gravity.x
+        }
+    }
+
+    private func update(gravity: CMAcceleration) {
+        let now = Self.currentOrientation
+        if now != orientation {
+            // Turned: start again from how it's held now.
+            orientation = now
+            reference = nil
+        }
+        let value = sideways(gravity)
+        // The neutral position drifts toward the current one, so holding the device at a new
         // angle settles back to the middle.
-        let base = reference.map { $0 + (roll - $0) * 0.01 } ?? roll
+        let base = reference.map { $0 + (value - $0) * 0.005 } ?? value
         reference = base
-        let target = max(-1, min(1, (roll - base) / Self.fullTilt))
-        let next = tilt + (target - tilt) * 0.15
-        if abs(next - tilt) > 0.002 { tilt = next }
+        let target = max(-1, min(1, (value - base) / Self.fullTilt))
+        // Smoothed at 60 Hz (gravity is already filtered by Core Motion, so this mostly
+        // hides hand tremor).
+        let next = tilt + (target - tilt) * 0.12
+        if abs(next - tilt) > 0.0005 { tilt = next }
     }
 }
 #endif

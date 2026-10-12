@@ -19,12 +19,14 @@ struct HomeHeroArt: View {
 
     var body: some View {
         let range = HeroParallax.range
+        let shift = parallax.tilt * range
         StretchyHeader(height: bannerHeight + extensionHeight, overscroll: overscroll) {
             // The extension fills the bottom safe-area padding with the art's mirrored,
             // blurred edge; the banner keeps its own frame above it.
             HeroArtwork(game: game)
                 .padding(.horizontal, -range)
-                .offset(x: parallax.tilt * range)
+                // A render-only shift, so a tilt doesn't lay the art out again every frame.
+                .visualEffect { content, _ in content.offset(x: shift) }
                 .backgroundExtensionEffect()
                 .safeAreaPadding(.bottom, extensionHeight)
                 .overlay {
