@@ -7,7 +7,7 @@ struct LibrarySearchScreen: View {
     @Environment(SteamModel.self) private var steam
     @Environment(LibraryCuration.self) private var curation
     @State private var query = ""
-    @State private var path: [LibraryGame] = []
+    @State private var path: [LibraryRoute] = []
 
     private var matches: [LibraryGame] {
         let query = query.trimmingCharacters(in: .whitespaces)
@@ -55,7 +55,7 @@ struct LibrarySearchScreen: View {
             }
             .navigationTitle("Search")
             .searchable(text: $query, prompt: "Your Steam games")
-            .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
+            .libraryDestinations()
         }
     }
 }

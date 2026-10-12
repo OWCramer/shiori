@@ -8,7 +8,7 @@ struct DownloadsScreen: View {
     @Environment(SteamModel.self) private var steam
     @Environment(PatchInstaller.self) private var patches
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var path: [LibraryGame] = []
+    @State private var path: [LibraryRoute] = []
 
     private func game(_ appID: UInt32) -> LibraryGame? { steam.library.first { $0.appID == appID } }
 
@@ -82,7 +82,7 @@ struct DownloadsScreen: View {
             }
             .navigationTitle("Downloads")
             .navigationSubtitle(subtitle)
-            .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
+            .libraryDestinations()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionStatus() }
                 ToolbarItemGroup(placement: .topBarTrailing) {
