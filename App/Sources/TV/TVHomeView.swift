@@ -20,7 +20,7 @@ struct TVHomeView: View {
         steam.library.filter { game in
             switch filter {
             case .visualNovels: curation.isVisualNovel(game)
-            case .installed: games.status(for: game.appID) != .notInstalled
+            case .installed: games.isOnDevice(game.appID)
             }
         }
     }

@@ -66,18 +66,18 @@ struct ShioriApp: App {
                 // launcher can say what's playable before anything is downloaded.
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {
                     guard steam.isLoggedOn else { return }
-                    engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && games.status(for: $0.appID) == .notInstalled }.map(\.appID))
+                    engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && !games.isOnDevice($0.appID) }.map(\.appID))
                 }
                 // Collections: suggested again whenever the games they're drawn from change, and
                 // looked up on VNDB (cached) for the Visual Novels tab's games.
                 .task(id: collectionInputs) {
                     collections.update(library: steam.library) { game in
-                        curation.isVisualNovel(game) || games.status(for: game.appID) != .notInstalled
+                        curation.isVisualNovel(game) || games.isOnDevice(game.appID)
                     }
                 }
                 .task(id: visualNovelIDs) { await collections.refreshVNDB(appIDs: visualNovelIDs) }
             #if DEBUG || SHIORI_AUTOMATION
-                .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
+                .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games, patches: patchInstaller) }
             #endif
             #if os(tvOS)
                 // tvOS may have cleared downloaded games while Shiori wasn't running.
@@ -124,7 +124,7 @@ extension ShioriApp {
     /// Visual Novels tab's choices and which games are downloaded.
     private var collectionInputs: CollectionInputs {
         CollectionInputs(library: steam.library, added: curation.added, hidden: curation.hidden,
-                         downloaded: Set(games.statuses.compactMap { $0.value == .notInstalled ? nil : $0.key }))
+                         downloaded: games.onDeviceAppIDs)
     }
 
     private var visualNovelIDs: [UInt32] {
@@ -276,7 +276,7 @@ struct SessionEndingView: View {
 enum DebugAutomation {
     private static var done: Set<String> = []
 
-    static func run(steam: SteamModel, games: GameLibrary) {
+    static func run(steam: SteamModel, games: GameLibrary, patches: PatchInstaller) {
         let defaults = UserDefaults.standard
         if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriAutoDownload")), appID != 0, steam.isLoggedOn,
            !done.contains("download"), let app = steam.library.first(where: { $0.appID == appID })
@@ -284,6 +284,22 @@ enum DebugAutomation {
             done.insert("download")
             games.download(app)
         }
+        #if DEBUG
+        // `-ShioriFakeDownload "<appid>,<appid>…"`: pretend downloads (the first runs, the rest
+        // queue) ticking as real ones do, for measuring the screens; nothing is fetched.
+        // `-ShioriFakePatch <appid>` (with `-ShioriFakePatchID <listed patch id>` to show it on
+        // the game page) does the same for a patch download, ticking per network chunk.
+        if let list = defaults.string(forKey: "ShioriFakeDownload"), !done.contains("fake") {
+            done.insert("fake")
+            for appID in list.split(separator: ",").compactMap({ UInt32($0) }) {
+                if let game = steam.library.first(where: { $0.appID == appID }) { games.startFakeDownload(appID: appID, name: game.name) }
+            }
+        }
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriFakePatch")), appID != 0, !done.contains("fakePatch") {
+            done.insert("fakePatch")
+            patches.startFakeJob(appID: appID, patchID: defaults.string(forKey: "ShioriFakePatchID") ?? "fake")
+        }
+        #endif
         if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriAutoPlay")), appID != 0, !done.contains("play") {
             done.insert("play")
             // `-ShioriInput "<s>:<x>,<y>;<s>:esc;…"` replays taps and keys into the game.

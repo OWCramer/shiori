@@ -12,7 +12,7 @@ struct HomeHero: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var record: GameRecord? {
-        if case let .installed(record) = games.status(for: game.appID) { record } else { nil }
+        games.record(for: game.appID)
     }
 
     /// "Played today · Ren'Py 8 · 2.09 GB".

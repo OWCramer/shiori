@@ -33,6 +33,7 @@ struct MiniDownload: View {
     }
 
     var body: some View {
+        let _ = RenderProbe.hit("MiniDownload")
         HStack(spacing: 10) {
             Button(action: open) {
                 HStack(spacing: 10) {

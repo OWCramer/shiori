@@ -26,12 +26,42 @@ final class PatchInstaller {
         case checking
         case installing(fraction: Double)
         case failed(String)
+
+        var isFailure: Bool { if case .failed = self { true } else { false } }
     }
 
-    struct Job: Equatable {
-        var patchID: String
-        var name: String
-        var phase: Phase
+    /// One patch on its way. Its own observable object, so progress re-evaluates only the
+    /// views showing it: `jobs` changes when a job starts or ends, `phase` with progress
+    /// (published at most ten times a second, when the bar or bytes would move: downloads
+    /// report every network chunk, often 100+ times a second), `isFailure` once.
+    @MainActor @Observable
+    final class Job {
+        let patchID: String
+        let name: String
+        private(set) var phase: Phase
+        private(set) var isFailure = false
+        @ObservationIgnored private var gate = ProgressGate()
+
+        init(patchID: String, name: String, phase: Phase) {
+            self.patchID = patchID
+            self.name = name
+            self.phase = phase
+        }
+
+        func update(_ new: Phase) {
+            switch (phase, new) {
+            case let (.downloading(_, _, oldPart, _), .downloading(written, total, part, _)) where oldPart == part:
+                // Unknown size: a step per megabyte.
+                let fraction = total > 0 ? Double(written) / Double(total) : Double(written) / 1_000_000_000
+                guard gate.admit(fraction, force: total > 0 && written >= total) else { return }
+            case let (.installing, .installing(fraction)):
+                guard gate.admit(fraction, force: fraction >= 1) else { return }
+            default:
+                gate = ProgressGate()
+            }
+            if new != phase { phase = new }
+            if new.isFailure != isFailure { isFailure = new.isFailure }
+        }
     }
 
     /// Jobs by app id.
@@ -91,19 +121,39 @@ final class PatchInstaller {
             } catch is CancellationError {
                 self?.jobs[appID] = nil
             } catch {
-                self?.jobs[appID]?.phase = .failed(error.localizedDescription)
+                self?.jobs[appID]?.update(.failed(error.localizedDescription))
             }
             self?.tasks[appID] = nil
             self?.load(appID: appID, gameFolder: gameFolder)
         }
     }
 
+    #if DEBUG
+    /// A patch download for show (`-ShioriFakePatch`): progress reported as URLSession hands
+    /// over data (a 64 KB chunk every 10 ms, a 300 MB file), with nothing fetched or written.
+    func startFakeJob(appID: UInt32, patchID: String) {
+        guard tasks[appID] == nil else { return }
+        let total: Int64 = 300_000_000
+        jobs[appID] = Job(patchID: patchID, name: "Fake patch", phase: .downloading(written: 0, total: total, part: 1, parts: 1))
+        tasks[appID] = Task { [weak self] in
+            var written: Int64 = 0
+            while !Task.isCancelled, written < total {
+                try? await Task.sleep(for: .milliseconds(10))
+                written = min(total, written + 65_536)
+                self?.jobs[appID]?.update(.downloading(written: written, total: total, part: 1, parts: 1))
+            }
+            self?.jobs[appID] = nil
+            self?.tasks[appID] = nil
+        }
+    }
+    #endif
+
     func cancel(appID: UInt32) {
         tasks[appID]?.cancel()
     }
 
     func dismissFailure(appID: UInt32) {
-        if case .failed = jobs[appID]?.phase { jobs[appID] = nil }
+        if jobs[appID]?.isFailure == true { jobs[appID] = nil }
     }
 
     /// Deletes the files this patch wrote (those no later patch replaced) and its record.
@@ -148,7 +198,7 @@ final class PatchInstaller {
             let partial = Self.downloads.appendingPathComponent("\(appID)-\(patch.id)-\(n).part")
             let result = try await downloadFile(file, to: partial, appID: appID, part: n + 1, parts: patch.files.count, chosenFile: chosenFile)
             try Task.checkCancellation()
-            jobs[appID]?.phase = .checking
+            jobs[appID]?.update(.checking)
             if let expected = file.sha256, expected != result.sha256 {
                 try? fm.removeItem(at: partial)
                 throw Failure.hashMismatch(result.name)
@@ -157,10 +207,10 @@ final class PatchInstaller {
         }
 
         let shopFile = chosenFile.flatMap { $0.isEmpty ? nil : $0 } ?? (patch.files.first?.host == "store" ? downloaded.first?.name : nil)
-        jobs[appID]?.phase = .installing(fraction: 0)
+        jobs[appID]?.update(.installing(fraction: 0))
         let install = patch.install
         let progress: @Sendable (Double) -> Void = { fraction in
-            Task { @MainActor [weak self] in self?.jobs[appID]?.phase = .installing(fraction: fraction) }
+            Task { @MainActor [weak self] in self?.jobs[appID]?.update(.installing(fraction: fraction)) }
         }
         let parts = downloaded
         let written = try await Task.detached(priority: .userInitiated) {
@@ -190,7 +240,7 @@ final class PatchInstaller {
                 throw DenpasoftAccount.Failure.notInAccount
             }
             let saved = try await account.fetch(item, to: partial) { [weak self] written, total in
-                self?.jobs[appID]?.phase = .downloading(written: written, total: total, part: part, parts: parts)
+                self?.jobs[appID]?.update(.downloading(written: written, total: total, part: part, parts: parts))
             }
             let size = ((try? FileManager.default.attributesOfItem(atPath: saved.path)[.size]) as? Int64) ?? 0
             let hash = try await Task.detached { try PatchDownloader.sha256(of: saved) }.value
@@ -205,7 +255,7 @@ final class PatchInstaller {
             guard let url = URL(string: link) else { continue }
             let downloader = PatchDownloader(destination: partial) { written, total in
                 Task { @MainActor [weak self] in
-                    self?.jobs[appID]?.phase = .downloading(written: written, total: total > 0 ? total : (file.size ?? 0), part: part, parts: parts)
+                    self?.jobs[appID]?.update(.downloading(written: written, total: total > 0 ? total : (file.size ?? 0), part: part, parts: parts))
                 }
             }
             do {

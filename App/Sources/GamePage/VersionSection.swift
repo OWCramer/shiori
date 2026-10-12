@@ -15,7 +15,7 @@ struct VersionSection: View {
 
     private var appID: UInt32 { game.appID }
     private var record: GameRecord? {
-        if case let .installed(record) = games.status(for: appID) { record } else { nil }
+        games.record(for: appID)
     }
 
     /// The engine: the downloaded game's, else what Steam's manifests say.

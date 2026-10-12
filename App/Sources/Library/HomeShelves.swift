@@ -24,7 +24,7 @@ struct HomeShelves {
          engineScans: EngineScanStore, history: PlayHistory) {
         var installed: [(game: LibraryGame, record: GameRecord)] = []
         for game in library {
-            if case let .installed(record) = games.status(for: game.appID) { installed.append((game, record)) }
+            if let record = games.record(for: game.appID) { installed.append((game, record)) }
         }
 
         // Games removed from Continue Playing stay off it (and off the hero) until played again.
@@ -57,7 +57,7 @@ struct HomeShelves {
 
         visualNovels = library.filter { curation.isVisualNovel($0) }
         playsInShiori = visualNovels.filter { game in
-            guard games.status(for: game.appID) == .notInstalled,
+            guard !games.isOnDevice(game.appID),
                   let scan = engineScans.result(for: game.appID), scan.error == nil else { return false }
             return Playability(scan.engine, appID: game.appID) == .playable || scan.playableBranch != nil
         }

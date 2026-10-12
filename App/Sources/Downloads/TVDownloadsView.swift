@@ -85,7 +85,7 @@ private struct PatchJobRow: View {
                 }
             }
             Spacer()
-            if case .failed = job.phase {
+            if job.isFailure {
                 Button("Dismiss", systemImage: "xmark.circle") { patches.dismissFailure(appID: game.appID) }
                     .labelStyle(.iconOnly)
             } else {

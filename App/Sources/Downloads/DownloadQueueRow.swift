@@ -36,6 +36,7 @@ struct DownloadQueueRow: View {
     private var isFailed: Bool { if case .failed = status { true } else { false } }
 
     var body: some View {
+        let _ = RenderProbe.hit("DownloadQueueRow")
         GamePageRow {
             HStack(spacing: 12) {
                 GameLink(game: game) {

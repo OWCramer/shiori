@@ -34,7 +34,7 @@ struct CollectionGamePicker: View {
         let query = search.trimmingCharacters(in: .whitespaces)
         return steam.library.filter { game in
             if !query.isEmpty { return game.name.localizedStandardContains(query) }
-            return initial.contains(game.appID) || curation.isVisualNovel(game) || library.status(for: game.appID) != .notInstalled
+            return initial.contains(game.appID) || curation.isVisualNovel(game) || library.isOnDevice(game.appID)
         }
     }
 

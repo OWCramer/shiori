@@ -12,7 +12,7 @@ struct PatchDropTarget: ViewModifier {
     @State private var asking = false
 
     private var isInstalled: Bool {
-        if case .installed = games.status(for: game.appID) { true } else { false }
+        games.stage(for: game.appID) == .installed
     }
 
     func body(content: Content) -> some View {

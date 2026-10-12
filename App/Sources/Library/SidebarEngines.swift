@@ -24,7 +24,7 @@ struct SidebarEngines: Equatable {
          engineScans: EngineScanStore, compatibility: CompatibilityStore) {
         var counts: [String: Int] = [:]
         var notPlayable = 0
-        for game in library where curation.isVisualNovel(game) || games.status(for: game.appID) != .notInstalled {
+        for game in library where curation.isVisualNovel(game) || games.isOnDevice(game.appID) {
             let traits = GameTraits(game, games: games, engineScans: engineScans, compatibility: compatibility)
             switch traits.plays {
             case .yes: if let engine = traits.engine { counts[engine, default: 0] += 1 }

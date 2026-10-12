@@ -41,12 +41,12 @@ struct LibraryGridScreen: View {
         // Recently Played is always newest first.
         let order = section == .recentlyPlayed ? .recent : sort
         return order.sorted(inSection, lastActivity: { history.lastActivity($0)?.date }, size: size(of:)).map { game in
-            LibraryEntry(game: game, traits: traits(game), isDownloaded: games.status(for: game.appID) != .notInstalled)
+            LibraryEntry(game: game, traits: traits(game), isDownloaded: games.isOnDevice(game.appID))
         }
     }
 
     private func size(of game: LibraryGame) -> UInt64 {
-        if case let .installed(record) = games.status(for: game.appID) { return record.sizeBytes }
+        if let record = games.record(for: game.appID) { return record.sizeBytes }
         return game.estimatedSize ?? 0
     }
 
@@ -61,6 +61,7 @@ struct LibraryGridScreen: View {
     private var offersGrouping: Bool { section == .visualNovels || section == .installed }
 
     var body: some View {
+        let _ = RenderProbe.hit("LibraryGridScreen")
         let entries = entries
         let shown = entries.filter { filters.admits($0.traits, isDownloaded: $0.isDownloaded) }.map(\.game)
         let items = offersGrouping && grouped ? LibraryGridItem.grouping(shown, collections: collections) : shown.map(LibraryGridItem.game)

@@ -11,7 +11,7 @@ struct SettingsStorageSection: View {
     static let coloured = 6
 
     private var installed: [GameRecord] {
-        games.statuses.values.compactMap { if case let .installed(record) = $0 { record } else { nil } }
+        games.installedRecords.values
             .sorted { $0.sizeBytes > $1.sizeBytes }
     }
 

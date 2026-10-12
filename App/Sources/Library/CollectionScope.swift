@@ -12,7 +12,7 @@ enum CollectionScope: Hashable {
     @MainActor
     func admits(_ appID: UInt32, library: GameLibrary) -> Bool {
         switch self {
-        case .downloaded: library.status(for: appID) != .notInstalled
+        case .downloaded: library.isOnDevice(appID)
         case let .games(games): games.contains(appID)
         }
     }

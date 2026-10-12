@@ -10,12 +10,12 @@ struct GamePageActionRow: View {
     @Environment(SteamModel.self) private var steam
 
     private var isInstalled: Bool {
-        if case .installed = games.status(for: game.appID) { true } else { false }
+        games.stage(for: game.appID) == .installed
     }
 
     /// Whether the main action needs Steam (download, resume) while it can't be reached.
     private var showsOfflineNote: Bool {
-        switch games.status(for: game.appID) {
+        switch games.stage(for: game.appID) {
         case .notInstalled, .paused, .failed: steam.offlineReason != nil
         default: false
         }
