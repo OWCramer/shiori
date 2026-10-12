@@ -7,4 +7,5 @@ DerivedData/
 Vendor/
 build/
 Scripts/kirikiri/harness/harness
+Scripts/kirikiri/harness/libshiorieval.dylib
 .claude/worktrees/
