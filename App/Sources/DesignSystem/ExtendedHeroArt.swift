@@ -1,17 +1,17 @@
 #if os(iOS)
 import SwiftUI
 
-/// Home's lead artwork, as the TV app's show pages have it: the banner clean at the top
-/// (the game page's crop), and below it the art extended downward, mirrored and blurred
+/// A game's banner as the TV app's show pages have it (Home's lead game and the game page):
+/// clean at the top, and below it the art extended downward, mirrored and blurred
 /// (`backgroundExtensionEffect`), into a soft region that holds the line on the game and
 /// its actions (the logo stays on the banner).
-struct HomeHeroArt: View {
+struct ExtendedHeroArt: View {
     let game: LibraryGame
     /// Height of the banner itself (the game page's).
     let bannerHeight: CGFloat
     /// Height of the extended region under it.
     let extensionHeight: CGFloat
-    /// How far Home is pulled past its top.
+    /// How far the page is pulled past its top.
     var overscroll: CGFloat = 0
 
     var body: some View {

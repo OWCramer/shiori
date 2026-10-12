@@ -81,11 +81,9 @@ extension View {
     }
 }
 
-/// Key art with the game's logo and a metadata line centred over it, ramping into the
-/// page background.
-struct GameHeroHeader: View {
-    /// The banner's height on game pages, which Home's lead game shares so both crop the
-    /// art the same way.
+/// The banner's measurements, shared by Home's lead game and the game page so both crop the
+/// art the same way (`ExtendedHeroArt`).
+enum GameHeroHeader {
     static let standardHeight: CGFloat = 400
 
     /// The banner's height in a screen this tall: the standard 400 points, shorter on short
@@ -93,48 +91,6 @@ struct GameHeroHeader: View {
     static func height(forViewport viewport: CGFloat) -> CGFloat {
         guard viewport > 0, viewport < 600 else { return standardHeight }
         return max(200, min(standardHeight, (viewport * 0.55).rounded()))
-    }
-
-    var game: LibraryGame
-    var subtitle: String
-    var height: CGFloat = Self.standardHeight
-    var overscroll: CGFloat = 0
-
-    var body: some View {
-        StretchyHeader(height: height, overscroll: overscroll) {
-            HeroArtwork(game: game)
-        }
-        .overlay(alignment: .bottom) {
-            // A tall, gentle ramp; a short steep fade reads as a blurred band.
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black.opacity(0.45), location: 0.55),
-                    .init(color: .black, location: 1),
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
-            .frame(height: 240)
-            .allowsHitTesting(false)
-        }
-        .overlay(alignment: .bottom) { titleTreatment }
-    }
-
-    private var titleTreatment: some View {
-        VStack(spacing: 10) {
-            // Sized to the logo's own shape, as on Home, so the line under it stays close.
-            GameLogo(game: game, maxWidth: 300, maxHeight: 110)
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.85))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-            }
-        }
-        .shadow(color: .black.opacity(0.6), radius: 6)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 18)
     }
 }
 

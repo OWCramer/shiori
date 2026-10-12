@@ -2,8 +2,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The page for one game (design A, Phase 18). The top is Tana's: the stretchy banner with
-/// the logo and a line on what the game is, then Play and its actions on glass. Below, on
+/// The page for one game (design A, Phase 18). The top is Home's: the stretchy banner with
+/// the logo, and the art extended below it behind a line on the game and Play's row. Below, on
 /// plain grouped surfaces, what a player needs in the order they need it: anything stopping
 /// play, the saves, patches and DLC, compatibility, then the version, engine and files. On a
 /// wide window (an iPad in landscape) those last two go in a second column beside the rest.
@@ -63,12 +63,13 @@ struct GameDetailView: View {
     var body: some View {
         let margin = sizeClass == .regular ? GamePageMetrics.wideMargin : GamePageMetrics.margin
         ScrollView {
-            VStack(spacing: 22) {
-                GameHeroHeader(game: game, subtitle: metaLine, height: bannerHeight, overscroll: overscroll)
+            VStack(spacing: 8) {
+                GamePageHero(game: game, model: model, metaLine: metaLine, bannerHeight: bannerHeight, overscroll: overscroll,
+                             contentWidth: twoColumns ? GamePageMetrics.wideContentWidth : GamePageMetrics.readableWidth,
+                             margin: margin, wide: twoColumns)
                 if twoColumns {
                     HStack(alignment: .top, spacing: GamePageMetrics.sectionSpacing) {
                         VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
-                            GamePageActionRow(game: game, model: model)
                             GamePagePlaySections(game: game, record: record, model: model)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -81,7 +82,6 @@ struct GameDetailView: View {
                     .padding(.horizontal, margin)
                 } else {
                     VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
-                        GamePageActionRow(game: game, model: model)
                         GamePagePlaySections(game: game, record: record, model: model)
                         GamePageDetailSections(game: game, record: record, model: model)
                     }

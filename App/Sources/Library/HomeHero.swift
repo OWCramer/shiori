@@ -41,7 +41,7 @@ struct HomeHero: View {
         let wide = sizeClass == .regular
         let alignment: HorizontalAlignment = wide ? .leading : .center
         GameLink(game: game) {
-            HomeHeroArt(game: game, bannerHeight: bannerHeight,
+            ExtendedHeroArt(game: game, bannerHeight: bannerHeight,
                         extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
         }
         .buttonStyle(NoPressButtonStyle())
