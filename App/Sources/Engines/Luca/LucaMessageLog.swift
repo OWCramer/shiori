@@ -156,6 +156,13 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
         label.layer.shadowOffset = .zero
     }
 
+    /// Scrolls by `lines` (keys, the pad): negative is back towards older lines.
+    func scroll(lines: Int) {
+        let end = max(0, scroll.contentSize.height - scroll.bounds.height)
+        let y = min(end, max(0, scroll.contentOffset.y + CGFloat(lines) * 160))
+        scroll.setContentOffset(CGPoint(x: 0, y: y), animated: true)
+    }
+
     private func moveThumb() {
         let range = scroll.contentSize.height - scroll.bounds.height
         let t = range > 0 ? min(1, max(0, scroll.contentOffset.y / range)) : 1
@@ -192,7 +199,7 @@ final class LucaMessageLog: UIView, UIScrollViewDelegate, UIGestureRecognizerDel
         onReturn?(index)
     }
 
-    @objc private func close() {
+    @objc func close() {
         guard !closing else { return }
         closing = true
         onClose()

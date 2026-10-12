@@ -218,7 +218,7 @@ final class LucaOptionsScreen: UIView, UIGestureRecognizerDelegate {
         stage.layer.position = CGPoint(x: (bounds.width - 1920 * scale) / 2, y: (bounds.height - 1080 * scale) / 2)
     }
 
-    @objc private func close() {
+    @objc func close() {
         onSound("TOGGLE")
         onClose()
     }

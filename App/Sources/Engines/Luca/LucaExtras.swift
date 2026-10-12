@@ -298,7 +298,7 @@ final class LucaPictureViewer: UIViewController {
         }
     }
 
-    @objc private func showNext() {
+    @objc func showNext() {
         index += 1
         if index >= names.count { dismiss(animated: true) } else { show() }
     }

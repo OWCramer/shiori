@@ -112,17 +112,17 @@ final class LucaSaveScreen: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    @objc private func nextPage() {
+    @objc func nextPage() {
         page = page % Self.pages + 1
         showPage()
     }
 
-    @objc private func previousPage() {
+    @objc func previousPage() {
         page = page == 1 ? Self.pages : min(page - 1, Self.pages)
         showPage()
     }
 
-    @objc private func closeScreen() { onPick(nil) }
+    @objc func closeScreen() { onPick(nil) }
 
     private var slotsOnPage: [Int] {
         switch page {

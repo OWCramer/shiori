@@ -70,17 +70,17 @@ final class LucaManualViewController: UIViewController {
         if recognizer.location(in: view).x < view.bounds.midX { previousPage() } else { nextPage() }
     }
 
-    @objc private func nextPage() {
+    @objc func nextPage() {
         if index + 1 >= pages.count { closeManual(); return }
         index += 1
         show()
     }
 
-    @objc private func previousPage() {
+    @objc func previousPage() {
         guard index > 0 else { return }
         index -= 1
         show()
     }
 
-    @objc private func closeManual() { dismiss(animated: true) }
+    @objc func closeManual() { dismiss(animated: true) }
 }

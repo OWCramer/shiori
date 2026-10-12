@@ -85,7 +85,7 @@ final class LucaSystemMenu: UIView, UIGestureRecognizerDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func close() { onPick(nil) }
+    @objc func close() { onPick(nil) }
 
     override func layoutSubviews() {
         super.layoutSubviews()

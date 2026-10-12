@@ -1,3 +1,4 @@
+import GameController
 import LucaKit
 import Metal
 import SwiftUI
@@ -205,6 +206,26 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         for gesture in [flick, history, skip, back, hold] as [UIGestureRecognizer] { gesture.fingersOnly() }
         view.addSecondaryClick(target: self, action: #selector(showMenu))
         view.addScroll(target: self, action: #selector(scrolled(_:)))
+        // The shared two-finger swipes (spec, Touch): right skips, up toggles auto, down the
+        // Message Log, as in every engine.
+        view.addSwipe(.right, fingers: 2, target: self, action: #selector(flickedRight))
+        view.addSwipe(.up, fingers: 2, target: self, action: #selector(swipedAuto))
+        view.addSwipe(.down, fingers: 2, target: self, action: #selector(showBacklog))
+        // The pointer lights up the button under it (on every screen) and draws the game's
+        // cursor; the pad and the keys move a focus between them.
+        view.addHover(target: self, action: #selector(hovered(_:)))
+        let pointer = UIPointerInteraction(delegate: self)
+        view.addInteraction(pointer)
+        pointerInteraction = pointer
+        cursorLayer.isHidden = true
+        cursorLayer.zPosition = 1000
+        cursorLayer.contentsGravity = .resize
+        view.layer.addSublayer(cursorLayer)
+        loadCursor()
+        ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
+        #if DEBUG
+        scheduleDebugInput()
+        #endif
         #endif
 
         do {
@@ -270,18 +291,243 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     #if os(iOS)
     override var canBecomeFirstResponder: Bool { true }
 
-    /// Escape opens the menu (as the PC's right-click does); Enter and Space read on.
+    /// The PC's keys: Enter and Space read on (or press the button the arrows picked), the
+    /// arrows move between a screen's buttons and choices (left and right turn a slider, up
+    /// and down scroll the Message Log), Ctrl held skips, Escape backs out of a screen or
+    /// opens the menu, Page Up the Message Log.
+    private static let gameKeys: Set<UIKeyboardHIDUsage> = [
+        .keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar,
+        .keyboardUpArrow, .keyboardDownArrow, .keyboardLeftArrow, .keyboardRightArrow,
+        .keyboardLeftControl, .keyboardRightControl, .keyboardPageUp, .keyboardPageDown,
+    ]
+
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let (keys, rest) = presses.splitKeys { [.keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar].contains($0) }
-        for key in keys {
-            if key == .keyboardEscape { showMenu() } else { tapped() }
-        }
+        let (keys, rest) = presses.splitKeys { Self.gameKeys.contains($0) }
+        for key in keys { keyDown(key) }
         if !rest.isEmpty { super.pressesBegan(rest, with: event) }
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let (_, rest) = presses.splitKeys { [.keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar].contains($0) }
+        let (keys, rest) = presses.splitKeys { Self.gameKeys.contains($0) }
+        for key in keys where key == .keyboardLeftControl || key == .keyboardRightControl { holdSkip(false) }
         if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        pressesEnded(presses, with: event)
+    }
+
+    private func keyDown(_ key: UIKeyboardHIDUsage) {
+        guard !alertShown else { return }
+        switch key {
+        case .keyboardEscape: back()
+        case .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar: confirm()
+        case .keyboardUpArrow: arrow(dx: 0, dy: -1)
+        case .keyboardDownArrow: arrow(dx: 0, dy: 1)
+        case .keyboardLeftArrow: arrow(dx: -1, dy: 0)
+        case .keyboardRightArrow: arrow(dx: 1, dy: 0)
+        case .keyboardLeftControl, .keyboardRightControl: holdSkip(true)
+        case .keyboardPageUp: if messageLog == nil { showBacklog() }
+        case .keyboardPageDown: messageLog?.close()
+        default: break
+        }
+    }
+
+    // MARK: Focus (keys and pad)
+
+    private let controlFocus = ControlFocus()
+
+    /// The page over the game (Chapter, Extras, the Manual, a picture), not an alert.
+    private var topPage: UIViewController? {
+        var page = presentedViewController
+        while let next = page?.presentedViewController { page = next }
+        return page is UIAlertController ? nil : page
+    }
+
+    private var alertShown: Bool {
+        var page = presentedViewController
+        while let next = page?.presentedViewController { page = next }
+        return page is UIAlertController
+    }
+
+    /// Where the keys and the d-pad move: the screen on top, else the choices, else the
+    /// window's shortcut column.
+    private var focusRoot: UIView? {
+        if let page = topPage { return page.view }
+        if let screen = messageLog ?? optionsScreen ?? saveScreen ?? systemMenu ?? titleView { return screen }
+        if let choiceStack { return choiceStack }
+        if let windowBar, !windowBar.isHidden, windowBar.alpha > 0.01 { return windowBar }
+        return nil
+    }
+
+    /// Enter, Space or A: the focused button, else what a tap does.
+    private func confirm() {
+        if controlFocus.activate() { return }
+        switch topPage {
+        case let viewer as LucaPictureViewer: viewer.showNext()
+        case let manual as LucaManualViewController: manual.nextPage()
+        case .some: break
+        case nil: tapped()
+        }
+    }
+
+    /// Escape or B: backs out of the screen on top; in the story, the menu.
+    private func back() {
+        controlFocus.clear()
+        if let page = topPage {
+            if let extras = page as? LucaExtrasPage { extras.closePage() } else if let manual = page as? LucaManualViewController {
+                manual.closeManual()
+            } else {
+                page.dismiss(animated: true)
+            }
+        } else if let messageLog {
+            messageLog.close()
+        } else if let optionsScreen {
+            optionsScreen.close()
+        } else if let saveScreen {
+            saveScreen.closeScreen()
+        } else if let systemMenu {
+            systemMenu.close()
+        } else if titleView == nil {
+            showMenu()
+        }
+    }
+
+    private func arrow(dx: Int, dy: Int) {
+        if let messageLog, dy != 0 {
+            messageLog.scroll(lines: dy * 2)
+            return
+        }
+        if let slider = controlFocus.focused as? LucaOptionSlider, dx != 0, slider.window != nil {
+            slider.value = min(1, max(0, slider.value + Double(dx) * 0.05))
+            slider.sendActions(for: .valueChanged)
+            return
+        }
+        if let root = focusRoot, controlFocus.move(dx: dx, dy: dy, in: root) { return }
+        // Past the last slot, the next page of saves.
+        if let saveScreen, dx != 0 {
+            if dx > 0 { saveScreen.nextPage() } else { saveScreen.previousPage() }
+            controlFocus.clear()
+        } else if let manual = topPage as? LucaManualViewController, dx != 0 {
+            if dx > 0 { manual.nextPage() } else { manual.previousPage() }
+        }
+    }
+
+    /// Ctrl, RB or RT held: Skip (as the CONFIG sets it) until let go.
+    private func holdSkip(_ on: Bool) {
+        if on {
+            guard inStory, readMode != .skip else { return }
+            readMode = .skip
+            linesSkipped = 0
+            heldSkip = true
+        } else if heldSkip {
+            heldSkip = false
+            if readMode == .skip { readMode = .normal }
+        }
+    }
+
+    private var heldSkip = false
+
+    /// Reading the story, with no screen over it.
+    private var inStory: Bool {
+        titleView == nil && presentedViewController == nil && systemMenu == nil && saveScreen == nil
+            && optionsScreen == nil && messageLog == nil && player != nil
+    }
+
+    // MARK: Controller
+
+    private var padReader = GamePadReader()
+    private weak var leaveAlert: UIAlertController?
+
+    /// A: read on or press, B: back out (in the story, the menu), d-pad: move between buttons
+    /// and choices, Y or LB: the Message Log, RB or RT held: skip, X: auto, Menu: OPTIONS,
+    /// Options: leave (on that question A leaves, B stays).
+    private func pad(_ pad: GCExtendedGamepad) {
+        if let alert = leaveAlert, presentedViewController === alert {
+            for (button, down) in padReader.read(pad) where down {
+                if button == .a { alert.dismiss(animated: true) { [weak self] in self?.leave() } }
+                if button == .b { alert.dismiss(animated: true) }
+            }
+            return
+        }
+        guard !alertShown, !leaving else {
+            padReader.absorb(pad)
+            return
+        }
+        for (button, down) in padReader.read(pad) { padButton(button, down: down) }
+    }
+
+    private func padButton(_ button: GamePadReader.Button, down: Bool) {
+        if button == .rb { holdSkip(down) }
+        guard down else { return }
+        pointerHovering = false
+        switch button {
+        case .up: arrow(dx: 0, dy: -1)
+        case .down: arrow(dx: 0, dy: 1)
+        case .left: arrow(dx: -1, dy: 0)
+        case .right: arrow(dx: 1, dy: 0)
+        case .a: confirm()
+        case .b: back()
+        case .x: if inStory, player?.choices == nil { windowBarPicked(.auto) }
+        case .y, .lb: if let messageLog { messageLog.close() } else { showBacklog() }
+        case .menu: if topPage == nil { presentOptions() }
+        case .options: presentLeaveQuestion()
+        case .rb: break
+        }
+    }
+
+    // MARK: Pointer
+
+    /// A trackpad or mouse is in use (since the last finger): the game's cursor
+    /// (`SummerPockets.cur` in REFLECTION BLUE's `files/`) draws at it in place of the
+    /// iPad's, and the button under it lights up.
+    private var pointerHovering = false {
+        didSet {
+            guard pointerHovering != oldValue else { return }
+            pointerInteraction?.invalidate()
+            if !pointerHovering { cursorLayer.isHidden = true }
+        }
+    }
+    private var pointerInteraction: UIPointerInteraction?
+    private let cursorLayer = CALayer()
+    private var gameCursor: CatSystemCursor?
+
+    /// The game's own cursor, a Windows `.cur` beside its archives (patch first).
+    private func loadCursor() {
+        let fm = FileManager.default
+        for root in ["patch", "base"] {
+            let files = gameFolder.appendingPathComponent(root).appendingPathComponent("files", isDirectory: true)
+            guard let names = try? fm.contentsOfDirectory(atPath: files.path) else { continue }
+            for name in names.sorted() where name.lowercased().hasSuffix(".cur") {
+                if let cursor = CatSystemCursor(url: files.appendingPathComponent(name)) {
+                    gameCursor = cursor
+                    cursorLayer.contents = cursor.image
+                    NSLog("Luca: the game's cursor %@", name)
+                    return
+                }
+            }
+        }
+    }
+
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        let point = recognizer.location(in: view)
+        let over = recognizer.state == .began || recognizer.state == .changed
+        if over { pointerHovering = true }
+        let root = focusRoot
+        controlFocus.hover(at: over && root != nil ? view.convert(point, to: root) : nil, in: root)
+        guard over, let cursor = gameCursor, topPage == nil else {
+            cursorLayer.isHidden = true
+            return
+        }
+        // At the game's scale (the art is drawn for its 1920-wide screen).
+        let scale = max(0.5, stageScale)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cursorLayer.frame = CGRect(x: point.x - cursor.hotspot.x * scale, y: point.y - cursor.hotspot.y * scale,
+                                   width: cursor.size.width * scale, height: cursor.size.height * scale)
+        cursorLayer.isHidden = false
+        view.layer.addSublayer(cursorLayer)
+        CATransaction.commit()
     }
     #endif
 
@@ -899,6 +1145,9 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     /// Taps on the choice banners (and other controls) go to them, not to reading on.
     func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        #if os(iOS)
+        if !touch.isPointer { pointerHovering = false }
+        #endif
         var view = touch.view
         while let current = view {
             if current is UIControl { return false }
@@ -1029,10 +1278,21 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     @objc private func askToLeave(_ recognizer: UILongPressGestureRecognizer) {
-        guard recognizer.state == .began, presentedViewController == nil else { return }
-        let alert = UIAlertController(title: "Leave the game?", message: "Your place is kept for Continue.", preferredStyle: .alert)
+        guard recognizer.state == .began else { return }
+        presentLeaveQuestion()
+    }
+
+    private func presentLeaveQuestion() {
+        guard presentedViewController == nil else { return }
+        let message = GCController.current?.extendedGamepad != nil
+            ? "Your place is kept for Continue. Ⓐ Leave, Ⓑ Keep Playing."
+            : "Your place is kept for Continue."
+        let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
+        #if os(iOS)
+        leaveAlert = alert
+        #endif
         present(alert, animated: true)
     }
 
@@ -1044,6 +1304,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         displayLink = nil
         audio.stopAll()
         #if os(iOS)
+        ControllerInput.gameReceiver = nil
         OrientationLock.set(.all, in: view.window?.windowScene)
         #endif
         onExit()
@@ -1280,6 +1541,13 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         windowBarPicked(.skip)
     }
 
+    /// Two fingers swiped up: Auto on or off.
+    @objc private func swipedAuto() {
+        guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil, messageLog == nil,
+              player?.choices == nil else { return }
+        windowBarPicked(.auto)
+    }
+
     /// Manual page 10: a flick left goes back a line.
     @objc private func flickedLeft() {
         guard titleView == nil, presentedViewController == nil, systemMenu == nil, saveScreen == nil, optionsScreen == nil,
@@ -1353,6 +1621,54 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         game?.imageID(named: name).flatMap { game?.image($0) }.flatMap(Self.cgImage)
     }
 }
+
+#if os(iOS)
+extension LucaGameViewController: UIPointerInteractionDelegate {
+    /// The iPad pointer hides while the game's own cursor draws in its place.
+    func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        guard pointerHovering, gameCursor != nil, topPage == nil else { return nil }
+        return .hidden()
+    }
+}
+
+#if DEBUG
+extension LucaGameViewController {
+    /// `-ShioriLucaInput "8:pad-down;9:key-enter;20:pad-rb"`: keys (`key-up`, `key-down`,
+    /// `key-left`, `key-right`, `key-enter`, `key-escape`, `key-ctrl`, `key-pageup`) and pad
+    /// buttons (`pad-a`, `pad-b`, `pad-x`, `pad-y`, `pad-menu`, `pad-options`, `pad-rb` held
+    /// for two seconds, `pad-up` …) at seconds from launch, to check them in the simulator.
+    fileprivate func scheduleDebugInput() {
+        let keys: [String: UIKeyboardHIDUsage] = [
+            "key-up": .keyboardUpArrow, "key-down": .keyboardDownArrow, "key-left": .keyboardLeftArrow,
+            "key-right": .keyboardRightArrow, "key-enter": .keyboardReturnOrEnter, "key-escape": .keyboardEscape,
+            "key-ctrl": .keyboardLeftControl, "key-pageup": .keyboardPageUp,
+        ]
+        let pads: [String: GamePadReader.Button] = [
+            "pad-up": .up, "pad-down": .down, "pad-left": .left, "pad-right": .right, "pad-a": .a, "pad-b": .b,
+            "pad-x": .x, "pad-y": .y, "pad-lb": .lb, "pad-rb": .rb, "pad-menu": .menu, "pad-options": .options,
+        ]
+        for step in (UserDefaults.standard.string(forKey: "ShioriLucaInput") ?? "").split(separator: ";") {
+            let parts = step.split(separator: ":")
+            guard parts.count == 2, let delay = Double(parts[0]) else { continue }
+            let name = String(parts[1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                NSLog("Luca: debug input %@", name)
+                if let key = keys[name] {
+                    self.keyDown(key)
+                    if key == .keyboardLeftControl {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.holdSkip(false) }
+                    }
+                } else if let button = pads[name] {
+                    self.padButton(button, down: true)
+                    if button == .rb { DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.padButton(.rb, down: false) } }
+                }
+            }
+        }
+    }
+}
+#endif
+#endif
 
 /// A choice drawn as the game's banner: blue, gold while pressed, the text centred on it.
 private final class LucaChoiceBanner: UIControl {
