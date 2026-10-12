@@ -2,12 +2,13 @@
 import SwiftUI
 
 /// How far a patch job has got: bytes downloaded, checking, installing, or its error.
+/// The only part of a patch row that reads the job's phase, so progress re-evaluates it alone.
 struct PatchJobProgress: View {
-    let phase: PatchInstaller.Phase
+    let job: PatchInstaller.Job
 
     var body: some View {
         let _ = RenderProbe.hit("PatchJobProgress")
-        switch phase {
+        switch job.phase {
         case let .downloading(written, total, part, parts):
             if total > 0 {
                 GlassProgressBar(fraction: Double(written) / Double(max(total, written)), tint: .pink)

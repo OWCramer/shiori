@@ -23,7 +23,7 @@ struct GameTraits: Equatable {
     init(_ game: LibraryGame, games: GameLibrary, engineScans: EngineScanStore, compatibility: CompatibilityStore) {
         let appID = game.appID
         self.compatibility = compatibility.entry(for: appID)?.entry.status
-        if case let .installed(record) = games.status(for: appID) {
+        if let record = games.record(for: appID) {
             // Downloaded: whether it starts here (a Ren'Py version this build lacks, an
             // engine not built for this device, …), as the Play button says.
             // When only another Steam version plays, the engine is that version's.

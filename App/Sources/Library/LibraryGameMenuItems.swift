@@ -15,7 +15,7 @@ struct LibraryGameMenuItems: View {
 
     var body: some View {
         let appID = game.appID
-        switch games.status(for: appID) {
+        switch games.stage(for: appID) {
         case .installed:
             if games.playBlocker(appID: appID) == nil {
                 Button("Play", systemImage: "play.fill", action: play)

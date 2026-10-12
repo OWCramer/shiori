@@ -43,7 +43,7 @@ struct PatchListSection: View {
 
     private var patches: [PatchListStore.Patch] { patchList.patches(for: appID) }
     private var hasContent: Bool { !(dlcs ?? []).isEmpty || !patches.isEmpty }
-    private var record: GameRecord? { if case let .installed(record) = games.status(for: appID) { record } else { nil } }
+    private var record: GameRecord? { games.record(for: appID) }
 
     var body: some View {
         let _ = RenderProbe.hit("PatchListSection")
@@ -180,7 +180,7 @@ struct PatchListSection: View {
                 }
             }
             #endif
-            if let job = installer.jobs[appID], job.patchID == patch.id { jobView(job) }
+            if let job = installer.jobs[appID], job.patchID == patch.id { PatchJobLine(job: job, appID: appID) }
             if let notes = patch.notes, !notes.isEmpty {
                 #if os(tvOS)
                 Text(notes).font(.caption).foregroundStyle(.secondary).lineLimit(3)
@@ -196,8 +196,8 @@ struct PatchListSection: View {
     }
 
     @ViewBuilder private func action(_ patch: PatchListStore.Patch) -> some View {
-        let busy = installer.jobs[appID] != nil && installer.jobs[appID]?.phase.isFailure == false
-        if let job = installer.jobs[appID], job.patchID == patch.id, !job.phase.isFailure {
+        let busy = installer.jobs[appID] != nil && installer.jobs[appID]?.isFailure == false
+        if let job = installer.jobs[appID], job.patchID == patch.id, !job.isFailure {
             Button("Cancel") { installer.cancel(appID: appID) }
                 .patchButtonStyle().font(.caption)
         } else if let installed = installedVersion(patch) {
@@ -252,30 +252,6 @@ struct PatchListSection: View {
         } else if let link = externalLink(patch) {
             Button(link.title, systemImage: "arrow.up.right") { openURL(link.url) }
                 .patchButtonStyle().font(.caption)
-        }
-    }
-
-    @ViewBuilder private func jobView(_ job: PatchInstaller.Job) -> some View {
-        switch job.phase {
-        case let .downloading(written, total, part, parts):
-            VStack(alignment: .leading, spacing: 3) {
-                if total > 0 { ProgressView(value: Double(written), total: Double(max(total, written))) } else { ProgressView() }
-                Text("Downloading\(parts > 1 ? " part \(part) of \(parts)" : "") · \(written.formatted(.byteCount(style: .file)))\(total > 0 ? " of \(total.formatted(.byteCount(style: .file)))" : "")")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        case .checking:
-            Text("Checking the download…").font(.caption).foregroundStyle(.secondary)
-        case let .installing(fraction):
-            VStack(alignment: .leading, spacing: 3) {
-                ProgressView(value: fraction)
-                Text("Installing…").font(.caption).foregroundStyle(.secondary)
-            }
-        case let .failed(message):
-            HStack(alignment: .firstTextBaseline) {
-                Label(message, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
-                Spacer()
-                Button("OK") { installer.dismissFailure(appID: appID) }.font(.caption)
-            }
         }
     }
 
@@ -387,6 +363,34 @@ private extension View {
     }
 }
 
-private extension PatchInstaller.Phase {
-    var isFailure: Bool { if case .failed = self { true } else { false } }
+/// A patch job's progress under its row. Only this reads the job's phase, so progress
+/// doesn't re-evaluate the whole patch list.
+private struct PatchJobLine: View {
+    let job: PatchInstaller.Job
+    let appID: UInt32
+    @Environment(PatchInstaller.self) private var installer
+
+    var body: some View {
+        switch job.phase {
+        case let .downloading(written, total, part, parts):
+            VStack(alignment: .leading, spacing: 3) {
+                if total > 0 { ProgressView(value: Double(written), total: Double(max(total, written))) } else { ProgressView() }
+                Text("Downloading\(parts > 1 ? " part \(part) of \(parts)" : "") · \(written.formatted(.byteCount(style: .file)))\(total > 0 ? " of \(total.formatted(.byteCount(style: .file)))" : "")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        case .checking:
+            Text("Checking the download…").font(.caption).foregroundStyle(.secondary)
+        case let .installing(fraction):
+            VStack(alignment: .leading, spacing: 3) {
+                ProgressView(value: fraction)
+                Text("Installing…").font(.caption).foregroundStyle(.secondary)
+            }
+        case let .failed(message):
+            HStack(alignment: .firstTextBaseline) {
+                Label(message, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+                Spacer()
+                Button("OK") { installer.dismissFailure(appID: appID) }.font(.caption)
+            }
+        }
+    }
 }

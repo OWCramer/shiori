@@ -12,12 +12,12 @@ struct ShioriCommands: Commands {
     private var pageGame: LibraryGame? { page?.game }
 
     private var canPlay: Bool {
-        guard let game = pageGame, case .installed = games.status(for: game.appID) else { return false }
+        guard let game = pageGame, games.stage(for: game.appID) == .installed else { return false }
         return games.playBlocker(appID: game.appID) == nil && games.launchPhase(for: game.appID) == nil
     }
 
     private var isInstalled: Bool {
-        guard let game = pageGame, case .installed = games.status(for: game.appID) else { return false }
+        guard let game = pageGame, games.stage(for: game.appID) == .installed else { return false }
         return true
     }
 

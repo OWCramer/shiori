@@ -8,7 +8,7 @@ struct PatchJobRow: View {
     let job: PatchInstaller.Job
     @Environment(PatchInstaller.self) private var patches
 
-    private var isFailed: Bool { if case .failed = job.phase { true } else { false } }
+    private var isFailed: Bool { job.isFailure }
 
     var body: some View {
         GamePageRow {
@@ -20,7 +20,7 @@ struct PatchJobRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(job.name).font(.headline).lineLimit(1)
                     Text(game.name).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                    PatchJobProgress(phase: job.phase)
+                    PatchJobProgress(job: job)
                 }
                 Spacer(minLength: 0)
                 Button(isFailed ? "Dismiss" : "Cancel", systemImage: "xmark.circle.fill", action: stopOrDismiss)

@@ -34,8 +34,8 @@ struct GameDetailView: View {
     private var game: LibraryGame { steam.library.first { $0.appID == opened.appID } ?? opened }
     private var appID: UInt32 { opened.appID }
     private var folder: URL { games.folder(appID: appID, name: game.name) }
-    private var status: GameLibrary.Status { games.status(for: appID) }
-    private var record: GameRecord? { if case let .installed(record) = status { record } else { nil } }
+    private var stage: GameLibrary.Stage { games.stage(for: appID) }
+    private var record: GameRecord? { games.record(for: appID) }
 
     /// "Played yesterday · Ren'Py 8 · 2.09 GB", as on Home; before download, what Steam's
     /// manifests say the game is and weighs.
@@ -139,7 +139,7 @@ struct GameDetailView: View {
         .onAppear(perform: appeared)
         .task(id: steam.isLoggedOn) { await checkGame() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
-        .onChange(of: status) { reloadPatches() }
+        .onChange(of: stage) { reloadPatches() }
     }
 
     private func appeared() {

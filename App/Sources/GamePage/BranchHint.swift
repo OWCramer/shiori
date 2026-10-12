@@ -13,7 +13,7 @@ struct BranchHint: Equatable {
                      compatibility: CompatibilityStore) -> BranchHint? {
         let appID = game.appID
         let current = games.branch(for: appID)
-        if case let .installed(record) = games.status(for: appID) {
+        if let record = games.record(for: appID) {
             // Downloaded, and plays as it is: nothing to suggest.
             if Playability(record.engine) == .playable { return nil }
         } else if current != "public" {

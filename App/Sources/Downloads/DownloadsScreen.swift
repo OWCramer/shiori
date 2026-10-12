@@ -20,7 +20,7 @@ struct DownloadsScreen: View {
         if preview != 0, let game = game(preview) { return game }
         #endif
         guard let appID = games.downloadItems.first else { return nil }
-        switch games.status(for: appID) {
+        switch games.stage(for: appID) {
         case .downloading, .preparing: return game(appID)
         default: return nil
         }
@@ -28,7 +28,7 @@ struct DownloadsScreen: View {
 
     private var canPauseAll: Bool {
         games.downloadItems.contains { appID in
-            switch games.status(for: appID) {
+            switch games.stage(for: appID) {
             case .downloading, .preparing, .queued: true
             default: false
             }
@@ -37,7 +37,7 @@ struct DownloadsScreen: View {
 
     private var canResumeAll: Bool {
         games.downloadItems.contains { appID in
-            switch games.status(for: appID) {
+            switch games.stage(for: appID) {
             case .paused, .failed: true
             default: false
             }
@@ -112,7 +112,7 @@ struct DownloadsScreen: View {
     private func pauseAll() {
         // The queued ones first, so pausing the running one doesn't start the next.
         for appID in games.downloadItems.reversed() {
-            switch games.status(for: appID) {
+            switch games.stage(for: appID) {
             case .downloading, .preparing, .queued: games.pause(appID: appID)
             default: break
             }
@@ -121,7 +121,7 @@ struct DownloadsScreen: View {
 
     private func resumeAll() {
         for appID in games.downloadItems {
-            switch games.status(for: appID) {
+            switch games.stage(for: appID) {
             case .paused, .failed:
                 if let game = game(appID) { games.resume(appID: appID, name: game.name) }
             default: break

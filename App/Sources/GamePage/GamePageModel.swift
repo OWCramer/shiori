@@ -38,7 +38,7 @@ final class GamePageModel {
     /// (the game's files are downloaded again).
     func chooseBranch(_ branch: String, game: LibraryGame, games: GameLibrary) {
         guard branch != games.branch(for: appID) else { return }
-        if games.status(for: appID) == .notInstalled {
+        if !games.isOnDevice(appID) {
             games.setBranch(branch, for: appID, name: game.name)
         } else {
             pendingBranch = branch

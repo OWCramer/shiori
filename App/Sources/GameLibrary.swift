@@ -40,7 +40,53 @@ final class GameLibrary {
         case failed(String, canResume: Bool)
     }
 
-    private(set) var statuses: [UInt32: Status] = [:]
+    /// A status without its progress: what a game is doing, which changes only when it moves
+    /// from one state to the next (not with every progress report).
+    enum Stage: Equatable {
+        case notInstalled, queued, preparing, downloading, paused, verifying, installed, failed
+
+        init(_ status: Status) {
+            switch status {
+            case .notInstalled: self = .notInstalled
+            case .queued: self = .queued
+            case .preparing: self = .preparing
+            case .downloading: self = .downloading
+            case .paused: self = .paused
+            case .verifying: self = .verifying
+            case .installed: self = .installed
+            case .failed: self = .failed
+            }
+        }
+    }
+
+    /// Each game's status in its own observable cell, so a progress report re-evaluates only
+    /// the views showing that game's progress. One dictionary of statuses made every view
+    /// that read any game's status (the shell, Home's shelves, every capsule in the grids)
+    /// re-evaluate with each report, which made scrolling during a download hitch. The
+    /// dictionary itself changes only when a game gets its first status.
+    private var cells: [UInt32: StatusCell] = [:]
+
+    /// The cells as a table of statuses, for the bookkeeping below (nil is not installed).
+    private var statuses: StatusTable { StatusTable(library: self) }
+
+    @MainActor
+    struct StatusTable {
+        let library: GameLibrary
+
+        subscript(appID: UInt32) -> Status? {
+            get { library.cells[appID].flatMap { $0.status == .notInstalled ? nil : $0.status } }
+            nonmutating set { library.setStatus(newValue ?? .notInstalled, for: appID) }
+        }
+    }
+
+    private func setStatus(_ status: Status, for appID: UInt32) {
+        if let cell = cells[appID] {
+            cell.update(status)
+        } else if status != .notInstalled {
+            cells[appID] = StatusCell(status)
+        }
+    }
+
     /// Last verify result per app, for display.
     private(set) var verifyReports: [UInt32: VerifyReport] = [:]
 
@@ -79,14 +125,32 @@ final class GameLibrary {
         scan()
     }
 
-    func status(for appID: UInt32) -> Status { statuses[appID] ?? .notInstalled }
+    /// The game's status with its latest progress. Reading it follows every progress report
+    /// for that game: views that show progress read it, others read `stage(for:)` or
+    /// `record(for:)`.
+    func status(for appID: UInt32) -> Status { cells[appID]?.status ?? .notInstalled }
+
+    /// What the game is doing, without progress: changes only between states.
+    func stage(for appID: UInt32) -> Stage { cells[appID]?.stage ?? .notInstalled }
+
+    /// The installed game's record, without following progress.
+    func record(for appID: UInt32) -> GameRecord? { cells[appID]?.record }
+
+    /// Whether anything of the game is on this device (installed, or a download started).
+    func isOnDevice(_ appID: UInt32) -> Bool { stage(for: appID) != .notInstalled }
+
+    /// Games with something on this device.
+    var onDeviceAppIDs: Set<UInt32> { Set(cells.compactMap { $0.value.stage == .notInstalled ? nil : $0.key }) }
+
+    /// Installed games' records by app id.
+    var installedRecords: [UInt32: GameRecord] { cells.compactMapValues(\.record) }
 
     var isDownloading: Bool { activeDownload != nil }
 
     /// Downloads that are running, queued, paused or failed, for the downloads list.
     var downloadItems: [UInt32] {
-        statuses.compactMap { appID, status in
-            switch status {
+        cells.compactMap { appID, cell in
+            switch cell.stage {
             case .queued, .preparing, .downloading, .paused, .failed: appID
             default: nil
             }
@@ -174,7 +238,7 @@ final class GameLibrary {
     /// The Steam branch of the game's files when it's installed, else the one it downloads
     /// from: "public" unless a beta was picked (on any of the user's devices; SyncedPreferences).
     func branch(for appID: UInt32) -> String {
-        if case let .installed(record) = statuses[appID] { return record.branch ?? "public" }
+        if let record = record(for: appID) { return record.branch ?? "public" }
         return SyncedPreferences.branch(appID: appID) ?? "public"
     }
 
@@ -218,6 +282,8 @@ final class GameLibrary {
         let folder = folder(appID: appID, name: name)
         let install = install(appID: appID, folder: folder)
         statuses[appID] = .preparing
+        latestProgress[appID] = nil
+        progressGates[appID] = nil
         updateIdleTimer()
 
         tasks[appID] = Task {
@@ -298,10 +364,15 @@ final class GameLibrary {
     private func report(_ progress: DownloadProgress, for appID: UInt32) {
         // Progress callbacks can trail a pause; don't let them overwrite it.
         guard tasks[appID] != nil else { return }
+        let previous = latestProgress[appID]
+        latestProgress[appID] = progress
         switch progress.phase {
         case .preparing: statuses[appID] = .preparing
         case .downloading, .finishing:
-            let before = lastProgress(appID).map { Int($0.fraction * 20) } ?? -1
+            let force = previous?.phase != progress.phase || progress.completedBytes >= progress.totalBytes
+            guard progressGates[appID, default: ProgressGate()].admit(progress.fraction, force: force) else { return }
+            let shown: DownloadProgress? = if case let .downloading(shown) = statuses[appID] { shown } else { nil }
+            let before = shown.map { Int($0.fraction * 20) } ?? -1
             statuses[appID] = .downloading(progress)
             updateBackgroundTask(progress)
             if Int(progress.fraction * 20) != before {
@@ -310,7 +381,12 @@ final class GameLibrary {
         }
     }
 
+    /// Every progress report as it came, and which were shown (`ProgressGate`); not observed.
+    @ObservationIgnored private var latestProgress: [UInt32: DownloadProgress] = [:]
+    @ObservationIgnored private var progressGates: [UInt32: ProgressGate] = [:]
+
     private func lastProgress(_ appID: UInt32) -> DownloadProgress? {
+        if case .downloading = statuses[appID], let latest = latestProgress[appID] { return latest }
         if case let .downloading(progress) = statuses[appID] { return progress }
         if case let .paused(progress) = statuses[appID] { return progress }
         return nil
@@ -601,7 +677,7 @@ final class GameLibrary {
     }
 
     private var installedAppIDs: [UInt32] {
-        statuses.compactMap { appID, status in if case .installed = status { appID } else { nil } }.sorted()
+        cells.compactMap { appID, cell in cell.stage == .installed ? appID : nil }.sorted()
     }
 
     private func savesFolder(_ appID: UInt32) -> URL? {
@@ -867,7 +943,7 @@ final class GameLibrary {
 
     /// Why the game can't be played, or nil if Play should be offered.
     func playBlocker(appID: UInt32) -> String? {
-        guard case let .installed(record) = statuses[appID] else { return "Not downloaded." }
+        guard let record = record(for: appID) else { return "Not downloaded." }
         if let message = Playability.unsupportedMessage(record.engine, appID: appID) { return message }
         guard let engine = record.engine else { return "Downloaded, not playable yet: Shiori didn't recognise this game's engine." }
         #if os(tvOS)
@@ -1341,6 +1417,57 @@ final class GameLibrary {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
+}
+
+/// One game's status (`GameLibrary`). Observation is per property: `status` changes with
+/// each published progress report, `stage` and `record` only when the game changes state,
+/// so lists, shelves and filters that read those don't follow the progress.
+@MainActor @Observable
+final class StatusCell {
+    private(set) var status: GameLibrary.Status
+    private(set) var stage: GameLibrary.Stage
+    private(set) var record: GameRecord?
+
+    init(_ status: GameLibrary.Status) {
+        self.status = status
+        stage = .init(status)
+        record = Self.record(of: status)
+    }
+
+    func update(_ status: GameLibrary.Status) {
+        // Assigning an equal value would still notify observers.
+        if status != self.status { self.status = status }
+        let stage = GameLibrary.Stage(status)
+        if stage != self.stage { self.stage = stage }
+        let record = Self.record(of: status)
+        if record != self.record { self.record = record }
+    }
+
+    private static func record(of status: GameLibrary.Status) -> GameRecord? {
+        if case let .installed(record) = status { record } else { nil }
+    }
+}
+
+/// Decides which progress reports are worth showing: at most ten a second, and only when
+/// what's on screen would change (a 0.1% step: the bar, the bytes done), so the views
+/// following progress don't re-evaluate for nothing.
+struct ProgressGate {
+    private var lastTime: ContinuousClock.Instant?
+    private var lastStep = -1
+
+    static let interval: Duration = .milliseconds(100)
+
+    /// Whether to publish `fraction` now; `force` for a change of phase or the end.
+    mutating func admit(_ fraction: Double, force: Bool = false, now: ContinuousClock.Instant = .now) -> Bool {
+        let step = Int((fraction * 1000).rounded(.down))
+        if !force {
+            guard step != lastStep else { return false }
+            if let lastTime, now - lastTime < Self.interval { return false }
+        }
+        lastTime = now
+        lastStep = step
+        return true
+    }
 }
 
 private extension DepotInstall {

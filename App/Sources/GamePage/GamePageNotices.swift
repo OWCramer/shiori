@@ -14,12 +14,12 @@ struct GamePageNotices: View {
     private var appID: UInt32 { game.appID }
 
     var body: some View {
-        let status = games.status(for: appID)
-        DownloadStatusPanel(status: status)
-        if case .installed = status, let blocker = games.playBlocker(appID: appID) {
+        let stage = games.stage(for: appID)
+        DownloadStatusPanel(appID: appID)
+        if stage == .installed, let blocker = games.playBlocker(appID: appID) {
             GamePageCallout(title: "Not playable yet", systemImage: "info.circle", tint: .orange, message: blocker)
         }
-        if status == .notInstalled {
+        if stage == .notInstalled {
             if let scan = engineScans.result(for: appID) {
                 if let error = scan.error {
                     GamePageCallout(title: "Couldn't check the engine", systemImage: "questionmark.circle", message: error)

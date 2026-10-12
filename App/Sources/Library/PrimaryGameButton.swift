@@ -14,7 +14,7 @@ struct PrimaryGameButton: View {
 
     var body: some View {
         let appID = game.appID
-        switch games.status(for: appID) {
+        switch games.stage(for: appID) {
         case .notInstalled:
             action("Download", "arrow.down.circle.fill", .blue, perform: download)
                 .disabled(!steam.isLoggedOn)

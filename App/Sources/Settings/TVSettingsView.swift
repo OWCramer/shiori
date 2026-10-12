@@ -10,7 +10,7 @@ struct SettingsView: View {
     @State private var confirmingSignOut = false
 
     private var installed: [GameRecord] {
-        games.statuses.values.compactMap { if case let .installed(record) = $0 { record } else { nil } }
+        games.installedRecords.values
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 

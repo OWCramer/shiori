@@ -34,10 +34,8 @@ struct ShowcaseShell: View {
     /// Installed games' folders, whose saves Home's shelves read.
     private var installedFolders: [UInt32: (folder: URL, engine: String?)] {
         var folders: [UInt32: (folder: URL, engine: String?)] = [:]
-        for (appID, status) in games.statuses {
-            if case let .installed(record) = status {
-                folders[appID] = (games.folder(appID: appID, name: record.name), record.engine?.engine)
-            }
+        for (appID, record) in games.installedRecords {
+            folders[appID] = (games.folder(appID: appID, name: record.name), record.engine?.engine)
         }
         return folders
     }
@@ -168,7 +166,7 @@ struct ShowcaseShell: View {
             .environment(shell)
         }
         .preferredColorScheme(.dark)
-        .task(id: installedFolders.keys.sorted()) { refreshSaves() }
+        .task(id: games.installedRecords.keys.sorted()) { refreshSaves() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshSaves() }
         }

@@ -18,7 +18,7 @@ struct LauncherView: View {
         steam.library.filter { game in
             switch filter {
             case .visualNovels: curation.isVisualNovel(game)
-            case .installed: games.status(for: game.appID) != .notInstalled
+            case .installed: games.isOnDevice(game.appID)
             }
         }
     }
@@ -330,7 +330,7 @@ struct LauncherView: View {
             },
             .init("Sync All Saves", "arrow.triangle.2.circlepath") {
                 Task {
-                    for game in steam.library where games.status(for: game.appID) != .notInstalled {
+                    for game in steam.library where games.isOnDevice(game.appID) {
                         await games.syncAllSaveLocations(appID: game.appID)
                     }
                 }

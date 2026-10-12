@@ -39,11 +39,11 @@ enum LibrarySection: Hashable {
         case .visualNovels:
             return curation.isVisualNovel(game)
         case .installed:
-            return games.status(for: game.appID) != .notInstalled
+            return games.isOnDevice(game.appID)
         case .recentlyPlayed:
             return history.lastActivity(game.appID) != nil
         case let .engine(key):
-            guard curation.isVisualNovel(game) || games.status(for: game.appID) != .notInstalled else { return false }
+            guard curation.isVisualNovel(game) || games.isOnDevice(game.appID) else { return false }
             let traits = traits()
             if key == Self.notPlayable { return traits.plays == .no }
             return traits.plays == .yes && traits.engine == key

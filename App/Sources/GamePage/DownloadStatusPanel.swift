@@ -3,11 +3,13 @@ import SwiftUI
 
 /// While a game downloads, waits in the queue, is paused, failed or is being verified:
 /// how far it has got, on a plain surface under the actions.
+/// It reads the game's status itself, so progress re-evaluates only this panel.
 struct DownloadStatusPanel: View {
-    let status: GameLibrary.Status
+    let appID: UInt32
+    @Environment(GameLibrary.self) private var games
 
     var body: some View {
-        switch status {
+        switch games.status(for: appID) {
         case .preparing:
             panel(title: "Preparing download…", fraction: nil, detail: nil, tint: .blue)
         case let .downloading(progress):

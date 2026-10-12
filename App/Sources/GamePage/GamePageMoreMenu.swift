@@ -17,12 +17,11 @@ struct GamePageMoreMenu: View {
 
     /// What the menu shows, without download progress.
     private var state: GamePageMenuButton.State {
-        let status = games.status(for: appID)
-        let record: GameRecord? = if case let .installed(record) = status { record } else { nil }
+        let record = games.record(for: appID)
         return GamePageMenuButton.State(
             isVisualNovel: curation.isVisualNovel(game),
             installedEngine: record.map { $0.engine?.engine ?? "" },
-            hasPartialDownload: record == nil && status != .notInstalled,
+            hasPartialDownload: record == nil && games.isOnDevice(appID),
             hasPatches: !model.patchFiles.isEmpty,
             branch: games.branch(for: appID),
             isLoggedOn: steam.isLoggedOn,
@@ -99,7 +98,7 @@ struct GamePageMoreMenu: View {
     private func removePatches() { model.confirmingRemovePatches = true }
     private func delete() { model.confirmingDelete = true }
     private func showControls() {
-        guard case let .installed(record) = games.status(for: appID), let engine = record.engine?.engine else { return }
+        guard let record = games.record(for: appID), let engine = record.engine?.engine else { return }
         ControlsGuide.shared.show(engine: engine, gameName: game.name)
     }
 

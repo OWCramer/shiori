@@ -66,13 +66,13 @@ struct ShioriApp: App {
                 // launcher can say what's playable before anything is downloaded.
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {
                     guard steam.isLoggedOn else { return }
-                    engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && games.status(for: $0.appID) == .notInstalled }.map(\.appID))
+                    engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && !games.isOnDevice($0.appID) }.map(\.appID))
                 }
                 // Collections: suggested again whenever the games they're drawn from change, and
                 // looked up on VNDB (cached) for the Visual Novels tab's games.
                 .task(id: collectionInputs) {
                     collections.update(library: steam.library) { game in
-                        curation.isVisualNovel(game) || games.status(for: game.appID) != .notInstalled
+                        curation.isVisualNovel(game) || games.isOnDevice(game.appID)
                     }
                 }
                 .task(id: visualNovelIDs) { await collections.refreshVNDB(appIDs: visualNovelIDs) }
@@ -124,7 +124,7 @@ extension ShioriApp {
     /// Visual Novels tab's choices and which games are downloaded.
     private var collectionInputs: CollectionInputs {
         CollectionInputs(library: steam.library, added: curation.added, hidden: curation.hidden,
-                         downloaded: Set(games.statuses.compactMap { $0.value == .notInstalled ? nil : $0.key }))
+                         downloaded: games.onDeviceAppIDs)
     }
 
     private var visualNovelIDs: [UInt32] {

@@ -18,10 +18,10 @@ struct CollectionSummary {
         var toDownload: [LibraryGame] = []
         var totalSize: UInt64 = 0, downloadSize: UInt64 = 0
         for game in games {
-            let status = library.status(for: game.appID)
-            let size = Self.size(of: game, status: status, engineScans: engineScans)
+            // The stage and record, not the status: a summary doesn't follow download progress.
+            let size = Self.size(of: game, record: library.record(for: game.appID), engineScans: engineScans)
             totalSize += size
-            switch status {
+            switch library.stage(for: game.appID) {
             case .installed, .verifying: downloaded += 1
             case .queued, .preparing, .downloading: downloading += 1
             case .notInstalled, .paused, .failed:
@@ -38,8 +38,8 @@ struct CollectionSummary {
     }
 
     /// Downloaded size, else what Steam's manifests say it weighs.
-    static func size(of game: LibraryGame, status: GameLibrary.Status, engineScans: EngineScanStore) -> UInt64 {
-        if case let .installed(record) = status { return record.sizeBytes }
+    static func size(of game: LibraryGame, record: GameRecord?, engineScans: EngineScanStore) -> UInt64 {
+        if let record { return record.sizeBytes }
         return engineScans.result(for: game.appID).flatMap { $0.installSize > 0 ? $0.installSize : nil } ?? game.estimatedSize ?? 0
     }
 
