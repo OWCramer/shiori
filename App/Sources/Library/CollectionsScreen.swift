@@ -22,7 +22,7 @@ struct CollectionsScreen: View {
                         }
                 }
             } footer: {
-                Text("Suggested from Steam's franchise and developer data, VNDB's series and relations, and numbered titles. Edits sync to your other devices through iCloud Keychain.")
+                Text("Suggested from Steam and VNDB. Edits sync through iCloud Keychain.")
             }
             if collections.hiddenSuggestionCount > 0 {
                 Section {
@@ -33,8 +33,7 @@ struct CollectionsScreen: View {
         }
         .overlay {
             if collections.collections.isEmpty {
-                ContentUnavailableView("No Collections", systemImage: "square.stack",
-                                       description: Text("Series in your library appear here, or make your own."))
+                ContentUnavailableView("No Collections", systemImage: "square.stack")
             }
         }
         .navigationTitle("Collections")

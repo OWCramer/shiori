@@ -30,7 +30,7 @@ struct CollectionPage: View {
                 page(collection)
             } else {
                 ContentUnavailableView("No Collection", systemImage: "square.stack",
-                                       description: Text("This collection was removed, maybe on another device."))
+                                       description: Text("This collection was removed."))
             }
         }
         .toolbar {
@@ -145,10 +145,7 @@ struct CollectionPage: View {
     }
 
     private func downloadMessage(_ summary: CollectionSummary) -> String {
-        let size = summary.downloadSize > 0 ? "About \(summary.downloadSize.formatted(.byteCount(style: .file))) in all. " : ""
-        let queue = summary.toDownload.count == 1 ? "It joins the download queue."
-            : "They join the download queue and download one at a time, in release order."
-        return size + queue
+        summary.downloadSize > 0 ? "About \(summary.downloadSize.formatted(.byteCount(style: .file)))." : ""
     }
 
     /// Queues every game not downloaded yet, first released first; paused ones resume.

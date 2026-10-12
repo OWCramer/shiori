@@ -28,7 +28,7 @@ struct HomeView: View {
                         HomeHero(game: featured, viewportHeight: viewportHeight, overscroll: overscroll)
                     }
                     if !shelves.continuePlaying.isEmpty {
-                        HomeShelf(title: "Continue Playing", subtitle: "Played or saved most recently") {
+                        HomeShelf(title: "Continue Playing") {
                             ForEach(shelves.continuePlaying) { ContinueCard(game: $0) }
                         }
                     }
@@ -39,19 +39,19 @@ struct HomeView: View {
                         }
                     }
                     if !shelves.readyToPlay.isEmpty {
-                        HomeShelf(title: "Ready to Play", subtitle: "Downloaded, not started yet", destination: .installed) {
+                        HomeShelf(title: "Ready to Play", destination: .installed) {
                             ForEach(shelves.readyToPlay) { LibraryCell(game: $0).frame(width: capsuleWidth) }
                         }
                     }
                     if !shelves.playsInShiori.isEmpty {
                         HomeShelf(title: "Plays in Shiori",
-                                  subtitle: "Checked from Steam's files · \(shelves.playsInShiori.count) not downloaded") {
+                                  subtitle: "\(shelves.playsInShiori.count) not downloaded") {
                             ForEach(shelves.playsInShiori.prefix(30)) { LibraryCell(game: $0).frame(width: capsuleWidth) }
                         }
                     }
                     let series = collectionShelf
                     if !series.isEmpty {
-                        HomeShelf(title: "Collections", subtitle: "\(collections.collections.count) series in your library",
+                        HomeShelf(title: "Collections", subtitle: "\(collections.collections.count) series",
                                   destination: shell.usesSidebar ? .collections : nil) {
                             ForEach(series, id: \.collection.id) { entry in
                                 CollectionCell(collection: entry.collection, games: entry.games).frame(width: capsuleWidth)

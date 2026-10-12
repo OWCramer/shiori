@@ -18,9 +18,7 @@ struct ConnectionStatus: View {
             .infoPopover(isPresented: $explaining) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Can't reach Steam").font(.headline)
-                    Text(isRetrying
-                         ? "Shiori keeps trying. Downloaded games still play; downloads and Steam Cloud saves wait until Steam is back."
-                         : "Downloaded games still play; downloads and Steam Cloud saves wait until Steam is back.")
+                    Text("Downloaded games still play. Downloads and Steam Cloud wait until it's back.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

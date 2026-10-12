@@ -106,8 +106,7 @@ private struct DuoGamePage: View {
                     // (its only bar item is the title), so the page runs to the fold.
                     .ignoresSafeArea(.container, edges: .trailing)
             } else {
-                ContentUnavailableView("Choose a Game", systemImage: "book.pages",
-                                       description: Text("Pick a game on the right to see it here."))
+                ContentUnavailableView("Choose a Game", systemImage: "book.pages")
             }
         }
     }

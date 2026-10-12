@@ -48,7 +48,7 @@ struct LibrarySearchScreen: View {
             .overlay {
                 if query.isEmpty, recent.isEmpty {
                     ContentUnavailableView("Search Your Library", systemImage: "magnifyingglass",
-                                           description: Text("Every game you own on Steam, by name or app ID."))
+                                           description: Text("Search by name or app ID."))
                 } else if !query.isEmpty, matches.isEmpty {
                     ContentUnavailableView.search
                 }

@@ -39,7 +39,7 @@ struct CollectionEditor: View {
                 Text("Name")
             } footer: {
                 if collection.isSuggested {
-                    Text("Suggested from Steam and VNDB. Your changes stay when the suggestions are refreshed.")
+                    Text("Suggested from Steam and VNDB.")
                 }
             }
 
@@ -76,7 +76,7 @@ struct CollectionEditor: View {
                 } header: {
                     Text("Sub-groups")
                 } footer: {
-                    Text("A sub-group shows as its own stack on the collection's page. Removing a suggested one puts its games back in the collection.")
+                    Text("Removing a suggested sub-group puts its games back in the collection.")
                 }
             }
 
@@ -95,9 +95,9 @@ struct CollectionEditor: View {
                     Label(removalTitle(collection), systemImage: collection.isSuggested ? "eye.slash" : "trash")
                 }
             } footer: {
-                Text(collection.isSuggested
-                     ? "Hiding a suggestion leaves its games ungrouped. Settings › Collections brings hidden suggestions back."
-                     : "Deleting a collection leaves its games ungrouped.")
+                if collection.isSuggested {
+                    Text("Hidden suggestions come back from Settings › Collections.")
+                }
             }
         }
         .navigationTitle(collection.name)

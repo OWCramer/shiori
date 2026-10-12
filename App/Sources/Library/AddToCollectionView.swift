@@ -61,7 +61,7 @@ struct AddToCollectionView: View {
                 if containsAll {
                     Image(systemName: "checkmark")
                         .foregroundStyle(.tint)
-                        .accessibilityLabel("Already in it")
+                        .accessibilityLabel("Added")
                 }
             }
             .padding(.leading, indented ? 28 : 0)
