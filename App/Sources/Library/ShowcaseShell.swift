@@ -24,10 +24,12 @@ struct ShowcaseShell: View {
     }
 
     /// Installed games' folders, whose saves Home's shelves read.
-    private var installedFolders: [UInt32: URL] {
-        var folders: [UInt32: URL] = [:]
+    private var installedFolders: [UInt32: (folder: URL, engine: String?)] {
+        var folders: [UInt32: (folder: URL, engine: String?)] = [:]
         for (appID, status) in games.statuses {
-            if case let .installed(record) = status { folders[appID] = games.folder(appID: appID, name: record.name) }
+            if case let .installed(record) = status {
+                folders[appID] = (games.folder(appID: appID, name: record.name), record.engine?.engine)
+            }
         }
         return folders
     }

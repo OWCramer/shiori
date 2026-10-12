@@ -120,13 +120,13 @@ struct PatchListSection: View {
                     Button("Download") {
                         if let game = steam.library.first(where: { $0.appID == appID }) { games.download(game) }
                     }
-                    .buttonStyle(.glass)
+                    .patchButtonStyle()
                     .font(.caption)
                 } else if !dlc.owned {
                     Button("Steam", systemImage: "arrow.up.right") {
                         openURL(URL(string: "https://store.steampowered.com/app/\(dlc.appID)")!)
                     }
-                    .buttonStyle(.glass)
+                    .patchButtonStyle()
                     .font(.caption)
                 } else {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.teal)
@@ -193,7 +193,7 @@ struct PatchListSection: View {
         let busy = installer.jobs[appID] != nil && installer.jobs[appID]?.phase.isFailure == false
         if let job = installer.jobs[appID], job.patchID == patch.id, !job.phase.isFailure {
             Button("Cancel") { installer.cancel(appID: appID) }
-                .buttonStyle(.glass).font(.caption)
+                .patchButtonStyle().font(.caption)
         } else if let installed = installedVersion(patch) {
             Menu {
                 if installed.fingerprint != patch.fingerprint, patch.isDownloadable {
@@ -204,10 +204,10 @@ struct PatchListSection: View {
                 Label(installed.fingerprint != patch.fingerprint && patch.isDownloadable ? "Update" : "Installed",
                       systemImage: installed.fingerprint != patch.fingerprint && patch.isDownloadable ? "arrow.down.circle" : "checkmark.circle.fill")
             }
-            .buttonStyle(.glass).font(.caption)
+            .patchButtonStyle().font(.caption)
         } else if patch.isDownloadable {
             Button("Install", systemImage: "arrow.down.circle") { prompt = .install(patch) }
-                .buttonStyle(.glass).font(.caption)
+                .patchButtonStyle().font(.caption)
                 .disabled(busy)
         } else if let denpasoftURL = denpasoftProduct(patch) {
             #if os(iOS)
@@ -225,17 +225,17 @@ struct PatchListSection: View {
                 } label: {
                     Label("Install", systemImage: "arrow.down.circle")
                 }
-                .buttonStyle(.glass).font(.caption)
+                .patchButtonStyle().font(.caption)
                 .disabled(busy)
             } else if let file = files.first {
                 Button("Install", systemImage: "arrow.down.circle") { prompt = .installFile(patch, file.fileName) }
-                    .buttonStyle(.glass).font(.caption)
+                    .patchButtonStyle().font(.caption)
                     .disabled(busy)
             } else {
                 Button(patch.files.first?.price?.lowercased() == "free" ? "Free" : "Buy", systemImage: "arrow.up.right") {
                     denpasoftPage = URL(string: denpasoftURL)
                 }
-                .buttonStyle(.glass).font(.caption)
+                .patchButtonStyle().font(.caption)
             }
             #else
             EmptyView()
@@ -245,7 +245,7 @@ struct PatchListSection: View {
                 .font(.caption).foregroundStyle(.teal)
         } else if let link = externalLink(patch) {
             Button(link.title, systemImage: "arrow.up.right") { openURL(link.url) }
-                .buttonStyle(.glass).font(.caption)
+                .patchButtonStyle().font(.caption)
         }
     }
 
@@ -366,6 +366,18 @@ struct PatchListSection: View {
             parts.append("Files it shares with an installed patch are replaced by this one.")
         }
         return parts.joined(separator: " ")
+    }
+}
+
+private extension View {
+    /// Content buttons: bordered on the iPhone and iPad game page (Liquid Glass is for the
+    /// controls floating over content), glass on the Apple TV's page as before.
+    func patchButtonStyle() -> some View {
+        #if os(tvOS)
+        buttonStyle(.glass)
+        #else
+        buttonStyle(.bordered)
+        #endif
     }
 }
 

@@ -7,6 +7,8 @@ import SwiftUI
 struct PrimaryGameButton: View {
     let game: LibraryGame
     var compact = false
+    /// Stretches across the space it's given (the game page's row).
+    var fillsWidth = false
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
 
@@ -33,6 +35,7 @@ struct PrimaryGameButton: View {
                         ProgressView().tint(.white)
                         if !compact { Text(phase.label).lineLimit(1) }
                     }
+                    .frame(maxWidth: fillsWidth ? .infinity : nil)
                 }
                 .accessibilityLabel(phase.label)
                 .buttonStyle(.glassProminent)
@@ -51,6 +54,7 @@ struct PrimaryGameButton: View {
         Button(action: perform) {
             GameActionLabel(title: title, systemImage: symbol, iconOnly: compact)
                 .padding(.horizontal, compact ? 0 : 8)
+                .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
         .buttonStyle(.glassProminent)
         .buttonBorderShape(compact ? .circle : .capsule)

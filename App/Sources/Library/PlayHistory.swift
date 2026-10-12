@@ -1,21 +1,24 @@
 import Foundation
 import Observation
 
-/// When each game was last started, and when its saves last changed: what Home's
-/// "last played" hero and Continue Playing shelf are built from.
+/// When each game was last started, and its save slots: what Home's "last played" hero
+/// and Continue Playing shelf, and the game page's Saves, are built from.
 ///
 /// Launches are kept in iCloud Keychain like the other synced choices, so the game started
-/// on the iPad leads Home on the iPhone too. Save times come from each game's `saves/`
-/// folder, which also covers games played before Shiori kept a record (and saves that
-/// arrived from another device through iCloud or Steam Cloud).
+/// on the iPad leads Home on the iPhone too. Saves come from each game's `saves/` folder
+/// (`SaveInventory`: real save slots only, not settings or read-text files), which also
+/// covers games played before Shiori kept a record, and saves that arrived from another
+/// device through iCloud or Steam Cloud.
 @MainActor @Observable
 final class PlayHistory {
     static let shared = PlayHistory()
 
     /// App ID → when the game was last started from Shiori (any device).
     private(set) var launches: [UInt32: Date] = [:]
-    /// App ID → the newest file in the game's `saves/` folder; absent when it has none.
-    private(set) var latestSave: [UInt32: Date] = [:]
+    /// App ID → the game's save slots; absent until its folder has been read.
+    private(set) var saves: [UInt32: SaveInventory] = [:]
+    /// App ID → when its newest save slot was written; absent when it has none.
+    var latestSave: [UInt32: Date] { saves.compactMapValues(\.latest) }
 
     /// App ID → when it was taken off Continue Playing (any device). Playing or saving it
     /// again after that puts it back.
@@ -30,7 +33,7 @@ final class PlayHistory {
     private init() {
         launches = Self.load()
         removed = Self.load(account: Self.removedAccount)
-        latestSave = Self.loadSaveTimes()
+        saves = Self.loadSaveInventories()
     }
 
     /// Notes that the game is starting.
@@ -69,7 +72,7 @@ final class PlayHistory {
 
     /// The most recent of the last launch and the last save, and which it was.
     func lastActivity(_ appID: UInt32) -> Activity? {
-        switch (launches[appID], latestSave[appID]) {
+        switch (launches[appID], saves[appID]?.latest) {
         case let (launch?, save?):
             if launch >= save { Activity(date: launch, kind: .played) }
             // Saved during that session: still "played", as of the save.
@@ -81,16 +84,27 @@ final class PlayHistory {
         }
     }
 
-    /// Re-reads the saves folders of these games, off the main thread.
-    func refreshSaves(_ folders: [UInt32: URL]) {
+    /// Re-reads the saves of these games (folder and engine), off the main thread.
+    func refreshSaves(_ folders: [UInt32: (folder: URL, engine: String?)]) {
         refreshing?.cancel()
         refreshing = Task {
-            let found = await Task.detached(priority: .utility) { Self.newestSaves(in: folders) }.value
+            let found = await Task.detached(priority: .utility) {
+                folders.mapValues { SaveInventory.read(gameFolder: $0.folder, engine: $0.engine) }
+            }.value
             guard !Task.isCancelled else { return }
-            if found != latestSave {
-                latestSave = found
-                Self.storeSaveTimes(found)
+            if found != saves {
+                saves = found
+                Self.storeSaveInventories(found)
             }
+        }
+    }
+
+    /// Re-reads one game's saves (its page opening, a sync finishing).
+    func refreshSaves(appID: UInt32, folder: URL, engine: String?) async {
+        let found = await Task.detached(priority: .userInitiated) { SaveInventory.read(gameFolder: folder, engine: engine) }.value
+        if saves[appID] != found {
+            saves[appID] = found
+            Self.storeSaveInventories(saves)
         }
     }
 
@@ -111,50 +125,25 @@ final class PlayHistory {
         var date: Date
     }
 
-    /// The last save times found, kept on this device so Home's first frame after a launch
+    /// The last saves found, kept on this device so Home's first frame after a launch
     /// already shows them (the folders are re-read in the background). Without it, Home
     /// first showed launch times and then jumped to the newer save times.
-    private static let saveTimesKey = "playHistory.latestSave"
+    private static let savesKey = "playHistory.saveSlots"
 
-    private static func loadSaveTimes() -> [UInt32: Date] {
-        let stored = UserDefaults.standard.dictionary(forKey: saveTimesKey) as? [String: Date] ?? [:]
-        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, date in UInt32(key).map { ($0, date) } })
+    private static func loadSaveInventories() -> [UInt32: SaveInventory] {
+        UserDefaults.standard.removeObject(forKey: "playHistory.latestSave") // Any file, before save slots.
+        guard let data = UserDefaults.standard.data(forKey: savesKey),
+              let stored = try? JSONDecoder().decode([String: SaveInventory].self, from: data) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, inventory in UInt32(key).map { ($0, inventory) } })
     }
 
-    private static func storeSaveTimes(_ times: [UInt32: Date]) {
-        UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: times.map { (String($0.key), $0.value) }), forKey: saveTimesKey)
+    private static func storeSaveInventories(_ saves: [UInt32: SaveInventory]) {
+        let stored = Dictionary(uniqueKeysWithValues: saves.map { (String($0.key), $0.value) })
+        UserDefaults.standard.set(try? JSONEncoder().encode(stored), forKey: savesKey)
     }
 
     private static func load(account: String = account) -> [UInt32: Date] {
         let entries = SyncedKeychain.value([Entry].self, account: account) ?? []
         return Dictionary(entries.map { ($0.appID, $0.date) }, uniquingKeysWith: max)
-    }
-
-    /// The newest regular file under each `saves/`, skipping Shiori's own bookkeeping
-    /// (conflict copies) and hidden files.
-    nonisolated private static func newestSaves(in folders: [UInt32: URL]) -> [UInt32: Date] {
-        var result: [UInt32: Date] = [:]
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
-        for (appID, folder) in folders {
-            let saves = folder.appendingPathComponent("saves", isDirectory: true)
-            guard let walker = FileManager.default.enumerator(at: saves, includingPropertiesForKeys: keys,
-                                                               options: [.skipsHiddenFiles]) else { continue }
-            var newest: Date?
-            var seen = 0
-            for case let url as URL in walker {
-                let name = url.lastPathComponent
-                if name == SaveSync.conflictsFolder {
-                    walker.skipDescendants()
-                    continue
-                }
-                guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
-                      let date = values.contentModificationDate else { continue }
-                if newest.map({ date > $0 }) ?? true { newest = date }
-                seen += 1
-                if seen > 5000 { break }
-            }
-            if let newest { result[appID] = newest }
-        }
-        return result
     }
 }

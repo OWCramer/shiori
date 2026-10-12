@@ -115,33 +115,19 @@ struct GameHeroHeader: View {
 
     private var titleTreatment: some View {
         VStack(spacing: 10) {
-            if let logo = game.logo {
-                RemoteImage(url: logo, contentMode: .fit) { title }
-                    .frame(maxWidth: 280, maxHeight: 96)
-                    .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
-            } else {
-                title
-            }
+            // Sized to the logo's own shape, as on Home, so the line under it stays close.
+            GameLogo(game: game, maxWidth: 300, maxHeight: 110)
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
-                    .shadow(color: .black.opacity(0.5), radius: 4)
             }
         }
+        .shadow(color: .black.opacity(0.6), radius: 6)
         .padding(.horizontal, 24)
         .padding(.bottom, 18)
-    }
-
-    private var title: some View {
-        Text(game.name)
-            .font(.largeTitle.weight(.heavy))
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.6), radius: 8, y: 2)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

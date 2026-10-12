@@ -53,9 +53,12 @@ struct LauncherView: View {
         .animation(.smooth(duration: 0.2), value: menu?.id)
         .onAppear { pad.handler = handle }
         .onChange(of: filter) { selection = 0 }
+        #if os(iOS)
+        // (The launcher is iPhone and iPad only; the Apple TV has its own game page.)
         .sheet(item: $detail) { game in
             NavigationStack { GameDetailView(game: game) }
         }
+        #endif
     }
 
     // MARK: - Layout

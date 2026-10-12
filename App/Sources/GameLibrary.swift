@@ -743,7 +743,7 @@ final class GameLibrary {
     /// Saves the cover's banner and logo to files the runtime can load. Gives up quickly:
     /// the cover falls back to the game's name.
     /// The image cropped to its non-transparent pixels, or nil if there's nothing to crop.
-    nonisolated private static func trimmingTransparentMargins(_ image: UIImage) -> UIImage? {
+    nonisolated static func trimmingTransparentMargins(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let width = cg.width, height = cg.height
         var alpha = [UInt8](repeating: 0, count: width * height)
