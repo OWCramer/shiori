@@ -198,11 +198,14 @@ targets:
         LSApplicationCategoryType: public.app-category.adventure-games
         ITSAppUsesNonExemptEncryption: false
     entitlements:
-      # No iCloud Documents for now: no tvOS profile with iCloud exists for this ID, and this
-      # Mac can't make one (no account in Xcode). Until it's back, Apple TV saves sync only
-      # through Steam Cloud (Ren'Py); Artemis and Luca saves stay on the box.
+      # iCloud Documents, the same container as iOS (2026-10-12, once Xcode had an account to
+      # make the tvOS profile): Artemis and Luca saves leave the box, so a cleared game loses
+      # nothing, and play carries between the TV, iPhone and iPad.
       path: App/TV/ShioriTV.entitlements
-      properties: {}
+      properties:
+        com.apple.developer.icloud-container-identifiers: ["iCloud.com.owencramer.vnhub"]
+        com.apple.developer.ubiquity-container-identifiers: ["iCloud.com.owencramer.vnhub"]
+        com.apple.developer.icloud-services: ["CloudDocuments"]
     dependencies:
       - package: SteamKit
         product: SteamKit
