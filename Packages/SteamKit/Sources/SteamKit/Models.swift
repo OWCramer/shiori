@@ -45,6 +45,24 @@ public struct AppInfo: Hashable, Sendable, Identifiable {
     public static let visualNovelTag: UInt32 = 3799
     public var isVisualNovel: Bool { storeTags.contains(Self.visualNovelTag) }
 
+    /// Names from the store's `associations` of one type: "developer", "publisher" or
+    /// "franchise" (NEKOPARA, Sakura; some publishers file their own name as the franchise).
+    public func associations(_ type: String) -> [String] {
+        keyValues[path: "common", "associations"]?.children.compactMap { entry in
+            guard entry["type"]?.value?.caseInsensitiveCompare(type) == .orderedSame else { return nil }
+            return entry["name"]?.value.flatMap { $0.isEmpty ? nil : $0 }
+        } ?? []
+    }
+
+    /// When the game first came out: the original release where the store records one
+    /// (a port of an older game), else its Steam release.
+    public var releaseDate: Date? {
+        let dates = ["original_release_date", "steam_release_date"].compactMap { key in
+            keyValues[path: "common", key]?.value.flatMap(TimeInterval.init).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        }
+        return dates.min()
+    }
+
     /// Portrait library capsule (600×900, or 1200×1800 with `large`).
     public func capsuleURL(large: Bool = false) -> URL? {
         libraryAsset("library_capsule", large: large) ?? assetURL(large ? "library_600x900_2x.jpg" : "library_600x900.jpg")

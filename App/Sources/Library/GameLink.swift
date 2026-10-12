@@ -12,7 +12,7 @@ struct GameLink<Label: View>: View {
         if let book, book.isOpen {
             Button { book.show(game) } label: { label }
         } else {
-            NavigationLink(value: game) { label }
+            NavigationLink(value: LibraryRoute.game(game)) { label }
         }
     }
 }

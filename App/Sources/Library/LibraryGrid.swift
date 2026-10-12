@@ -1,16 +1,29 @@
 #if os(iOS)
 import SwiftUI
 
-/// An adaptive grid of capsules.
+/// An adaptive grid of capsules, with collections as stacked tiles.
 struct LibraryGrid: View {
-    let games: [LibraryGame]
+    let items: [LibraryGridItem]
     @Environment(\.horizontalSizeClass) private var sizeClass
+
+    init(items: [LibraryGridItem]) {
+        self.items = items
+    }
+
+    init(games: [LibraryGame]) {
+        items = games.map(LibraryGridItem.game)
+    }
 
     var body: some View {
         let minimum = sizeClass == .regular ? ShowcaseMetrics.wideGridMinimum : ShowcaseMetrics.gridMinimum
         LazyVGrid(columns: [GridItem(.adaptive(minimum: minimum), spacing: 16, alignment: .top)],
                   spacing: ShowcaseMetrics.gridRowSpacing) {
-            ForEach(games) { LibraryCell(game: $0) }
+            ForEach(items) { item in
+                switch item {
+                case let .game(game): LibraryCell(game: game)
+                case let .collection(collection, games): CollectionCell(collection: collection, games: games)
+                }
+            }
         }
         .padding(.horizontal, ShowcaseMetrics.margin)
     }

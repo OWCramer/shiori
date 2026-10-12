@@ -16,6 +16,12 @@ struct LibraryGame: Codable, Hashable, Identifiable, Sendable {
     var estimatedSize: UInt64?
     /// Steam branches anyone who owns the game can pick (Properties › Betas), "public" first.
     var branches: [DepotSelection.Branch]?
+    /// The store's developer, publisher and franchise, and first release: what Collections
+    /// suggests series from and orders them by. Nil in a library cached before Phase 20.
+    var developer: String?
+    var publisher: String?
+    var franchise: String?
+    var releaseDate: Date?
 
     var id: UInt32 { appID }
 
@@ -35,6 +41,10 @@ struct LibraryGame: Codable, Hashable, Identifiable, Sendable {
             .reduce(0) { $0 + $1.size }
         estimatedSize = size > 0 ? size : nil
         branches = DepotSelection.branches(of: app)
+        developer = app.associations("developer").first ?? app.keyValues[path: "extended", "developer"]?.value
+        publisher = app.associations("publisher").first ?? app.keyValues[path: "extended", "publisher"]?.value
+        franchise = app.associations("franchise").first
+        releaseDate = app.releaseDate
     }
 }
 

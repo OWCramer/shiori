@@ -10,6 +10,7 @@ struct ShioriApp: App {
     @State private var games: GameLibrary
     @State private var controllers = ControllerInput()
     @State private var curation = LibraryCuration()
+    @State private var collections = LibraryCollections()
     @State private var engineScans: EngineScanStore
     @State private var compatibility = CompatibilityStore()
     @State private var patchList = PatchListStore()
@@ -49,6 +50,7 @@ struct ShioriApp: App {
                 .environment(games)
                 .environment(controllers)
                 .environment(curation)
+                .environment(collections)
                 .environment(engineScans)
                 .environment(compatibility)
                 .environment(patchList)
@@ -66,6 +68,14 @@ struct ShioriApp: App {
                     guard steam.isLoggedOn else { return }
                     engineScans.scan(steam.library.filter { curation.isVisualNovel($0) && games.status(for: $0.appID) == .notInstalled }.map(\.appID))
                 }
+                // Collections: suggested again whenever the games they're drawn from change, and
+                // looked up on VNDB (cached) for the Visual Novels tab's games.
+                .task(id: collectionInputs) {
+                    collections.update(library: steam.library) { game in
+                        curation.isVisualNovel(game) || games.status(for: game.appID) != .notInstalled
+                    }
+                }
+                .task(id: visualNovelIDs) { await collections.refreshVNDB(appIDs: visualNovelIDs) }
             #if DEBUG || SHIORI_AUTOMATION
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
             #endif
@@ -88,6 +98,7 @@ struct ShioriApp: App {
             case .active:
                 // Settings other devices changed through iCloud Keychain.
                 curation.reload()
+                collections.reload()
                 steam.artwork.reload()
                 PlayHistory.shared.reload()
                 SyncedPreferences.reload()
@@ -105,6 +116,19 @@ struct ShioriApp: App {
         #if os(iOS)
         .commands { ShioriCommands(games: games) }
         #endif
+    }
+}
+
+extension ShioriApp {
+    /// What Collections' suggestions are drawn from: the library as Steam describes it, the
+    /// Visual Novels tab's choices and which games are downloaded.
+    private var collectionInputs: CollectionInputs {
+        CollectionInputs(library: steam.library, added: curation.added, hidden: curation.hidden,
+                         downloaded: Set(games.statuses.compactMap { $0.value == .notInstalled ? nil : $0.key }))
+    }
+
+    private var visualNovelIDs: [UInt32] {
+        steam.library.filter { curation.isVisualNovel($0) }.map(\.appID)
     }
 }
 

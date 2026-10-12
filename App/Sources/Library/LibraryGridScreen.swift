@@ -11,13 +11,17 @@ struct LibraryGridScreen: View {
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(CompatibilityStore.self) private var compatibility
     @Environment(ShellModel.self) private var shell
+    @Environment(LibraryCollections.self) private var collections
     @AppStorage private var sort: LibrarySort
+    /// Collections as stacked tiles, or every game on its own.
+    @AppStorage private var grouped: Bool
     @State private var filters: LibraryFilters
-    @State private var path: [LibraryGame] = []
+    @State private var path: [LibraryRoute] = []
 
     init(section: LibrarySection) {
         self.section = section
         _sort = AppStorage(wrappedValue: section == .recentlyPlayed ? .recent : .name, "librarySort.\(section.storageKey)")
+        _grouped = AppStorage(wrappedValue: true, "libraryGrouped.\(section.storageKey)")
         _filters = State(initialValue: LibraryFilters.load(section))
     }
 
@@ -46,9 +50,13 @@ struct LibraryGridScreen: View {
         return game.estimatedSize ?? 0
     }
 
+    /// The Visual Novels and Installed tabs can stack collections.
+    private var offersGrouping: Bool { section == .visualNovels || section == .installed }
+
     var body: some View {
         let entries = entries
         let shown = entries.filter { filters.admits($0.traits, isDownloaded: $0.isDownloaded) }.map(\.game)
+        let items = offersGrouping && grouped ? LibraryGridItem.grouping(shown, collections: collections) : shown.map(LibraryGridItem.game)
         BookHandoffStack(path: $path, tab: section.shellTab) {
             ScrollView {
                 if let error = steam.libraryError {
@@ -57,7 +65,7 @@ struct LibraryGridScreen: View {
                         .foregroundStyle(.red)
                         .padding(.horizontal, ShowcaseMetrics.margin)
                 }
-                LibraryGrid(games: shown)
+                LibraryGrid(items: items)
                     .padding(.vertical, 8)
             }
             .overlay {
@@ -72,7 +80,7 @@ struct LibraryGridScreen: View {
             .refreshable { await steam.loadLibrary() }
             .navigationTitle(section.title)
             .navigationSubtitle(subtitle(shown: shown.count, total: entries.count))
-            .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
+            .libraryDestinations()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionStatus() }
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -81,6 +89,11 @@ struct LibraryGridScreen: View {
                         Menu("Sort", systemImage: "arrow.up.arrow.down") {
                             Picker("Sort By", selection: $sort) {
                                 ForEach(LibrarySort.allCases) { Text($0.rawValue).tag($0) }
+                            }
+                            if offersGrouping {
+                                Section {
+                                    Toggle("Group Collections", systemImage: "square.stack", isOn: $grouped)
+                                }
                             }
                         }
                     }
@@ -91,6 +104,13 @@ struct LibraryGridScreen: View {
                 }
             }
             .onChange(of: filters) { _, filters in filters.save(section) }
+            #if DEBUG
+            // `-ShioriOpenCollection <id>` (with -ShioriTab visualNovels) opens a collection's page.
+            .task(id: collections.collections.count) {
+                if section == .visualNovels, path.isEmpty, let id = UserDefaults.standard.string(forKey: "ShioriOpenCollection"),
+                   collections.collection(id: id) != nil { path = [.collection(id)] }
+            }
+            #endif
         }
     }
 

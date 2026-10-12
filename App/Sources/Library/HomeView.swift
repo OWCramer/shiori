@@ -11,7 +11,7 @@ struct HomeView: View {
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(ShellModel.self) private var shell
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var path: [LibraryGame] = []
+    @State private var path: [LibraryRoute] = []
     @State private var overscroll: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
 
@@ -65,7 +65,7 @@ struct HomeView: View {
             }
             .navigationTitle(shelves.featured == nil ? "Home" : "")
             .navigationBarTitleDisplayMode(shelves.featured == nil ? .large : .inline)
-            .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
+            .libraryDestinations()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionStatus() }
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -83,7 +83,7 @@ struct HomeView: View {
     /// `-ShioriOpenGame <appid>` opens that game's screen once the library loads.
     private func openRequestedGame() {
         let appID = UserDefaults.standard.integer(forKey: "ShioriOpenGame")
-        if path.isEmpty, let game = steam.library.first(where: { $0.appID == appID }) { path = [game] }
+        if path.isEmpty, let game = steam.library.first(where: { $0.appID == appID }) { path = [.game(game)] }
     }
     #endif
 }
