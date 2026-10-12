@@ -230,6 +230,18 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         drag.maximumNumberOfTouches = 1
         drag.delegate = self
         view.addGestureRecognizer(drag)
+        // The shared gestures (spec, Touch): a swipe right (one finger, or two) is the window's
+        // SKIP, a two-finger swipe up or holding a finger on the message window its AUTO.
+        // A slider's drag goes first.
+        for fingers in [1, 2] {
+            view.addSwipe(.right, fingers: fingers, target: self, action: #selector(swipedSkip)).require(toFail: drag)
+        }
+        view.addSwipe(.up, fingers: 2, target: self, action: #selector(swipedAuto))
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(heldOnWindow(_:)))
+        hold.minimumPressDuration = 0.6
+        hold.fingersOnly()
+        view.addGestureRecognizer(hold)
+        tap.require(toFail: hold)
         view.addHover(target: self, action: #selector(hovered(_:)))
         view.addScroll(target: self, action: #selector(scrolled(_:)))
         let pointer = UIPointerInteraction(delegate: self)
@@ -1636,6 +1648,29 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         keyWait.isHidden = true
     }
 
+    /// A swipe right: Skip on or off, in the story.
+    @objc private func swipedSkip() {
+        guard presentedViewController == nil, story != nil, screen == nil, movie == nil else { return }
+        windowAction(.skip)
+        refreshButtons()
+        NSLog("CatSystem: skip %@ (gesture)", skipMode ? "on" : "off")
+    }
+
+    /// A two-finger swipe up (or X on the pad): Auto on or off, in the story.
+    @objc private func swipedAuto() {
+        guard presentedViewController == nil, story != nil, screen == nil, movie == nil else { return }
+        windowAction(.auto)
+        refreshButtons()
+        NSLog("CatSystem: auto %@ (gesture)", autoMode ? "on" : "off")
+    }
+
+    /// A finger held on the message window: Auto on or off, as in the other engines.
+    @objc private func heldOnWindow(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began, !windowHiddenByPlayer, window.alpha > 0.5,
+              window.frame.contains(recognizer.location(in: window.superview)) else { return }
+        swipedAuto()
+    }
+
     @objc private func openBacklog() {
         guard presentedViewController == nil, story != nil, screen == nil, movie == nil, !backlog.isEmpty else { return }
         openScreen(.backlog)
@@ -1777,6 +1812,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private static let handledKeys: Set<UIKeyboardHIDUsage> = [
         .keyboardEscape, .keyboardReturnOrEnter, .keypadEnter, .keyboardSpacebar, .keyboardUpArrow, .keyboardDownArrow,
         .keyboardLeftArrow, .keyboardRightArrow, .keyboardLeftControl, .keyboardRightControl, .keyboardDeleteOrBackspace,
+        .keyboardPageUp, .keyboardPageDown,
     ]
 
     /// Escape (or Backspace) as a right click; Enter and Space read on (or press the button
@@ -1791,6 +1827,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         case .keyboardLeftArrow: arrow(.left)
         case .keyboardRightArrow: arrow(.right)
         case .keyboardLeftControl, .keyboardRightControl: controlHeld = story != nil && screen == nil
+        case .keyboardPageUp: if screen != nil || fes != nil { wheel(up: true) } else { openBacklog() }
+        case .keyboardPageDown: if screen != nil || fes != nil { wheel(up: false) }
         default: break
         }
     }
@@ -1834,7 +1872,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     // MARK: Controller
 
-    private enum PadKey: Hashable { case up, down, left, right, a, b, y, lb, rb, menu }
+    private enum PadKey: Hashable { case up, down, left, right, a, b, x, y, lb, rb, menu }
 
     private var padHeld: Set<PadKey> = []
     private var padRepeatAt: [PadKey: CFTimeInterval] = [:]
@@ -1874,6 +1912,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             .right: pad.dpad.right.isPressed || stick.xAxis.value > threshold,
             .a: pad.buttonA.isPressed,
             .b: pad.buttonB.isPressed,
+            .x: pad.buttonX.isPressed,
             .y: pad.buttonY.isPressed,
             .lb: pad.leftShoulder.isPressed,
             .rb: pad.rightShoulder.isPressed || pad.rightTrigger.isPressed,
@@ -1910,6 +1949,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         case .right: arrow(.right)
         case .a: primaryAction(at: nil, pointer: true)
         case .b: secondaryAction()
+        case .x: swipedAuto()
         case .y, .lb: if onScreen { wheel(up: true) } else { openBacklog() }
         case .rb: if onScreen { wheel(up: false) } else { controlHeld = story != nil }
         case .menu:
@@ -1929,7 +1969,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         ]
         let pads: [String: PadKey] = [
             "pad-up": .up, "pad-down": .down, "pad-left": .left, "pad-right": .right, "pad-a": .a, "pad-b": .b,
-            "pad-y": .y, "pad-lb": .lb, "pad-rb": .rb, "pad-menu": .menu,
+            "pad-x": .x, "pad-y": .y, "pad-lb": .lb, "pad-rb": .rb, "pad-menu": .menu,
         ]
         for step in script.split(separator: ";") {
             let parts = step.split(separator: ":")
@@ -1938,7 +1978,9 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self else { return }
                 NSLog("CatSystem: debug input %@", name)
-                if let key = keys[name] {
+                if name == "skip" || name == "auto" {
+                    if name == "skip" { self.swipedSkip() } else { self.swipedAuto() }
+                } else if let key = keys[name] {
                     self.keyDown(key)
                 } else if let key = pads[name] {
                     self.padPress(key, down: true)

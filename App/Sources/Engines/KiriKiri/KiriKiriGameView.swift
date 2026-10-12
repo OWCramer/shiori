@@ -108,6 +108,13 @@ final class KiriKiriGameViewController: UIViewController {
         history.cancelsTouchesInView = false
         view.addGestureRecognizer(history)
 
+        // The shared two-finger swipes (spec, Touch): right skips (Ctrl held down until the next
+        // touch), up toggles auto (the game's own Auto menu item).
+        for (direction, action) in [(UISwipeGestureRecognizer.Direction.right, #selector(swipedSkip)),
+                                    (.up, #selector(swipedAuto))] {
+            view.addSwipe(direction, fingers: 2, target: self, action: action).cancelsTouchesInView = false
+        }
+
         #if os(iOS)
         view.addHover(target: self, action: #selector(hovered(_:)))
         view.addScroll(target: self, action: #selector(scrolled(_:)))
@@ -123,15 +130,47 @@ final class KiriKiriGameViewController: UIViewController {
 
         // The pad drives the game through its keyboard and mouse (see `pad(_:)`).
         ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
+        #if DEBUG
+        // `-ShioriKiriKiriInput "20:skip;30:auto;40:pageup"`: the shared gestures (`skip`,
+        // `auto`, `backlog`, `menu`) and keys (`pageup`, `enter`) at seconds from launch.
+        for step in (UserDefaults.standard.string(forKey: "ShioriKiriKiriInput") ?? "").split(separator: ";") {
+            let parts = step.split(separator: ":")
+            guard parts.count == 2, let delay = Double(parts[0]) else { continue }
+            let name = String(parts[1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                KiriKiriRuntime.log.notice("Debug input \(name, privacy: .public)")
+                let middle = CGPoint(x: self.gameRect.midX, y: self.gameRect.midY)
+                switch name {
+                case "skip": self.swipedSkip()
+                case "auto": self.swipedAuto()
+                case "backlog", "pageup": self.padPress(.wheelUp, down: true)
+                case "menu":
+                    self.send(ENGINE_INPUT_EVENT_POINTER_DOWN, at: middle, button: 1)
+                    self.send(ENGINE_INPUT_EVENT_POINTER_UP, at: middle, button: 1)
+                case "enter":
+                    self.padPress(.key(0x0D), down: true)
+                    self.padPress(.key(0x0D), down: false)
+                case "tap":
+                    self.releaseSkipLatch()
+                default: break
+                }
+            }
+        }
+        #endif
     }
 
     #if os(iOS)
     override var canBecomeFirstResponder: Bool { true }
 
-    /// A hardware keyboard's keys go to the engine as the PC's (Escape, Enter, Space, arrows, Ctrl).
+    /// A hardware keyboard's keys go to the engine as the PC's (Escape, Enter, Space, arrows,
+    /// Ctrl); Page Up turns the wheel up (the backlog).
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil }
-        for key in keys { if let code = key.windowsVirtualKey { padPress(.key(code), down: true) } }
+        let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil || $0 == .keyboardPageUp }
+        for key in keys {
+            if key == .keyboardPageUp { padPress(.wheelUp, down: true) }
+            if let code = key.windowsVirtualKey { padPress(.key(code), down: true) }
+        }
         if !rest.isEmpty { super.pressesBegan(rest, with: event) }
     }
 
@@ -293,6 +332,11 @@ final class KiriKiriGameViewController: UIViewController {
     private var pointerButton: Int32 = 0
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // A touch ends a skip the swipe started (as letting go of Ctrl does).
+        if skipLatched {
+            releaseSkipLatch()
+            return
+        }
         guard pointerTouch == nil, let touch = touches.first, (event?.allTouches?.count ?? 1) == 1 else { return }
         pointerTouch = touch
         pointerButton = 0
@@ -417,9 +461,80 @@ final class KiriKiriGameViewController: UIViewController {
 
     @objc private func rightClick(_ recognizer: UITapGestureRecognizer) {
         cancelPointer()
+        releaseSkipLatch()
         let point = recognizer.location(in: view)
         send(ENGINE_INPUT_EVENT_POINTER_DOWN, at: point, button: 1)
         send(ENGINE_INPUT_EVENT_POINTER_UP, at: point, button: 1)
+    }
+
+    // MARK: Skip and auto
+
+    /// Ctrl held down by a two-finger swipe right: KAG skips while it's down, until the next
+    /// touch lets it go.
+    private var skipLatched = false
+
+    @objc private func swipedSkip() {
+        cancelPointer()
+        if skipLatched {
+            releaseSkipLatch()
+            return
+        }
+        skipLatched = true
+        sendKey(0x11, down: true)
+        GameNotice.show("Skipping. Tap to stop.", in: view)
+    }
+
+    private func releaseSkipLatch() {
+        guard skipLatched else { return }
+        skipLatched = false
+        sendKey(0x11, down: false)
+    }
+
+    @objc private func swipedAuto() {
+        cancelPointer()
+        toggleAuto()
+    }
+
+    /// KAG has no key for auto mode; its main window's menu has the item ("自動的に読み進む",
+    /// "Auto"), which works whether the game shows the menu bar or not. Games that drop it
+    /// leave auto to their own button.
+    private func toggleAuto() {
+        guard let engine else { return }
+        var buffer = [CChar](repeating: 0, count: 1 << 16)
+        var written: UInt32 = 0
+        guard engine_get_main_menu_json(engine, &buffer, UInt32(buffer.count), &written) == ENGINE_RESULT_OK,
+              let json = try? JSONSerialization.jsonObject(with: Data(bytes: buffer, count: Int(written)))
+        else { return }
+        guard let path = Self.menuPath(in: json, matching: { caption in
+            let text = caption.lowercased()
+            return text.contains("自動") || text.contains("オート") || text.contains("auto")
+        }) else {
+            KiriKiriRuntime.log.notice("No Auto menu item: \(String(decoding: Data(bytes: buffer, count: Int(written)).prefix(2000), as: UTF8.self), privacy: .public)")
+            GameNotice.show("This game turns Auto on with its own button.", in: view)
+            return
+        }
+        KiriKiriRuntime.log.notice("Auto through the menu item \(path, privacy: .public)")
+        _ = engine_activate_menu_item(engine, path)
+    }
+
+    /// The index path ("0/2/1") of the first menu item whose caption matches, in the tree
+    /// `engine_get_main_menu_json` exports (arrays of items with a caption and children).
+    private static func menuPath(in node: Any, matching: (String) -> Bool, prefix: String = "") -> String? {
+        let items: [Any]
+        if let list = node as? [Any] { items = list } else if let object = node as? [String: Any] {
+            items = (object["children"] ?? object["items"] ?? object["submenu"]) as? [Any] ?? []
+        } else {
+            return nil
+        }
+        for (index, item) in items.enumerated() {
+            let path = prefix.isEmpty ? "\(index)" : "\(prefix)/\(index)"
+            if let object = item as? [String: Any] {
+                let caption = (object["caption"] ?? object["text"] ?? object["title"] ?? object["name"]) as? String ?? ""
+                if !caption.isEmpty, matching(caption) { return path }
+            }
+            if let found = menuPath(in: item, matching: matching, prefix: path) { return found }
+        }
+        return nil
     }
 
     @objc private func scrollBack(_ recognizer: UISwipeGestureRecognizer) {
@@ -444,6 +559,7 @@ final class KiriKiriGameViewController: UIViewController {
         case key(Int32)
         case rightClick
         case wheelUp
+        case auto
     }
 
     private var padHeld: Set<PadKey> = []
@@ -484,6 +600,7 @@ final class KiriKiriGameViewController: UIViewController {
             .key(0x1B): pad.buttonMenu.isPressed, // VK_ESCAPE
             .rightClick: pad.buttonB.isPressed,
             .wheelUp: pad.buttonY.isPressed || pad.leftShoulder.isPressed,
+            .auto: pad.buttonX.isPressed,
         ]
         let now = CACurrentMediaTime()
         for (key, isDown) in pressed {
@@ -545,6 +662,8 @@ final class KiriKiriGameViewController: UIViewController {
         case .wheelUp:
             guard down else { return }
             send(ENGINE_INPUT_EVENT_POINTER_SCROLL, at: CGPoint(x: gameRect.midX, y: gameRect.midY), deltaY: 1)
+        case .auto:
+            if down { toggleAuto() }
         }
     }
 
