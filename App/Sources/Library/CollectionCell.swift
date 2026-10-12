@@ -9,10 +9,11 @@ struct CollectionCell: View {
     let games: [LibraryGame]
     @Environment(GameLibrary.self) private var library
     @Environment(EngineScanStore.self) private var engineScans
+    @Environment(\.collectionScope) private var scope
 
     var body: some View {
         let summary = CollectionSummary(games: games, library: library, engineScans: engineScans)
-        NavigationLink(value: LibraryRoute.collection(collection.id)) {
+        NavigationLink(value: LibraryRoute.collection(collection.id, scope: scope)) {
             VStack(alignment: .leading, spacing: 6) {
                 CollectionStack(games: games)
                 Text(collection.name)

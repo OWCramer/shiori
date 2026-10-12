@@ -50,6 +50,13 @@ struct LibraryGridScreen: View {
         return game.estimatedSize ?? 0
     }
 
+    /// What a collection opened from here shows: Installed's downloaded games, or a filtered
+    /// grid's games; everything otherwise.
+    private func collectionScope(shown: [LibraryGame]) -> CollectionScope? {
+        if filters.isActive { return .games(Set(shown.map(\.appID))) }
+        return section == .installed ? .downloaded : nil
+    }
+
     /// The Visual Novels and Installed tabs can stack collections.
     private var offersGrouping: Bool { section == .visualNovels || section == .installed }
 
@@ -67,6 +74,7 @@ struct LibraryGridScreen: View {
                 }
                 LibraryGrid(items: items)
                     .padding(.vertical, 8)
+                    .environment(\.collectionScope, collectionScope(shown: shown))
             }
             .overlay {
                 if shown.isEmpty {
@@ -108,7 +116,11 @@ struct LibraryGridScreen: View {
             // `-ShioriOpenCollection <id>` (with -ShioriTab visualNovels) opens a collection's page.
             .task(id: collections.collections.count) {
                 if section == .visualNovels, path.isEmpty, let id = UserDefaults.standard.string(forKey: "ShioriOpenCollection"),
-                   collections.collection(id: id) != nil { path = [.collection(id)] }
+                   collections.collection(id: id) != nil {
+                    // `-ShioriCollectionScope downloaded` opens it as from Installed.
+                    let downloaded = UserDefaults.standard.string(forKey: "ShioriCollectionScope") == "downloaded"
+                    path = [.collection(id, scope: downloaded ? .downloaded : nil)]
+                }
             }
             #endif
         }

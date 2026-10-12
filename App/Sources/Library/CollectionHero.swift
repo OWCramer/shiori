@@ -14,11 +14,18 @@ struct CollectionHero: View {
     let bannerHeight: CGFloat
     var overscroll: CGFloat = 0
     let wide: Bool
+    /// Opened on part of the collection: what the header says of it ("3 of 6 downloaded"),
+    /// how many games the whole has, and the way to show them all.
+    var scoped: (line: String, total: Int, showAll: () -> Void)?
     let downloadAll: () -> Void
     @Environment(SteamModel.self) private var steam
     @State private var extensionHeight: CGFloat = 150
 
     private var metaLine: String {
+        if let scoped {
+            return ([scoped.line] + (summary.totalSize > 0 ? [summary.totalSize.formatted(.byteCount(style: .file))] : []))
+                .joined(separator: " · ")
+        }
         var parts = [summary.gamesText]
         if summary.downloading > 0 {
             parts.append("\(summary.downloading) downloading")
@@ -56,9 +63,20 @@ struct CollectionHero: View {
                     .foregroundStyle(.white.opacity(0.85))
                     .shadow(color: .black.opacity(0.5), radius: 4)
                     .frame(maxWidth: .infinity, alignment: wide ? .leading : .center)
-                downloadButton
-                    .controlSize(.large)
-                if !summary.toDownload.isEmpty, let reason = steam.offlineReason {
+                Group {
+                    if let scoped {
+                        Button(action: scoped.showAll) {
+                            GameActionLabel(title: "Show All \(scoped.total) Games", systemImage: "square.stack", iconOnly: false)
+                                .padding(.horizontal, 8)
+                                .frame(maxWidth: wide ? nil : .infinity)
+                        }
+                        .buttonStyle(.glass)
+                    } else {
+                        downloadButton
+                    }
+                }
+                .controlSize(.large)
+                if scoped == nil, !summary.toDownload.isEmpty, let reason = steam.offlineReason {
                     Text(reason)
                         .font(.footnote)
                         .foregroundStyle(.secondary)

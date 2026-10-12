@@ -6,6 +6,8 @@ import SwiftUI
 /// release order.
 struct CollectionPage: View {
     let collectionID: String
+    /// Opened from Installed or a filtered grid: only that part of it, until Show All.
+    var scope: CollectionScope?
     @Environment(LibraryCollections.self) private var collections
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
@@ -16,6 +18,7 @@ struct CollectionPage: View {
     @State private var width: CGFloat = 0
     @State private var confirmingDownload = false
     @State private var pastHero = false
+    @State private var showsAll = false
 
     private var collection: LibraryCollection? { collections.collection(id: collectionID) }
 
@@ -28,10 +31,23 @@ struct CollectionPage: View {
         }
     }
 
-    private func page(_ collection: LibraryCollection) -> some View {
+    /// The scope in force: none once Show All is on, or when it would leave every game in.
+    private func activeScope(_ collection: LibraryCollection) -> CollectionScope? {
+        guard let scope, !showsAll else { return nil }
+        let kept = collection.inReleaseOrder.filter { scope.admits($0, library: games) }.count
+        return kept < collection.inReleaseOrder.count ? scope : nil
+    }
+
+    private func page(_ whole: LibraryCollection) -> some View {
         let byID = Dictionary(steam.library.map { ($0.appID, $0) }, uniquingKeysWith: { first, _ in first })
+        let scope = activeScope(whole)
+        let collection = scope.map { scope in whole.filtered { scope.admits($0, library: games) } } ?? whole
         let members = collection.inReleaseOrder.compactMap { byID[$0] }
         let summary = CollectionSummary(games: members, library: games, engineScans: engineScans)
+        let total = whole.inReleaseOrder.count
+        let scoped = scope.map { scope in
+            (line: scope.line(shown: members.count, of: total), total: total, showAll: { withAnimation { showsAll = true } })
+        }
         let wide = sizeClass == .regular && width >= GamePageMetrics.twoColumnWidth
         let parentName = collection.parentID.flatMap { collections.collection(id: $0)?.name }
         return ScrollView {
@@ -39,11 +55,20 @@ struct CollectionPage: View {
                 if let lead = members.first {
                     CollectionHero(collection: collection, lead: lead, parentName: parentName, summary: summary,
                                    bannerHeight: GameHeroHeader.height(forViewport: viewportHeight), overscroll: overscroll,
-                                   wide: wide) { confirmingDownload = true }
+                                   wide: wide, scoped: scoped) { confirmingDownload = true }
                 }
                 LibraryGrid(items: LibraryGridItem.page(of: collection, library: byID))
                     .frame(maxWidth: wide ? GamePageMetrics.wideContentWidth : nil)
                     .padding(.vertical, 8)
+                    // Sub-groups open on the same part as this page.
+                    .environment(\.collectionScope, scope)
+                if let scoped {
+                    // As Apple Music ends a downloaded album: the way to the rest.
+                    scopeRow("Show All \(total) Games", systemImage: "square.stack", wide: wide, action: scoped.showAll)
+                } else if self.scope != nil, showsAll {
+                    scopeRow(self.scope == .downloaded ? "Show Only Downloaded" : "Show Only Filtered Games",
+                             systemImage: "line.3.horizontal.decrease", wide: wide) { withAnimation { showsAll = false } }
+                }
             }
             .padding(.bottom, 40)
         }
@@ -85,6 +110,19 @@ struct CollectionPage: View {
         } message: {
             Text(downloadMessage(summary))
         }
+    }
+
+    private func scopeRow(_ title: String, systemImage: String, wide: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 12)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+        .padding(.horizontal, ShowcaseMetrics.margin)
+        .frame(maxWidth: wide ? GamePageMetrics.wideContentWidth : nil)
     }
 
     private func downloadTitle(_ summary: CollectionSummary) -> String {
