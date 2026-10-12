@@ -160,6 +160,14 @@ struct RootView: View {
                     SessionEndingView(game: steam.library.first { $0.appID == appID })
                 }
             }
+            // The controller launcher stays alive under a game; it must hear none of its presses.
+            .onChange(of: gameOnScreen, initial: true) { _, open in ControllerInput.gameOnScreen = open }
+    }
+
+    /// An in-process game's session is open (Ren'Py games are gated by the runtime itself).
+    private var gameOnScreen: Bool {
+        games.artemisSession != nil || games.siglusSession != nil || games.lucaSession != nil
+            || games.catSystemSession != nil || games.kirikiriSession != nil
     }
 
     /// `-ShioriPreviewLibrary` (debug): the library from its on-disk cache without signing in,

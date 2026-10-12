@@ -54,6 +54,13 @@ final class ControllerInput {
     /// frame's pad state goes to it, and the launcher behind it gets nothing.
     static var gameReceiver: (@MainActor (GCExtendedGamepad) -> Void)?
 
+    /// A game session is open (any engine, from its launch cover until it has ended; set by
+    /// `RootView`). The launcher stays alive under the game's full-screen cover with its
+    /// `handler` still set, so without this a press a game doesn't take (or one made before
+    /// the game's view has loaded) would reach the launcher: B backing out, A playing the
+    /// focused game. While it's set the launcher hears nothing, whatever the game does.
+    static var gameOnScreen = false
+
     private var controller: GCController?
     #if os(tvOS)
     /// The Siri Remote, read through GameController for Ren'Py games (UIKit presses are kept
@@ -194,6 +201,12 @@ final class ControllerInput {
             held = anyDown ? [.a] : []
             return
         }
+        if Self.gameOnScreen {
+            // A game is up but takes no pad (or hasn't loaded yet): the press goes nowhere.
+            // Buttons held when the game ends count as held, so they don't fire in the hub.
+            held = Set(PadAction.allCases)
+            return
+        }
         let stick = pad.leftThumbstick
         let pressed: [PadAction: Bool] = [
             .up: pad.dpad.up.isPressed || stick.yAxis.value > Self.stickThreshold,
@@ -287,8 +300,10 @@ final class ControllerInput {
     }
     #endif
 
-    /// Delivers an action as if it came from the controller (debug scripting, tests).
+    /// Delivers an action as if it came from the controller (debug scripting, tests). Never
+    /// while a game is on screen (see `gameOnScreen`).
     func fire(_ action: PadAction) {
+        guard !Self.gameOnScreen, shiori_renpy_is_running() == 0 else { return }
         handler?(action)
     }
 
