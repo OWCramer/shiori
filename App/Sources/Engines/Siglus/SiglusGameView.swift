@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import CSiglus
 import GameController
 import SwiftUI
@@ -110,6 +111,11 @@ final class SiglusGameViewController: UIViewController {
 
         // The pad drives the game through its keyboard and mouse (see `pad(_:)`).
         ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
+        // While still in front (the save's thumbnail is read from the GPU), the place goes
+        // into the game's own save slots; the background save then syncs it.
+        NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.savePlace(reason: "leaving the screen") }
+        }
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
     }
@@ -446,7 +452,10 @@ final class SiglusGameViewController: UIViewController {
         defer { padOptionsDown = options }
         if let alert = leaveAlert, presentedViewController === alert {
             if pad.buttonA.isPressed, !padHeld.contains(.key(0x0D)) {
-                alert.dismiss(animated: true) { [weak self] in self?.leave() }
+                alert.dismiss(animated: true) { [weak self] in
+                    self?.savePlace(reason: "leaving the game")
+                    self?.leave()
+                }
             } else if pad.buttonB.isPressed, !padHeld.contains(.rightClick) {
                 alert.dismiss(animated: true)
             }
@@ -550,12 +559,17 @@ final class SiglusGameViewController: UIViewController {
     }
 
     private func presentLeaveQuestion() {
-        let message = GCController.current?.extendedGamepad != nil
-            ? "Progress since your last save is lost. Ⓐ Leave, Ⓑ Keep Playing."
+        // Honest about what leaving keeps: the place where the game could save it now.
+        let kept = canSavePlace
+            ? "Your place is saved to the game's Load screen as you leave."
             : "Progress since your last save is lost."
+        let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
+        alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in
+            self?.savePlace(reason: "leaving the game")
+            self?.leave()
+        })
         leaveAlert = alert
         present(alert, animated: true)
     }
@@ -588,6 +602,69 @@ final class SiglusGameViewController: UIViewController {
         ControllerInput.gameReceiver = nil
         requestOrientations(.all)
         onExit()
+    }
+
+    // MARK: Saving the place
+
+    /// Which of the game's save slots holds the place Shiori saved last, and that file's
+    /// SHA-256: Shiori reuses the slot only while it still holds that save, so a save the
+    /// player made over it is never overwritten. Kept in `saves/`, so it travels with the
+    /// saves through iCloud (Steam Cloud's rules take only the game's files).
+    private struct PlaceRecord: Codable {
+        var slot: Int
+        var sha256: String
+        var saved: Date
+    }
+
+    private static let placeRecordFile = "shiori-place.json"
+
+    private var savesFolder: URL { gameFolder.appendingPathComponent("saves", isDirectory: true) }
+
+    private func slotFile(_ slot: Int) -> URL {
+        savesFolder.appendingPathComponent(String(format: "%04d.sav", slot))
+    }
+
+    /// The slot Shiori saved the place into last, if that save is still there unchanged.
+    private var ownedSlot: Int? {
+        guard let data = try? Data(contentsOf: savesFolder.appendingPathComponent(Self.placeRecordFile)),
+              let record = try? JSONDecoder().decode(PlaceRecord.self, from: data),
+              let file = try? Data(contentsOf: slotFile(record.slot)),
+              Self.sha256(file) == record.sha256 else { return nil }
+        return record.slot
+    }
+
+    /// Whether the game could save its place now (it has a save point, its script allows
+    /// saving, and a slot is free or Shiori's own).
+    private var canSavePlace: Bool {
+        guard let handle, !leaving, !failed else { return false }
+        return siglus_ios_save_place(handle, Int32(ownedSlot ?? -1), 1) >= 0
+    }
+
+    /// Saves the game's place in its own format (what its SAVE writes: the save point where
+    /// the message on screen began) into Shiori's slot, or the first free one, so the game's
+    /// Load screen and its Continue find it and Steam Cloud carries it to the PC. Between
+    /// engine steps (this runs on the main thread, as the display link does).
+    private func savePlace(reason: String) {
+        guard let handle, !leaving, !failed else { return }
+        let slot = siglus_ios_save_place(handle, Int32(ownedSlot ?? -1), 0)
+        switch slot {
+        case 0...:
+            if let file = try? Data(contentsOf: slotFile(Int(slot))) {
+                let record = PlaceRecord(slot: Int(slot), sha256: Self.sha256(file), saved: .now)
+                try? JSONEncoder().encode(record).write(to: savesFolder.appendingPathComponent(Self.placeRecordFile), options: .atomic)
+            }
+            SiglusRuntime.log.notice("Saved the place in slot \(slot) (\(String(format: "%04d.sav", slot), privacy: .public)), \(reason, privacy: .public)")
+        case -1:
+            SiglusRuntime.log.notice("No place to save, \(reason, privacy: .public) (no save point, or saving is off here)")
+        case -2:
+            SiglusRuntime.log.notice("No free save slot for the place, \(reason, privacy: .public)")
+        default:
+            SiglusRuntime.log.error("Saving the place failed (\(slot)), \(reason, privacy: .public)")
+        }
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func requestOrientations(_ mask: UIInterfaceOrientationMask) {
