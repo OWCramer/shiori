@@ -18,6 +18,15 @@ struct SettingsScreen: View {
                 SettingsAccountSection()
                 SettingsStorageSection()
                 Section {
+                    NavigationLink {
+                        CollectionsScreen()
+                    } label: {
+                        Label("Collections", systemImage: "square.stack")
+                    }
+                } footer: {
+                    Text("Series grouped in Visual Novels and Installed: rename, merge, hide or make your own.")
+                }
+                Section {
                     Toggle(isOn: $uploads) {
                         Label("Upload Saves to Steam Cloud", systemImage: "icloud.and.arrow.up")
                     }

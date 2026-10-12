@@ -10,6 +10,7 @@ struct HomeView: View {
     @Environment(LibraryCuration.self) private var curation
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(ShellModel.self) private var shell
+    @Environment(LibraryCollections.self) private var collections
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var path: [LibraryRoute] = []
     @State private var overscroll: CGFloat = 0
@@ -47,6 +48,15 @@ struct HomeView: View {
                             ForEach(shelves.playsInShiori.prefix(30)) { LibraryCell(game: $0).frame(width: capsuleWidth) }
                         }
                     }
+                    let series = collectionShelf
+                    if !series.isEmpty {
+                        HomeShelf(title: "Collections", subtitle: "\(collections.collections.count) series in your library",
+                                  destination: shell.usesSidebar ? .collections : nil) {
+                            ForEach(series, id: \.collection.id) { entry in
+                                CollectionCell(collection: entry.collection, games: entry.games).frame(width: capsuleWidth)
+                            }
+                        }
+                    }
                     if !shelves.visualNovels.isEmpty {
                         HomeVisualNovels(games: shelves.visualNovels)
                     }
@@ -77,6 +87,28 @@ struct HomeView: View {
             .task(id: steam.library.count) { openRequestedGame() }
             #endif
         }
+    }
+
+    /// Collections, the one with the game played or saved most recently first, then by name.
+    private var collectionShelf: [(collection: LibraryCollection, games: [LibraryGame])] {
+        let byID = Dictionary(steam.library.map { ($0.appID, $0) }, uniquingKeysWith: { first, _ in first })
+        let history = PlayHistory.shared
+        return collections.collections
+            .map { collection in
+                let latest = collection.allGames.compactMap { history.lastActivity($0)?.date }.max()
+                return (collection, collection.inReleaseOrder.compactMap { byID[$0] }, latest)
+            }
+            .filter { $0.1.count > 1 }
+            .sorted { a, b in
+                switch (a.2, b.2) {
+                case let (x?, y?): x > y
+                case (.some, nil): true
+                case (nil, .some): false
+                case (nil, nil): a.0.name.localizedStandardCompare(b.0.name) == .orderedAscending
+                }
+            }
+            .prefix(20)
+            .map { (collection: $0.0, games: $0.1) }
     }
 
     #if DEBUG

@@ -19,15 +19,29 @@ struct CollectionPage: View {
     @State private var confirmingDownload = false
     @State private var pastHero = false
     @State private var showsAll = false
+    @State private var editing = false
+    @Environment(\.dismiss) private var dismiss
 
     private var collection: LibraryCollection? { collections.collection(id: collectionID) }
 
     var body: some View {
-        if let collection {
-            page(collection)
-        } else {
-            ContentUnavailableView("No Collection", systemImage: "square.stack",
-                                   description: Text("This collection was removed, maybe on another device."))
+        Group {
+            if let collection {
+                page(collection)
+            } else {
+                ContentUnavailableView("No Collection", systemImage: "square.stack",
+                                       description: Text("This collection was removed, maybe on another device."))
+            }
+        }
+        .toolbar {
+            if collection != nil {
+                Button("Edit") { editing = true }
+            }
+        }
+        .sheet(isPresented: $editing) { CollectionEditorSheet(collectionID: collectionID) }
+        // Hidden, deleted or merged away (here or on another device): back to where it was opened.
+        .onChange(of: collection == nil) { _, gone in
+            if gone { dismiss() }
         }
     }
 

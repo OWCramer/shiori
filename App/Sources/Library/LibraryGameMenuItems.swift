@@ -8,6 +8,8 @@ struct LibraryGameMenuItems: View {
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
     @Environment(LibraryCuration.self) private var curation
+    @Environment(LibraryCollections.self) private var collections
+    @Environment(ShellModel.self) private var shell: ShellModel?
 
     private var isVisualNovel: Bool { curation.isVisualNovel(game) }
 
@@ -38,6 +40,22 @@ struct LibraryGameMenuItems: View {
         }
         Button(isVisualNovel ? "Remove from Visual Novels" : "Add to Visual Novels",
                systemImage: isVisualNovel ? "eye.slash" : "plus.circle", action: toggleVisualNovel)
+        if let shell {
+            Divider()
+            Button("Add to Collection…", systemImage: "square.stack") { shell.addToCollection([appID]) }
+            Button("New Collection…", systemImage: "plus.square.on.square") { shell.newCollection([appID]) }
+            if let place = placement {
+                Button("Remove from \(place.name)", systemImage: "minus.square") {
+                    withAnimation { collections.remove([appID], from: place.id) }
+                }
+            }
+        }
+    }
+
+    /// The collection or sub-group the game sits in directly.
+    private var placement: LibraryCollection? {
+        guard let top = collections.collection(of: game.appID) else { return nil }
+        return top.subgroups.first { $0.games.contains(game.appID) } ?? top
     }
 
     private func play() { games.play(appID: game.appID) }

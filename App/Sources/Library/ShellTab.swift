@@ -4,6 +4,9 @@ enum ShellTab: Hashable, RawRepresentable {
     case home, visualNovels, installed, recentlyPlayed, downloads, search, settings
     /// Games on one engine (`EngineMatch.engine`), or `LibrarySection.notPlayable`.
     case engine(String)
+    /// Every collection, and one collection (iPad sidebar).
+    case collections
+    case collection(String)
 
     init?(rawValue: String) {
         switch rawValue {
@@ -14,7 +17,12 @@ enum ShellTab: Hashable, RawRepresentable {
         case "downloads": self = .downloads
         case "search": self = .search
         case "settings": self = .settings
+        case "collections": self = .collections
         default:
+            if rawValue.hasPrefix("collection:") {
+                self = .collection(String(rawValue.dropFirst("collection:".count)))
+                return
+            }
             guard rawValue.hasPrefix("engine:") else { return nil }
             self = .engine(String(rawValue.dropFirst("engine:".count)))
         }
@@ -30,6 +38,8 @@ enum ShellTab: Hashable, RawRepresentable {
         case .search: "search"
         case .settings: "settings"
         case let .engine(key): "engine:\(key)"
+        case .collections: "collections"
+        case let .collection(id): "collection:\(id)"
         }
     }
 }

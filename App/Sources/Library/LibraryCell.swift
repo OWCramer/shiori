@@ -26,6 +26,8 @@ struct LibraryCell: View {
         .buttonStyle(.plain)
         .hoverEffect(.lift)
         .contextMenu { LibraryGameMenuItems(game: game) }
+        // iPad: drag onto a collection in the sidebar to add it.
+        .modifier(GameDragSource(appID: game.appID))
         // Drop a patch onto a downloaded game's capsule to import it.
         .modifier(PatchDropTarget(game: game))
         .accessibilityElement(children: .combine)

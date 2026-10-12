@@ -12,6 +12,7 @@ struct ShowcaseShell: View {
     @Environment(GameLibrary.self) private var games
     @Environment(PatchInstaller.self) private var patchInstaller
     @Environment(LibraryCuration.self) private var curation
+    @Environment(LibraryCollections.self) private var collections
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(CompatibilityStore.self) private var compatibility
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -100,6 +101,27 @@ struct ShowcaseShell: View {
                 }
                 .customizationID("engines")
                 .defaultVisibility(.hidden, for: .tabBar)
+                // Collections: each one's page, and All Collections to look after them. A
+                // capsule dragged onto one joins it.
+                TabSection("Collections") {
+                    Tab("All Collections", systemImage: "square.stack.3d.up.fill", value: ShellTab.collections) {
+                        CollectionsTab()
+                    }
+                    .customizationID("collections")
+                    ForEach(collections.collections) { collection in
+                        Tab(collection.name, systemImage: "square.stack", value: ShellTab.collection(collection.id)) {
+                            CollectionTab(collectionID: collection.id)
+                        }
+                        .badge(collection.allGames.count)
+                        .customizationID("collection-\(collection.id)")
+                        .dropDestination(for: String.self) { items in
+                            let games = items.compactMap(GameDrag.appID)
+                            if !games.isEmpty { withAnimation { collections.add(games, to: collection.id) } }
+                        }
+                    }
+                }
+                .customizationID("collectionsSection")
+                .defaultVisibility(.hidden, for: .tabBar)
                 Tab("Settings", systemImage: "gearshape.fill", value: ShellTab.settings) {
                     SettingsScreen(isTab: true)
                 }
@@ -128,6 +150,17 @@ struct ShowcaseShell: View {
         .focusedSceneValue(shell)
         .sheet(isPresented: $shell.showingSettings) { SettingsScreen() }
         .sheet(isPresented: $shell.showingAddGame) { AddVisualNovelView() }
+        .sheet(item: $shell.collectionSheet) { sheet in
+            switch sheet {
+            case let .addTo(games): AddToCollectionView(games: games)
+            case let .new(games):
+                CollectionGamePicker(title: "New Collection", confirmTitle: "Create", naming: "Collection Name",
+                                     selected: Set(games)) { name, picked in
+                    collections.create(named: name, games: picked)
+                }
+            case let .edit(id): CollectionEditorSheet(collectionID: id)
+            }
+        }
         .preferredColorScheme(.dark)
         .task(id: installedFolders.keys.sorted()) { refreshSaves() }
         .onChange(of: scenePhase) { _, phase in
@@ -140,6 +173,10 @@ struct ShowcaseShell: View {
         .onChange(of: engines) { _, engines in
             if case let .engine(key) = shell.tab, !engines.items.contains(where: { $0.key == key }) { shell.select(.home) }
         }
+        // …as does a collection hidden, deleted or merged away.
+        .onChange(of: collections.collections.map(\.id)) { _, ids in
+            if case let .collection(id) = shell.tab, !ids.contains(id) { shell.select(.collections) }
+        }
     }
 
     /// The sidebar's own sections have no tab in the tab bar: a window narrowing to compact
@@ -149,7 +186,7 @@ struct ShowcaseShell: View {
         guard !sidebar else { return }
         switch shell.tab {
         case .recentlyPlayed: shell.select(.home)
-        case .engine: shell.select(.visualNovels)
+        case .engine, .collections, .collection: shell.select(.visualNovels)
         case .settings:
             shell.select(.home)
             shell.showingSettings = true
@@ -170,6 +207,8 @@ struct ShowcaseShell: View {
         shell.tab = savedTab
         #if DEBUG
         if let name = UserDefaults.standard.string(forKey: "ShioriTab"), let start = ShellTab(rawValue: name) { shell.tab = start }
+        // `-ShioriEditCollection <id>` opens a collection's editor.
+        if let id = UserDefaults.standard.string(forKey: "ShioriEditCollection") { shell.collectionSheet = .edit(id) }
         // `-ShioriOrientation landscape|portrait` turns the window (simulators only turn from
         // Device Hub otherwise).
         if let orientation = UserDefaults.standard.string(forKey: "ShioriOrientation") {

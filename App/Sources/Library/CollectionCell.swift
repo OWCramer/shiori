@@ -10,6 +10,8 @@ struct CollectionCell: View {
     @Environment(GameLibrary.self) private var library
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(\.collectionScope) private var scope
+    @Environment(LibraryCollections.self) private var collections
+    @Environment(ShellModel.self) private var shell: ShellModel?
 
     var body: some View {
         let summary = CollectionSummary(games: games, library: library, engineScans: engineScans)
@@ -29,9 +31,22 @@ struct CollectionCell: View {
         }
         .buttonStyle(.plain)
         .hoverEffect(.lift)
+        .contextMenu {
+            if let shell {
+                Button("Edit Collection…", systemImage: "pencil") { shell.editCollection(collection.id) }
+            }
+            Button(removalTitle, systemImage: collection.isSuggested ? "eye.slash" : "trash", role: .destructive) {
+                withAnimation { collections.hide(collection.id) }
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(collection.name), collection")
         .accessibilityValue(summary.line)
+    }
+
+    private var removalTitle: String {
+        if collection.parentID != nil { return collection.isSuggested ? "Remove Sub-group" : "Delete Sub-group" }
+        return collection.isSuggested ? "Hide Suggestion" : "Delete Collection"
     }
 }
 #endif
