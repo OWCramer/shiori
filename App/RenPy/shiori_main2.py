@@ -456,6 +456,47 @@ def _pointer_cursor():
     renpy.config.periodic_callbacks.append(update)
 
 
+def _background_autosave():
+    """Leaving the screen (the home gesture, another app): Ren'Py writes its mobile reload
+    save (_reload-1, which isn't in the game's slots) and persistent. Shiori also asks for a
+    regular autosave first, as the PC build makes one when it quits (config.autosave_on_quit),
+    so the place is in the game's own Auto slots and goes up to iCloud and Steam Cloud with
+    the other saves while the app has background time. Skipped when the place hasn't moved
+    since the last one, so a quick look at another app doesn't push older autosaves out."""
+    interface = getattr(renpy.display.core, "Interface", None)
+    original = getattr(interface, "mobile_save", None)
+    if original is None:
+        return
+    state = {"place": None}
+
+    def mobile_save(self):
+        try:
+            config = renpy.config
+            if getattr(config, "autosave_on_quit", True) and getattr(config, "has_autosave", True):
+                try:
+                    place = renpy.game.context().current
+                except Exception:
+                    place = None
+                if place is not None and place == state["place"]:
+                    print("Shiori: background autosave skipped (same place as the last one)")
+                else:
+                    started = _time.time()
+                    try:
+                        renpy.loadsave.force_autosave(block=True)
+                    except TypeError:
+                        renpy.loadsave.force_autosave()
+                    state["place"] = place
+                    print("Shiori: background autosave asked for (%.2fs)" % (_time.time() - started))
+        except Exception:
+            print("Shiori: background autosave failed")
+            _traceback.print_exc()
+        original(self)
+        print("Shiori: mobile save written")
+        sys.stdout.flush()
+
+    interface.mobile_save = mobile_save
+
+
 _original_import_all = renpy.import_all
 
 
@@ -463,6 +504,7 @@ def _import_all():
     _original_import_all()
     _patch_renpy()
     _pointer_cursor()
+    _background_autosave()
 
 
 renpy.import_all = _import_all

@@ -256,7 +256,10 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             DispatchQueue.main.async { self.present(alert, animated: true) }
         }
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.autosave() }
+            MainActor.assumeIsolated {
+                self?.autosave()
+                NSLog("Luca: autosaved for the background")
+            }
         }
         let link = CADisplayLink(target: self, selector: #selector(frame))
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)

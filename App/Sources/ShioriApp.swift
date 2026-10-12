@@ -52,6 +52,9 @@ struct ShioriApp: App {
                 .environment(patchInstaller)
                 .environment(steam.artwork)
                 .task { await games.syncAllSaves() }
+                // Saves a game was left with (force quit, crash, background time ran out) go up
+                // to Steam Cloud first thing once signed in.
+                .task(id: steam.isLoggedOn) { if steam.isLoggedOn { await games.catchUpSteamCloudAll() } }
                 .task { await compatibility.refresh() }
                 .task { await patchList.refresh() }
                 // Learn each visual novel's engine from its manifests, so the library and the
@@ -72,7 +75,9 @@ struct ShioriApp: App {
             switch phase {
             case .background:
                 shiori_renpy_did_enter_background()
-                if shiori_renpy_is_running() != 0 { games.pushRunningGameSaves() }
+                // A game running in any engine: its autosave, iCloud, then Steam Cloud, in one
+                // background task (Steam's sync on exit, without ending the game).
+                games.saveRunningGameForBackground()
                 games.didEnterBackground()
                 steam.didEnterBackground()
             case .inactive where old == .active:

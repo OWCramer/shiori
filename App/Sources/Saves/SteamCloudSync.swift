@@ -92,6 +92,18 @@ enum SteamCloudSync {
         set { UserDefaults.standard.set(newValue, forKey: "steamCloudUploads") }
     }
 
+    /// Debug and automation builds: `-ShioriSteamCloudUploadsDryRun YES` turns every upload into
+    /// a dry run (what would go up is logged, nothing is written to Steam) and lets the
+    /// upload paths run even with `steamCloudUploads` off, so they can be tested on a real
+    /// account without touching its cloud files. Always false in shipped builds.
+    static var dryRunUploads: Bool {
+        #if DEBUG || SHIORI_AUTOMATION
+        UserDefaults.standard.bool(forKey: "ShioriSteamCloudUploadsDryRun")
+        #else
+        false
+        #endif
+    }
+
     /// Stable per-install id Steam uses to tell this device's app sessions apart.
     static var clientID: UInt64 {
         let key = "steamCloudClientID"
@@ -105,8 +117,16 @@ enum SteamCloudSync {
         var uploaded: [String] = []
         var failed: [String] = []
         var backupFolder: URL?
+        /// Nothing was written: `uploaded` is what would have gone up, `failed` the remote
+        /// copies that would have been backed up first.
+        var dryRun = false
 
         var summary: String {
+            if dryRun {
+                return uploaded.isEmpty ? "Dry run: nothing to upload"
+                    : "Dry run: would upload \(uploaded.joined(separator: ", "))"
+                        + (failed.isEmpty ? "" : "; would back up the cloud copies of \(failed.joined(separator: ", "))")
+            }
             if uploaded.isEmpty, failed.isEmpty { return "Nothing to upload" }
             var parts: [String] = []
             if !uploaded.isEmpty { parts.append("\(uploaded.count) uploaded") }
@@ -124,10 +144,11 @@ enum SteamCloudSync {
     /// copy it's about to replace first. Does nothing unless uploads are enabled.
     /// With `dryRun`, reports what would upload (as `uploaded`) and writes nothing anywhere.
     static func push(session: SteamSession, appID: UInt32, saves: URL, now: Date = .now, dryRun: Bool = false) async throws -> PushResult {
+        let dryRun = dryRun || dryRunUploads
         guard uploadsEnabled || dryRun else { return PushResult() }
-        guard let app = try await session.appInfo([appID]).first else { return PushResult() }
+        guard let app = try await session.appInfo([appID]).first else { return PushResult(dryRun: dryRun) }
         let ufs = UFSConfig(app: app)
-        guard let rule = ufs.saveRules.first(where: mapsToSaves) else { return PushResult() }
+        guard let rule = ufs.saveRules.first(where: mapsToSaves) else { return PushResult(dryRun: dryRun) }
         let (_, remoteFiles) = try await session.cloudFiles(appID: appID)
         let remote = Dictionary(
             remoteFiles.filter { !$0.isDeleted && ufs.rule(for: $0) == rule }.map { ($0.name, $0) },
@@ -156,9 +177,9 @@ enum SteamCloudSync {
         if let quota = ufs.quota, uploads.reduce(0, { $0 + UInt64($1.data.count) }) > quota {
             throw SteamError.contentUnavailable("Steam Cloud space for this game (over its quota)")
         }
-        guard !uploads.isEmpty else { return PushResult() }
+        guard !uploads.isEmpty else { return PushResult(dryRun: dryRun) }
         if dryRun {
-            return PushResult(uploaded: uploads.map { String($0.path.dropFirst(prefix.count)) }, failed: toBackUp.map(\.name))
+            return PushResult(uploaded: uploads.map { String($0.path.dropFirst(prefix.count)) }, failed: toBackUp.map(\.name), dryRun: true)
         }
 
         // Spec: every upload is preceded by a local backup of the remote copy.

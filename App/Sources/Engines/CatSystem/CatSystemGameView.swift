@@ -254,6 +254,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
                 self.autosave()
                 self.readLines.save(to: self.saves)
                 self.settings.save(to: self.saves)
+                NSLog("CatSystem: autosaved on leaving the screen")
             }
         }
         let link = CADisplayLink(target: self, selector: #selector(frame))

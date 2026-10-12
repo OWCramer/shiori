@@ -388,28 +388,51 @@ final class GameLibrary {
         }
     }
 
-    /// Uploads newer saves to Steam Cloud, if uploads are switched on in Settings.
     /// Whether saves made here may go up to Steam Cloud. Not for games run on a newer Ren'Py
     /// than their PC build: the PC's older engine might not load what the newer one wrote.
     func canUploadSteamCloud(_ appID: UInt32) -> Bool {
-        guard SteamCloudSync.uploadsEnabled, isSteamCloudEnabled(appID) else { return false }
+        // A debug dry run walks the upload paths without writing anything to Steam.
+        guard SteamCloudSync.uploadsEnabled || SteamCloudSync.dryRunUploads, isSteamCloudEnabled(appID) else { return false }
         guard case let .installed(record) = statuses[appID], let engine = record.engine else { return true }
         return RenPyEngine.savesMatchPC(engine)
     }
 
-    func pushSteamCloud(appID: UInt32) async {
+    /// Uploads changed saves (newer here, different contents) to Steam Cloud, backing up each
+    /// cloud copy it replaces first. Returns whether it ran without a failed file; a
+    /// successful push is recorded for the next launch's catch-up.
+    @discardableResult
+    func pushSteamCloud(appID: UInt32) async -> Bool {
         guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID],
               case .loggedOn = await session.state
-        else { return }
+        else { return false }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+        let started = Date()
+        let newest = SavePushLedger.newestSave(in: saves)
         steamCloud[appID] = .syncing
         do {
             let result = try await SteamCloudSync.push(session: session, appID: appID, saves: saves)
             steamCloud[appID] = .synced(.now, result.summary)
             log.notice("Steam Cloud upload \(appID): \(result.summary, privacy: .public), backup \(result.backupFolder?.path ?? "none", privacy: .public)")
+            guard result.dryRun || result.failed.isEmpty else { return false }
+            SavePushLedger.record(result.dryRun ? .steamCloudDryRun : .steamCloud, appID: appID, pushedAt: started, newestSave: newest)
+            return true
         } catch {
             steamCloud[appID] = .failed(Self.message(for: error))
             log.error("Steam Cloud upload \(appID) failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// Whether this game's saves go up to Steam Cloud from here: the upload switches and the
+    /// Ren'Py runtime rule (`canUploadSteamCloud`), plus per engine the rules for leaving a
+    /// game: KiriKiri and Siglus only when the cloud rules name the save folder; Artemis, Luca
+    /// and CatSystem2 never (Shiori's own save format).
+    func uploadsToSteamCloud(_ appID: UInt32) -> Bool {
+        guard canUploadSteamCloud(appID), case let .installed(record) = statuses[appID] else { return false }
+        switch record.engine?.engine {
+        case "artemis", "luca", "catsystem2": return false
+        case "kirikiri", "siglus": return steamCloudMapped[appID] == true
+        default: return true
         }
     }
 
@@ -427,10 +450,18 @@ final class GameLibrary {
               case .loggedOn = await session.state
         else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+        let started = Date()
+        let newest = SavePushLedger.newestSave(in: saves)
         let result = try? await SteamCloudSync.push(session: session, appID: appID, saves: saves)
-        try? await session.cloudExitSyncDone(appID: appID, clientID: SteamCloudSync.clientID,
-                                             uploadsCompleted: result?.failed.isEmpty ?? false,
-                                             uploadsRequired: !(result?.uploaded.isEmpty ?? true))
+        if let result, result.dryRun || result.failed.isEmpty {
+            SavePushLedger.record(result.dryRun ? .steamCloudDryRun : .steamCloud, appID: appID, pushedAt: started, newestSave: newest)
+        }
+        // A dry run tells Steam nothing.
+        if !SteamCloudSync.dryRunUploads {
+            try? await session.cloudExitSyncDone(appID: appID, clientID: SteamCloudSync.clientID,
+                                                 uploadsCompleted: result?.failed.isEmpty ?? false,
+                                                 uploadsRequired: !(result?.uploaded.isEmpty ?? true))
+        }
         log.notice("Steam Cloud on exit \(appID): \(result?.summary ?? "failed", privacy: .public)")
     }
 
@@ -487,23 +518,203 @@ final class GameLibrary {
         if let running = syncTasks[appID] { await running.value }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
         saveSync[appID] = .syncing
-        let task = Task.detached(priority: .userInitiated) { Self.syncNow(appID: appID, saves: saves, direction: direction) }
+        let started = Date()
+        let task = Task.detached(priority: .userInitiated) {
+            (SavePushLedger.newestSave(in: saves), Self.syncNow(appID: appID, saves: saves, direction: direction))
+        }
         syncTasks[appID] = Task { _ = await task.value }
-        let outcome = await task.value
+        let (newest, outcome) = await task.value
         syncTasks[appID] = nil
-        noteSyncOutcome(outcome, for: appID)
+        noteSyncOutcome(outcome, for: appID, pushed: direction == .pull ? nil : (started, newest))
     }
 
     private var syncTasks: [UInt32: Task<Void, Never>] = [:]
 
-    /// Pulls every installed game's saves, e.g. at launch.
+    /// Syncs every installed game's saves with iCloud at launch: first the catch-up (saves
+    /// left behind last time go up), then both ways.
     func syncAllSaves() async {
-        let installed = statuses.compactMap { appID, status in if case .installed = status { appID } else { nil } }
+        let installed = installedAppIDs
+        for appID in installed { await catchUpICloud(appID: appID) }
         for appID in installed { await syncSaves(appID: appID, direction: .both) }
     }
 
-    /// Synchronous push for the running game, when there's no time for a task: the app
-    /// going to the background, or the game quitting just before Shiori exits.
+    private var installedAppIDs: [UInt32] {
+        statuses.compactMap { appID, status in if case .installed = status { appID } else { nil } }.sorted()
+    }
+
+    private func savesFolder(_ appID: UInt32) -> URL? {
+        guard case let .installed(record) = statuses[appID] else { return nil }
+        return folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
+    }
+
+    // MARK: - Save catch-up
+
+    // Saves can be left behind: the app force quit or crashed before pushing, or iOS ended
+    // its background time first. Each push is recorded (`SavePushLedger`); a game whose save
+    // files are newer than its last push gets pushed before anything is pulled over them:
+    // iCloud at launch, Steam Cloud once signed in, and both before a game's pre-play pull.
+    // The usual rules hold: newest wins per file, and the older copy is kept.
+
+    private nonisolated static func ledgerCheck(_ destination: SavePushLedger.Destination, appID: UInt32, saves: URL) async -> SavePushLedger.Check {
+        await Task.detached(priority: .userInitiated) { SavePushLedger.check(destination, appID: appID, saves: saves) }.value
+    }
+
+    /// Pushes the game's saves to iCloud if any are newer than its last iCloud push.
+    func catchUpICloud(appID: UInt32) async {
+        guard isCloudSaveEnabled(appID), let saves = savesFolder(appID) else { return }
+        switch await Self.ledgerCheck(.iCloud, appID: appID, saves: saves) {
+        case .upToDate:
+            return
+        case let .pending(newest, lastPush):
+            log.notice("Catch-up \(appID): saves from \(newest, privacy: .public) never reached iCloud (last push \(lastPush?.description ?? "none", privacy: .public)); pushing")
+        case let .unknown(newest):
+            log.notice("Catch-up \(appID): no iCloud push recorded (newest save \(newest, privacy: .public)); pushing")
+        }
+        await syncSaves(appID: appID, direction: .push)
+    }
+
+    private var steamCatchUps: [UInt32: Task<Void, Never>] = [:]
+
+    /// Uploads the game's changed saves to Steam Cloud if any are newer than its last
+    /// upload, for games allowed to upload. Without a record yet, the saves on disk become
+    /// the baseline instead (nothing is uploaded on the first check).
+    func catchUpSteamCloud(appID: UInt32) async {
+        if let running = steamCatchUps[appID] { return await running.value }
+        guard uploadsToSteamCloud(appID), let saves = savesFolder(appID) else { return }
+        let destination: SavePushLedger.Destination = SteamCloudSync.dryRunUploads ? .steamCloudDryRun : .steamCloud
+        let task = Task {
+            switch await Self.ledgerCheck(destination, appID: appID, saves: saves) {
+            case .upToDate:
+                return
+            case let .unknown(newest):
+                SavePushLedger.record(destination, appID: appID, pushedAt: newest, newestSave: newest)
+                log.notice("Catch-up \(appID): first Steam Cloud check; saves up to \(newest, privacy: .public) taken as the baseline")
+            case let .pending(newest, lastPush):
+                guard case .loggedOn = await session.state else {
+                    log.notice("Catch-up \(appID): saves from \(newest, privacy: .public) wait for Steam sign-in")
+                    return
+                }
+                log.notice("Catch-up \(appID): saves from \(newest, privacy: .public) never reached Steam Cloud (last upload \(lastPush?.description ?? "none", privacy: .public)); uploading\(destination == .steamCloudDryRun ? " (dry run)" : "", privacy: .public)")
+                await pushSteamCloud(appID: appID)
+            }
+        }
+        steamCatchUps[appID] = task
+        await task.value
+        steamCatchUps[appID] = nil
+    }
+
+    /// Once signed in to Steam: every installed game's Steam Cloud catch-up.
+    func catchUpSteamCloudAll() async {
+        for appID in installedAppIDs { await catchUpSteamCloud(appID: appID) }
+    }
+
+    /// Before a game's pre-play pull: send up what this device has that never went up.
+    private func catchUp(appID: UInt32) async {
+        await catchUpICloud(appID: appID)
+        await catchUpSteamCloud(appID: appID)
+    }
+
+    // MARK: - Saves on going to the background
+
+    /// How long the background save may take in all; iOS allows about 30 seconds.
+    private static let backgroundSaveDeadline: Duration = .seconds(20)
+    /// How long to wait for the game's own autosave to land in `saves/`.
+    private nonisolated static let autosaveWait: Duration = .seconds(4)
+
+    /// The game being played right now, in any engine.
+    var runningGameAppID: UInt32? {
+        if let playingAppID { return playingAppID }
+        return [artemisSession, kirikiriSession, siglusSession, lucaSession, catSystemSession]
+            .compactMap { $0?.appID }.first { $0 != 0 }
+    }
+
+    private var backgroundSave: (id: UIBackgroundTaskIdentifier, steps: Task<Void, Never>, deadline: Task<Void, Never>)?
+
+    /// The app went to the background with a game running (the game is still running, so its
+    /// Steam Cloud session stays open). Like Steam's sync on exit, inside one background task:
+    /// let the game's autosave land, copy the saves to iCloud, then upload changed files to
+    /// Steam Cloud where this game may upload. Whatever doesn't finish is caught up next launch.
+    func saveRunningGameForBackground() {
+        guard backgroundSave == nil, let appID = runningGameAppID, case let .installed(record) = statuses[appID],
+              let saves = savesFolder(appID) else { return }
+        let engine = record.engine?.engine ?? "?"
+        let entered = Date()
+        log.notice("Background save \(appID) (\(engine, privacy: .public)): started")
+        let id = UIApplication.shared.beginBackgroundTask(withName: "Save sync on background") { [weak self] in
+            MainActor.assumeIsolated {
+                log.error("Background save \(appID): iOS ended the background time; the rest is caught up next launch")
+                if let self, let current = self.backgroundSave { self.endBackgroundSave(current.id, reason: "expired") }
+            }
+        }
+        let steps = Task { [weak self] in
+            await self?.backgroundSaveSteps(appID: appID, engine: engine, saves: saves, entered: entered)
+            self?.endBackgroundSave(id, reason: "done")
+        }
+        let deadline = Task { [weak self] in
+            try? await Task.sleep(for: Self.backgroundSaveDeadline)
+            guard !Task.isCancelled else { return }
+            log.error("Background save \(appID): deadline reached; the rest is caught up next launch")
+            self?.endBackgroundSave(id, reason: "deadline")
+        }
+        backgroundSave = (id, steps, deadline)
+    }
+
+    private func endBackgroundSave(_ id: UIBackgroundTaskIdentifier, reason: String) {
+        guard let current = backgroundSave, current.id == id else { return }
+        backgroundSave = nil
+        current.deadline.cancel()
+        if reason != "done" { current.steps.cancel() }
+        log.notice("Background save: background task ended (\(reason, privacy: .public))")
+        UIApplication.shared.endBackgroundTask(id)
+    }
+
+    private func backgroundSaveSteps(appID: UInt32, engine: String, saves: URL, entered: Date) async {
+        // 1. The game's own save. Ren'Py autosaves and writes its reload save as it leaves the
+        // screen, Luca and CatSystem2 autosave, Artemis writes its globals; KiriKiri and
+        // Siglus write their saves as they play (neither engine can be asked to save safely).
+        let written = await Self.waitForSaveWrites(in: saves, since: entered.addingTimeInterval(-3))
+        log.notice("Background save \(appID) step 1, game's save (\(engine, privacy: .public)): \(written.isEmpty ? "no new files" : "wrote " + written.joined(separator: ", "), privacy: .public)")
+        guard !Task.isCancelled else { return }
+
+        // 2. iCloud.
+        if isCloudSaveEnabled(appID) {
+            await syncSaves(appID: appID, direction: .push)
+            log.notice("Background save \(appID) step 2, iCloud: \(String(describing: self.saveSync[appID] ?? .idle), privacy: .public)")
+        } else {
+            log.notice("Background save \(appID) step 2, iCloud: off for this game")
+        }
+        guard !Task.isCancelled else { return }
+
+        // 3. Steam Cloud: changed files only, each replaced cloud copy backed up first; the
+        // app session isn't ended (the game is still running).
+        guard uploadsToSteamCloud(appID) else {
+            log.notice("Background save \(appID) step 3, Steam Cloud: this game doesn't upload from here")
+            return
+        }
+        guard case .loggedOn = await session.state else {
+            log.notice("Background save \(appID) step 3, Steam Cloud: not signed in; caught up next launch")
+            return
+        }
+        let pushed = await pushSteamCloud(appID: appID)
+        log.notice("Background save \(appID) step 3, Steam Cloud\(SteamCloudSync.dryRunUploads ? " (dry run)" : "", privacy: .public): \(pushed ? "done" : "didn't finish", privacy: .public), \(String(describing: self.steamCloud[appID] ?? .idle), privacy: .public)")
+    }
+
+    /// Waits for the game's save files to stop changing (at least a second, at most
+    /// `autosaveWait`), then returns the files written since `since`.
+    private nonisolated static func waitForSaveWrites(in saves: URL, since: Date) async -> [String] {
+        let clock = ContinuousClock()
+        let start = clock.now
+        var last = await Task.detached { SaveSync.files(in: saves) }.value
+        var quietSince = clock.now
+        while clock.now - start < autosaveWait, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(250))
+            let now = await Task.detached { SaveSync.files(in: saves) }.value
+            if now != last { last = now; quietSince = clock.now }
+            if clock.now - start >= .seconds(1), clock.now - quietSince >= .milliseconds(750) { break }
+        }
+        return last.filter { $0.value >= since }.keys.sorted()
+    }
+
     /// Set once a game has ended, while its saves go up before the app closes.
     private(set) var endingSession: UInt32?
     /// Why the last game couldn't start, shown as an alert.
@@ -538,20 +749,27 @@ final class GameLibrary {
         }
     }
 
+    /// Synchronous iCloud push for the Ren'Py game that just quit, before Shiori exits.
     func pushRunningGameSaves() {
         guard let appID = playingAppID else { return }
         guard isCloudSaveEnabled(appID), case let .installed(record) = statuses[appID] else { return }
         let saves = folder(appID: appID, name: record.name).appendingPathComponent("saves", isDirectory: true)
-        noteSyncOutcome(Self.syncNow(appID: appID, saves: saves, direction: .push), for: appID)
+        let started = Date()
+        let newest = SavePushLedger.newestSave(in: saves)
+        noteSyncOutcome(Self.syncNow(appID: appID, saves: saves, direction: .push), for: appID, pushed: (started, newest))
     }
 
-    private func noteSyncOutcome(_ outcome: Result<SaveSync.Result, Error>, for appID: UInt32) {
+    /// `pushed`: for a sync that sends files up, when it started and the newest save then,
+    /// recorded on success for the next launch's catch-up.
+    private func noteSyncOutcome(_ outcome: Result<SaveSync.Result, Error>, for appID: UInt32, pushed: (at: Date, newest: Date?)? = nil) {
         switch outcome {
         case let .success(result):
             saveSync[appID] = .synced(.now, result.summary)
             log.notice("Saves \(appID): \(result.summary, privacy: .public)")
+            if let pushed { SavePushLedger.record(.iCloud, appID: appID, pushedAt: pushed.at, newestSave: pushed.newest) }
         case let .failure(error as SaveSync.Error) where error == .unavailable:
             saveSync[appID] = .unavailable
+            log.notice("Saves \(appID): iCloud isn't available, nothing synced")
         case let .failure(error):
             saveSync[appID] = .failed(error.localizedDescription)
             log.error("Save sync \(appID) failed: \(String(describing: error), privacy: .public)")
@@ -671,6 +889,8 @@ final class GameLibrary {
             Task {
                 // The cover's art downloads while saves sync (usually from URLCache).
                 async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
+                // Saves left behind here go up before anything is pulled over them.
+                await catchUp(appID: appID)
                 await syncSaves(appID: appID, direction: .pull)
                 if !["artemis", "luca", "catsystem2"].contains(engine.engine), steamCloudMapped[appID] == true { await pullSteamCloud(appID: appID) }
                 #if !os(tvOS)
@@ -710,6 +930,8 @@ final class GameLibrary {
         Task {
             // The launch cover's art downloads while saves sync (usually from URLCache).
             async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
+            // Saves left behind here go up first, so the pulls never overwrite them.
+            await catchUp(appID: appID)
             // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
             if isSteamCloudEnabled(appID) { launching = (appID, .steamCloud) }
             await pullSteamCloud(appID: appID)
