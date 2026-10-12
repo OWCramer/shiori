@@ -74,6 +74,101 @@ public struct UFSConfig: Equatable, Sendable {
             return prefix == expected || (rule.recursive && prefix.hasPrefix(expected))
         }
     }
+
+    /// One folder in the cloud with every pattern the rules give it. Games often list a
+    /// folder once per pattern (Harmonia: `savedata` with `*.sav`, `*.bmp` and `*.ini`), and
+    /// a file belongs to the folder if any of them matches.
+    public struct SaveFolder: Equatable, Sendable {
+        public var root: String
+        public var path: String
+        /// In rule order, without repeats.
+        public var patterns: [String]
+        /// Any of the folder's rules is recursive.
+        public var recursive: Bool
+        /// The folder's rules, in order.
+        public var rules: [SaveRule]
+
+        public var cloudPrefix: String { rules[0].cloudPrefix }
+
+        /// Whether a file name directly in this folder matches one of its patterns
+        /// (case-insensitively, as on the Windows PC that wrote it).
+        public func matches(name: String) -> Bool {
+            patterns.contains { UFSConfig.matches(name, pattern: $0) }
+        }
+
+        /// Whether a cloud file is stored in this folder and matches one of its patterns.
+        /// Files in subfolders of a recursive folder count only with `includingSubfolders`
+        /// (Shiori's `saves/` is flat, so they have nowhere to go there).
+        public func holds(_ file: CloudFile, includingSubfolders: Bool = false) -> Bool {
+            let prefix = file.prefix.replacingOccurrences(of: "\\", with: "/").lowercased()
+            let expected = cloudPrefix.lowercased()
+            guard prefix == expected || (includingSubfolders && recursive && prefix.hasPrefix(expected)) else { return false }
+            return matches(name: file.name)
+        }
+    }
+
+    /// The rules grouped by folder (root and path, case-insensitively), in the order each
+    /// folder first appears.
+    public var saveFolders: [SaveFolder] {
+        var folders: [SaveFolder] = []
+        for rule in saveRules {
+            let key = rule.cloudPrefix.lowercased()
+            if let index = folders.firstIndex(where: { $0.cloudPrefix.lowercased() == key }) {
+                if !folders[index].patterns.contains(rule.pattern) { folders[index].patterns.append(rule.pattern) }
+                folders[index].recursive = folders[index].recursive || rule.recursive
+                folders[index].rules.append(rule)
+            } else {
+                folders.append(SaveFolder(root: rule.root, path: rule.path, patterns: [rule.pattern],
+                                          recursive: rule.recursive, rules: [rule]))
+            }
+        }
+        return folders
+    }
+
+    /// Steam's ufs patterns are shell globs (`*`, `*.sav`), matched without regard to case.
+    public static func matches(_ name: String, pattern: String) -> Bool {
+        fnmatch(pattern, name, FNM_CASEFOLD) == 0
+    }
+
+    /// What an upload would leave in the app's cloud, against its limits.
+    public struct QuotaCheck: Equatable, Sendable {
+        public var filesBefore: Int
+        public var filesAfter: Int
+        public var bytesBefore: UInt64
+        public var bytesAfter: UInt64
+        public var maxFiles: Int?
+        public var quota: UInt64?
+
+        /// More files than `maxnumfiles` allows, and the upload is what adds them.
+        public var exceedsFileCount: Bool {
+            guard let maxFiles else { return false }
+            return filesAfter > maxFiles && filesAfter > filesBefore
+        }
+
+        /// More bytes than `quota` allows, and the upload is what adds them.
+        public var exceedsQuota: Bool {
+            guard let quota else { return false }
+            return bytesAfter > quota && bytesAfter > bytesBefore
+        }
+
+        public var isAllowed: Bool { !exceedsFileCount && !exceedsQuota }
+    }
+
+    /// Plans an upload against the app's whole cloud (every folder, not just the save folder):
+    /// each upload replaces the cloud file at the same path (case-insensitively) or adds one.
+    /// An upload that would go over `maxnumfiles` or `quota` should be refused whole; a cloud
+    /// that's already over its limits can still have files replaced without growing.
+    public func checkUpload(remote: [CloudFile], uploads: [(path: String, size: Int)]) -> QuotaCheck {
+        let present = remote.filter { !$0.isDeleted }
+        var sizes: [String: UInt64] = [:]
+        for file in present { sizes[file.path.replacingOccurrences(of: "\\", with: "/").lowercased()] = UInt64(file.size) }
+        let filesBefore = sizes.count
+        let bytesBefore = sizes.values.reduce(0, +)
+        for upload in uploads { sizes[upload.path.replacingOccurrences(of: "\\", with: "/").lowercased()] = UInt64(upload.size) }
+        return QuotaCheck(filesBefore: filesBefore, filesAfter: sizes.count,
+                          bytesBefore: bytesBefore, bytesAfter: sizes.values.reduce(0, +),
+                          maxFiles: maxFiles, quota: quota)
+    }
 }
 
 extension SteamSession {
