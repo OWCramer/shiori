@@ -24,6 +24,7 @@ final class PlayHistory {
 
     private init() {
         launches = Self.load()
+        latestSave = Self.loadSaveTimes()
     }
 
     /// Notes that the game is starting.
@@ -63,7 +64,10 @@ final class PlayHistory {
         refreshing = Task {
             let found = await Task.detached(priority: .utility) { Self.newestSaves(in: folders) }.value
             guard !Task.isCancelled else { return }
-            if found != latestSave { latestSave = found }
+            if found != latestSave {
+                latestSave = found
+                Self.storeSaveTimes(found)
+            }
         }
     }
 
@@ -82,6 +86,20 @@ final class PlayHistory {
     private struct Entry: Codable {
         var appID: UInt32
         var date: Date
+    }
+
+    /// The last save times found, kept on this device so Home's first frame after a launch
+    /// already shows them (the folders are re-read in the background). Without it, Home
+    /// first showed launch times and then jumped to the newer save times.
+    private static let saveTimesKey = "playHistory.latestSave"
+
+    private static func loadSaveTimes() -> [UInt32: Date] {
+        let stored = UserDefaults.standard.dictionary(forKey: saveTimesKey) as? [String: Date] ?? [:]
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, date in UInt32(key).map { ($0, date) } })
+    }
+
+    private static func storeSaveTimes(_ times: [UInt32: Date]) {
+        UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: times.map { (String($0.key), $0.value) }), forKey: saveTimesKey)
     }
 
     private static func load() -> [UInt32: Date] {
