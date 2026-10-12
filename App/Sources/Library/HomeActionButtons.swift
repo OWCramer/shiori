@@ -12,7 +12,7 @@ struct HomeActionButtons: View {
         GlassEffectContainer(spacing: 12) {
             HStack(spacing: 12) {
                 PrimaryGameButton(game: game, compact: labels < 1)
-                NavigationLink(value: game) {
+                GameLink(game: game) {
                     GameActionLabel(title: "Details", systemImage: "info.circle", iconOnly: labels < 2)
                 }
                 .buttonStyle(.glass)

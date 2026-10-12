@@ -9,7 +9,7 @@ struct LibraryCell: View {
 
     var body: some View {
         let status = games.status(for: game.appID)
-        NavigationLink(value: game) {
+        GameLink(game: game) {
             VStack(alignment: .leading, spacing: 6) {
                 ShowcaseCapsule(game: game, status: status)
                 Text(game.name)

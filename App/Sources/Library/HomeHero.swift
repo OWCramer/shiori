@@ -40,7 +40,7 @@ struct HomeHero: View {
     var body: some View {
         let wide = sizeClass == .regular
         let alignment: HorizontalAlignment = wide ? .leading : .center
-        NavigationLink(value: game) {
+        GameLink(game: game) {
             HomeHeroArt(game: game, bannerHeight: bannerHeight,
                         extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
         }

@@ -12,7 +12,7 @@ struct ContinueCard: View {
     private var launching: Bool { games.launchPhase(for: game.appID) != nil }
 
     var body: some View {
-        NavigationLink(value: game) {
+        GameLink(game: game) {
             LandscapeArt(game: game)
                 .frame(width: sizeClass == .regular ? ShowcaseMetrics.wideCard : ShowcaseMetrics.card)
                 .overlay(alignment: .bottomLeading) {

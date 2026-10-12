@@ -38,7 +38,7 @@ struct DownloadQueueRow: View {
     var body: some View {
         GamePageRow {
             HStack(spacing: 12) {
-                NavigationLink(value: game) {
+                GameLink(game: game) {
                     HStack(spacing: 12) {
                         CapsuleArt(game: game)
                             .frame(width: 44)

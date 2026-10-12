@@ -15,7 +15,7 @@ struct ActiveDownloadCard: View {
 
     var body: some View {
         let progress = progress
-        NavigationLink(value: game) {
+        GameLink(game: game) {
             VStack(alignment: .leading, spacing: 14) {
                 GameLogo(game: game, maxWidth: 240, maxHeight: 80, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)

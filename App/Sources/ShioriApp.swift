@@ -182,7 +182,7 @@ struct RootView: View {
             if controllers.isActive {
                 LauncherView()
             } else {
-                ShowcaseShell()
+                DuoBook { ShowcaseShell() }
                     .modifier(DebugCanvas())
             }
             #endif
