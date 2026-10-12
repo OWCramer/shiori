@@ -99,6 +99,9 @@ struct ShioriApp: App {
             default: break
             }
         }
+        #if os(iOS)
+        .commands { ShioriCommands(games: games) }
+        #endif
     }
 }
 

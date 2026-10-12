@@ -1,9 +1,10 @@
 #if os(iOS)
 import SwiftUI
 
-/// The Visual Novels or Installed tab: a grid of the games in it, sorted and filtered.
+/// A grid of games, sorted and filtered: the Visual Novels and Installed tabs, and on iPad's
+/// sidebar Recently Played and each engine.
 struct LibraryGridScreen: View {
-    let list: LibraryFilter
+    let section: LibrarySection
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
     @Environment(LibraryCuration.self) private var curation
@@ -14,25 +15,29 @@ struct LibraryGridScreen: View {
     @State private var filters: LibraryFilters
     @State private var path: [LibraryGame] = []
 
-    init(list: LibraryFilter) {
-        self.list = list
-        _sort = AppStorage(wrappedValue: .name, "librarySort.\(list == .visualNovels ? "visualNovels" : "installed")")
-        _filters = State(initialValue: LibraryFilters.load(list))
+    init(section: LibrarySection) {
+        self.section = section
+        _sort = AppStorage(wrappedValue: section == .recentlyPlayed ? .recent : .name, "librarySort.\(section.storageKey)")
+        _filters = State(initialValue: LibraryFilters.load(section))
     }
 
-    /// The tab's games, before filtering, in the chosen order.
+    /// The section's games, before filtering, in the chosen order.
     private var entries: [LibraryEntry] {
-        let inTab = steam.library.filter { game in
-            switch list {
-            case .visualNovels: curation.isVisualNovel(game)
-            case .installed: games.status(for: game.appID) != .notInstalled
-            }
-        }
         let history = PlayHistory.shared
-        return sort.sorted(inTab, lastActivity: { history.lastActivity($0)?.date }, size: size(of:)).map { game in
-            LibraryEntry(game: game,
-                         traits: GameTraits(game, games: games, engineScans: engineScans, compatibility: compatibility),
-                         isDownloaded: games.status(for: game.appID) != .notInstalled)
+        var traitsCache: [UInt32: GameTraits] = [:]
+        func traits(_ game: LibraryGame) -> GameTraits {
+            if let known = traitsCache[game.appID] { return known }
+            let found = GameTraits(game, games: games, engineScans: engineScans, compatibility: compatibility)
+            traitsCache[game.appID] = found
+            return found
+        }
+        let inSection = steam.library.filter { game in
+            section.contains(game, traits: traits(game), games: games, curation: curation, history: history)
+        }
+        // Recently Played is always newest first.
+        let order = section == .recentlyPlayed ? .recent : sort
+        return order.sorted(inSection, lastActivity: { history.lastActivity($0)?.date }, size: size(of:)).map { game in
+            LibraryEntry(game: game, traits: traits(game), isDownloaded: games.status(for: game.appID) != .notInstalled)
         }
     }
 
@@ -60,30 +65,32 @@ struct LibraryGridScreen: View {
                     if filters.isActive, !entries.isEmpty {
                         LibraryFilteredEmpty(filters: $filters, total: entries.count)
                     } else {
-                        LibraryGridPlaceholder(list: list)
+                        LibraryGridPlaceholder(section: section)
                     }
                 }
             }
             .refreshable { await steam.loadLibrary() }
-            .navigationTitle(list.rawValue)
+            .navigationTitle(section.title)
             .navigationSubtitle(subtitle(shown: shown.count, total: entries.count))
             .navigationDestination(for: LibraryGame.self) { GameDetailView(game: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionStatus() }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    LibraryFilterMenu(filters: $filters, entries: entries, showsDownload: list == .visualNovels)
-                    Menu("Sort", systemImage: "arrow.up.arrow.down") {
-                        Picker("Sort By", selection: $sort) {
-                            ForEach(LibrarySort.allCases) { Text($0.rawValue).tag($0) }
+                    LibraryFilterMenu(filters: $filters, entries: entries, showsDownload: section != .installed)
+                    if section != .recentlyPlayed {
+                        Menu("Sort", systemImage: "arrow.up.arrow.down") {
+                            Picker("Sort By", selection: $sort) {
+                                ForEach(LibrarySort.allCases) { Text($0.rawValue).tag($0) }
+                            }
                         }
                     }
-                    if list == .visualNovels {
+                    if section == .visualNovels {
                         Button("Add to Visual Novels", systemImage: "plus", action: shell.addGame)
                     }
                     SettingsButton()
                 }
             }
-            .onChange(of: filters) { _, filters in filters.save(list) }
+            .onChange(of: filters) { _, filters in filters.save(section) }
         }
     }
 

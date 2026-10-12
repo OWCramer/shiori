@@ -5,18 +5,14 @@ import Observation
 /// questions and sheets its sections raise. The game itself lives in `GameLibrary`.
 @MainActor @Observable
 final class GamePageModel {
-    /// A patch import under way: its file name, how far it has got, the entry being unpacked.
-    struct PatchImport: Equatable {
-        var name: String
-        var fraction: Double
-        var file: String
-    }
-
     let appID: UInt32
     private(set) var patchFiles: [PatchStore.PatchFile] = []
-    private(set) var patchImport: PatchImport?
+    /// The game this page shows, kept current by the page (the keyboard's commands use it).
+    var game: LibraryGame?
+    /// An import under way for this game (here, or dropped on its capsule).
+    var patchImport: PatchImports.Progress? { PatchImports.shared.running[appID] }
     /// The outcome of the last import, shown under the patch files.
-    private(set) var patchMessage: String?
+    var patchMessage: String? { PatchImports.shared.messages[appID] }
 
     var importingPatch = false
     var confirmingRemovePatches = false
@@ -59,45 +55,11 @@ final class GamePageModel {
         reloadPatches(folder: folder)
     }
 
-    /// Unpacks a picked patch off the main thread (a multi-gigabyte zip takes a while),
-    /// reporting how far it has got.
+    /// Imports a patch picked in Files (`PatchImports` unpacks it off the main thread).
     func importPatch(_ result: Result<URL, Error>, folder: URL) {
-        let url: URL
-        do { url = try result.get() } catch {
-            patchMessage = "Couldn't import the patch: \(error.localizedDescription)"
-            return
+        switch result {
+        case let .success(url): PatchImports.shared.start(appID: appID, url: url, gameFolder: folder)
+        case let .failure(error): PatchImports.shared.fail(appID: appID, "Couldn't import the patch: \(error.localizedDescription)")
         }
-        importPatch(at: url, folder: folder)
-    }
-
-    func importPatch(at url: URL, folder: URL) {
-        let name = url.lastPathComponent
-        patchImport = PatchImport(name: name, fraction: 0, file: "")
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            var shown = -1.0
-            let outcome: Result<Int, Error> = Result {
-                try PatchStore.importItem(at: url, gameFolder: folder) { written, total, file in
-                    let fraction = total > 0 ? Double(written) / Double(total) : 0
-                    // A few hundred updates at most, not one per megabyte.
-                    guard fraction - shown >= 0.002 || fraction >= 1 else { return }
-                    shown = fraction
-                    Task { @MainActor in self?.patchImport = PatchImport(name: name, fraction: fraction, file: file) }
-                }
-            }
-            await self?.finishImport(outcome, name: name, folder: folder)
-        }
-    }
-
-    private func finishImport(_ outcome: Result<Int, Error>, name: String, folder: URL) {
-        patchImport = nil
-        switch outcome {
-        case let .success(count):
-            patchMessage = "Imported \(count) file\(count == 1 ? "" : "s") from \(name)."
-        case let .failure(error):
-            patchMessage = "Couldn't import the patch: \(error.localizedDescription)"
-        }
-        reloadPatches(folder: folder)
     }
 }

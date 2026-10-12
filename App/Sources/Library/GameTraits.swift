@@ -26,13 +26,16 @@ struct GameTraits: Equatable {
         if case let .installed(record) = games.status(for: appID) {
             // Downloaded: whether it starts here (a Ren'Py version this build lacks, an
             // engine not built for this device, …), as the Play button says.
+            // When only another Steam version plays, the engine is that version's.
             let playable = games.playBlocker(appID: appID) == nil
-            let beta = engineScans.result(for: appID)?.playableBranch != nil
-            plays = playable || beta ? .yes : .no
-            engine = record.engine?.engine ?? LibraryFilters.unknownEngine
+            let beta = playable ? nil : engineScans.result(for: appID)?.playableBranch
+            plays = playable || beta != nil ? .yes : .no
+            engine = (beta?.engine ?? record.engine)?.engine ?? LibraryFilters.unknownEngine
         } else if let scan = engineScans.result(for: appID), scan.error == nil {
-            plays = Playability(scan.engine, appID: appID) == .playable || scan.playableBranch != nil ? .yes : .no
-            engine = scan.engine?.engine ?? LibraryFilters.unknownEngine
+            let playable = Playability(scan.engine, appID: appID) == .playable
+            let beta = playable ? nil : scan.playableBranch
+            plays = playable || beta != nil ? .yes : .no
+            engine = (beta?.engine ?? scan.engine)?.engine ?? LibraryFilters.unknownEngine
         } else {
             plays = .unknown
             engine = nil

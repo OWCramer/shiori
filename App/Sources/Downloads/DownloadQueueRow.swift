@@ -56,6 +56,7 @@ struct DownloadQueueRow: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.highlight)
                 Spacer(minLength: 0)
                 DownloadQueueControl(game: game, status: status)
             }

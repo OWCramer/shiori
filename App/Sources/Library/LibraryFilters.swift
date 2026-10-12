@@ -89,17 +89,17 @@ struct LibraryFilters: Codable, Equatable {
 
     // MARK: Storage
 
-    private static func key(_ list: LibraryFilter) -> String {
-        "libraryFilters.\(list == .visualNovels ? "visualNovels" : "installed")"
+    private static func key(_ section: LibrarySection) -> String {
+        "libraryFilters.\(section.storageKey)"
     }
 
-    static func load(_ list: LibraryFilter) -> LibraryFilters {
-        guard let data = UserDefaults.standard.data(forKey: key(list)),
+    static func load(_ section: LibrarySection) -> LibraryFilters {
+        guard let data = UserDefaults.standard.data(forKey: key(section)),
               let filters = try? JSONDecoder().decode(LibraryFilters.self, from: data) else { return LibraryFilters() }
         return filters
     }
 
-    func save(_ list: LibraryFilter) {
-        UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: Self.key(list))
+    func save(_ section: LibrarySection) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: Self.key(section))
     }
 }

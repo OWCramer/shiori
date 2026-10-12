@@ -4,6 +4,8 @@ import SwiftUI
 /// Settings on iPhone and iPad (design A): the Steam account, storage with a bar of what
 /// each game takes, saves, engines, Denpasoft, SteamGridDB, and about.
 struct SettingsScreen: View {
+    /// In the iPad's sidebar rather than a sheet: no Done button.
+    var isTab = false
     @Environment(SteamModel.self) private var steam
     @Environment(\.dismiss) private var dismiss
     @State private var signingInToDenpasoft = false
@@ -40,8 +42,10 @@ struct SettingsScreen: View {
             }
             .navigationTitle("Settings")
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", action: close)
+                if !isTab {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done", action: close)
+                    }
                 }
             }
             // On the Form, not its row: a sheet attached to a Form row is dismissed as it appears.

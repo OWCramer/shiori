@@ -1,14 +1,22 @@
 import Observation
 
-/// What the library's screens ask of the shell around them: switch tab, or open Settings
-/// or Add Game. Shared through the environment.
+/// What the library's screens (and the keyboard's commands) ask of the shell around them:
+/// switch section, or open Settings or Add Game. Shared through the environment and as the
+/// scene's focused value.
 @MainActor @Observable
 final class ShellModel {
     var tab: ShellTab = .home
     var showingSettings = false
     var showingAddGame = false
+    /// The iPad's sidebar is showing sections (regular width): Settings is one of them there
+    /// rather than a sheet.
+    var usesSidebar = false
 
     func select(_ tab: ShellTab) { self.tab = tab }
-    func showSettings() { showingSettings = true }
+
+    func showSettings() {
+        if usesSidebar { tab = .settings } else { showingSettings = true }
+    }
+
     func addGame() { showingAddGame = true }
 }

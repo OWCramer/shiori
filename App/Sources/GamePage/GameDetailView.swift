@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 /// The page for one game (design A, Phase 18). The top is Tana's: the stretchy banner with
 /// the logo and a line on what the game is, then Play and its actions on glass. Below, on
 /// plain grouped surfaces, what a player needs in the order they need it: anything stopping
-/// play, the saves, patches and DLC, compatibility, then the version, engine and files.
+/// play, the saves, patches and DLC, compatibility, then the version, engine and files. On a
+/// wide window (an iPad in landscape) those last two go in a second column beside the rest.
 struct GameDetailView: View {
     /// The game as navigated to; `game` follows the live library, so artwork picks show at once.
     private let opened: LibraryGame
@@ -18,6 +19,9 @@ struct GameDetailView: View {
     @State private var model: GamePageModel
     @State private var overscroll: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var width: CGFloat = 0
+    /// On screen (not covered by a page pushed over it): the keyboard's Game commands act on it.
+    @State private var isVisible = false
     /// Scrolled past the banner: the navigation bar gets its background, so the sections
     /// don't run under the title.
     @State private var pastHero = false
@@ -50,6 +54,9 @@ struct GameDetailView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// Wide enough for the details in a column of their own.
+    private var twoColumns: Bool { sizeClass == .regular && width >= GamePageMetrics.twoColumnWidth }
+
     /// The banner's height for this screen (shorter on short screens).
     private var bannerHeight: CGFloat { GameHeroHeader.height(forViewport: viewportHeight) }
 
@@ -58,18 +65,37 @@ struct GameDetailView: View {
         ScrollView {
             VStack(spacing: 22) {
                 GameHeroHeader(game: game, subtitle: metaLine, height: bannerHeight, overscroll: overscroll)
-                VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
-                    GamePageActionRow(game: game, model: model)
-                    GamePagePlaySections(game: game, record: record, model: model)
-                    GamePageDetailSections(game: game, record: record, model: model)
+                if twoColumns {
+                    HStack(alignment: .top, spacing: GamePageMetrics.sectionSpacing) {
+                        VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
+                            GamePageActionRow(game: game, model: model)
+                            GamePagePlaySections(game: game, record: record, model: model)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
+                            GamePageDetailSections(game: game, record: record, model: model)
+                        }
+                        .frame(width: GamePageMetrics.detailColumnWidth)
+                    }
+                    .frame(maxWidth: GamePageMetrics.wideContentWidth)
+                    .padding(.horizontal, margin)
+                } else {
+                    VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
+                        GamePageActionRow(game: game, model: model)
+                        GamePagePlaySections(game: game, record: record, model: model)
+                        GamePageDetailSections(game: game, record: record, model: model)
+                    }
+                    .frame(maxWidth: GamePageMetrics.readableWidth)
+                    .padding(.horizontal, margin)
                 }
-                .frame(maxWidth: GamePageMetrics.readableWidth)
-                .padding(.horizontal, margin)
             }
             .padding(.bottom, 40)
         }
         .scrollOverscroll($overscroll)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            viewportHeight = size.height
+            width = size.width
+        }
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > GameHeroHeader.height(forViewport: geometry.containerSize.height) - 120
         } action: { _, past in
@@ -103,6 +129,12 @@ struct GameDetailView: View {
             model.importPatch(result, folder: folder)
         }
         .modifier(GamePageDialogs(game: game, model: model))
+        // A patch dropped anywhere on the page (iPad) is imported after asking.
+        .modifier(PatchDropTarget(game: game, cornerRadius: 0))
+        .focusedSceneValue(isVisible ? model : nil)
+        .onDisappear { isVisible = false }
+        .onChange(of: PatchImports.shared.finished[appID]) { reloadPatches() }
+        .onChange(of: game, initial: true) { _, game in model.game = game }
         .onAppear(perform: appeared)
         .task(id: steam.isLoggedOn) { await checkGame() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
@@ -110,6 +142,7 @@ struct GameDetailView: View {
     }
 
     private func appeared() {
+        isVisible = true
         reloadPatches()
         #if DEBUG
         // `-ShioriBrowseArchives YES` (with -ShioriOpenGame) opens the archive browser.

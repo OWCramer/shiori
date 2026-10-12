@@ -3,11 +3,18 @@ import SwiftUI
 
 /// The library on iPhone and iPad (design A, "Showcase", Phase 18): a Liquid Glass tab bar
 /// (Home, Visual Novels, Installed, Downloads, Search) that minimises as you scroll, with
-/// the active download riding above it like Music's mini player.
+/// the active download riding above it like Music's mini player. On a wide iPad window the
+/// same tabs are a sidebar (`sidebarAdaptable`), which adds Recently Played, an Engines
+/// section with counts, and Settings; narrower windows fall back to the tab bar, where
+/// those stay reachable through the sort and filter menus and the toolbar's Settings.
 struct ShowcaseShell: View {
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
     @Environment(PatchInstaller.self) private var patchInstaller
+    @Environment(LibraryCuration.self) private var curation
+    @Environment(EngineScanStore.self) private var engineScans
+    @Environment(CompatibilityStore.self) private var compatibility
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
     @SceneStorage("shellTab") private var savedTab: ShellTab = .home
     @State private var shell = ShellModel()
@@ -36,27 +43,62 @@ struct ShowcaseShell: View {
 
     var body: some View {
         @Bindable var shell = shell
+        let engines = sizeClass == .regular
+            ? SidebarEngines(library: steam.library, games: games, curation: curation,
+                             engineScans: engineScans, compatibility: compatibility)
+            : SidebarEngines.none
         TabView(selection: $shell.tab) {
             Tab("Home", systemImage: "play.rectangle.on.rectangle.fill", value: ShellTab.home) {
                 HomeView()
             }
             Tab("Visual Novels", systemImage: "books.vertical.fill", value: ShellTab.visualNovels) {
-                LibraryGridScreen(list: .visualNovels)
+                LibraryGridScreen(section: .visualNovels)
             }
             Tab("Installed", systemImage: "checkmark.circle.fill", value: ShellTab.installed) {
-                LibraryGridScreen(list: .installed)
+                LibraryGridScreen(section: .installed)
+            }
+            if sizeClass == .regular {
+                Tab("Recently Played", systemImage: "clock.fill", value: ShellTab.recentlyPlayed) {
+                    LibraryGridScreen(section: .recentlyPlayed)
+                }
+                .defaultVisibility(.hidden, for: .tabBar)
             }
             Tab("Downloads", systemImage: "arrow.down.circle.fill", value: ShellTab.downloads) {
                 DownloadsScreen()
             }
             .badge(games.downloadItems.count + patchInstaller.jobs.count)
+            // The sidebar's own sections: in the tab bar they'd push Search into More.
+            if sizeClass == .regular {
+                TabSection("Engines") {
+                    ForEach(engines.items) { engine in
+                        Tab(engine.title, systemImage: engine.systemImage, value: ShellTab.engine(engine.key)) {
+                            LibraryGridScreen(section: .engine(engine.key))
+                        }
+                        .badge(engine.count)
+                    }
+                }
+                .defaultVisibility(.hidden, for: .tabBar)
+                Tab("Settings", systemImage: "gearshape.fill", value: ShellTab.settings) {
+                    SettingsScreen(isTab: true)
+                }
+                .defaultVisibility(.hidden, for: .tabBar)
+            }
             Tab(value: ShellTab.search, role: .search) {
                 LibrarySearchScreen()
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        .tabViewSidebarHeader {
+            Label("Shiori", systemImage: "bookmark.fill")
+                .font(.title2)
+                .bold()
+                .foregroundStyle(.pink)
+                .padding(.vertical, 6)
+        }
         .tabBarMinimizeBehavior(.onScrollDown)
         .modifier(DownloadAccessory(game: accessoryGame, open: openDownloads))
         .environment(shell)
+        .focusedSceneValue(shell)
         .sheet(isPresented: $shell.showingSettings) { SettingsScreen() }
         .sheet(isPresented: $shell.showingAddGame) { AddVisualNovelView() }
         .preferredColorScheme(.dark)
@@ -66,6 +108,26 @@ struct ShowcaseShell: View {
         }
         .onAppear(perform: restoreTab)
         .onChange(of: shell.tab) { _, tab in savedTab = tab }
+        .onChange(of: sizeClass, initial: true) { _, size in sizeClassChanged(size) }
+        // A sidebar item that went away (an engine no game uses any more) goes back Home.
+        .onChange(of: engines) { _, engines in
+            if case let .engine(key) = shell.tab, !engines.items.contains(where: { $0.key == key }) { shell.select(.home) }
+        }
+    }
+
+    /// The sidebar's own sections have no tab in the tab bar: a window narrowing to compact
+    /// width (Stage Manager, Split View) goes from them to the nearest tab.
+    private func sizeClassChanged(_ size: UserInterfaceSizeClass?) {
+        shell.usesSidebar = size == .regular
+        guard size != .regular else { return }
+        switch shell.tab {
+        case .recentlyPlayed: shell.select(.home)
+        case .engine: shell.select(.visualNovels)
+        case .settings:
+            shell.select(.home)
+            shell.showingSettings = true
+        default: break
+        }
     }
 
     private func openDownloads() {
