@@ -61,6 +61,7 @@ struct GameDetailView: View {
     private var bannerHeight: CGFloat { GameHeroHeader.height(forViewport: viewportHeight) }
 
     var body: some View {
+        let _ = RenderProbe.hit("GameDetailView")
         let margin = sizeClass == .regular ? GamePageMetrics.wideMargin : GamePageMetrics.margin
         ScrollView {
             VStack(spacing: 8) {

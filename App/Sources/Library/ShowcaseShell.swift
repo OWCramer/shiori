@@ -58,6 +58,7 @@ struct ShowcaseShell: View {
     private static let isPhone = UIDevice.current.userInterfaceIdiom == .phone
 
     var body: some View {
+        let _ = RenderProbe.hit("ShowcaseShell")
         @Bindable var shell = shell
         let engines = usesSidebar
             ? SidebarEngines(library: steam.library, games: games, curation: curation,

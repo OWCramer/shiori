@@ -15,6 +15,7 @@ struct LibraryGrid: View {
     }
 
     var body: some View {
+        let _ = RenderProbe.hit("LibraryGrid")
         let minimum = sizeClass == .regular ? ShowcaseMetrics.wideGridMinimum : ShowcaseMetrics.gridMinimum
         LazyVGrid(columns: [GridItem(.adaptive(minimum: minimum), spacing: 16, alignment: .top)],
                   spacing: ShowcaseMetrics.gridRowSpacing) {

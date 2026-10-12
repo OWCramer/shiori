@@ -15,6 +15,7 @@ struct CapsuleProgress: View {
     }
 
     var body: some View {
+        let _ = RenderProbe.hit("CapsuleProgress")
         if let fraction {
             GlassProgressBar(fraction: fraction, tint: .white)
                 .padding(10)

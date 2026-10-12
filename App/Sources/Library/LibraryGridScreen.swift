@@ -61,6 +61,7 @@ struct LibraryGridScreen: View {
     private var offersGrouping: Bool { section == .visualNovels || section == .installed }
 
     var body: some View {
+        let _ = RenderProbe.hit("LibraryGridScreen")
         let entries = entries
         let shown = entries.filter { filters.admits($0.traits, isDownloaded: $0.isDownloaded) }.map(\.game)
         let items = offersGrouping && grouped ? LibraryGridItem.grouping(shown, collections: collections) : shown.map(LibraryGridItem.game)

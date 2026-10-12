@@ -6,6 +6,7 @@ struct PatchJobProgress: View {
     let phase: PatchInstaller.Phase
 
     var body: some View {
+        let _ = RenderProbe.hit("PatchJobProgress")
         switch phase {
         case let .downloading(written, total, part, parts):
             if total > 0 {

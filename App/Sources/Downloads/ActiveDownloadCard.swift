@@ -14,6 +14,7 @@ struct ActiveDownloadCard: View {
     }
 
     var body: some View {
+        let _ = RenderProbe.hit("ActiveDownloadCard")
         let progress = progress
         GameLink(game: game) {
             VStack(alignment: .leading, spacing: 14) {

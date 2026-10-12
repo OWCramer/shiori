@@ -17,6 +17,13 @@ public struct DownloadProgress: Equatable, Sendable {
     public var downloadedBytes: UInt64
 
     public var fraction: Double { totalBytes == 0 ? 0 : Double(completedBytes) / Double(totalBytes) }
+
+    public init(phase: Phase, totalBytes: UInt64, completedBytes: UInt64, downloadedBytes: UInt64) {
+        self.phase = phase
+        self.totalBytes = totalBytes
+        self.completedBytes = completedBytes
+        self.downloadedBytes = downloadedBytes
+    }
 }
 
 /// One depot build installed into a folder.

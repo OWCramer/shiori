@@ -8,6 +8,7 @@ struct LibraryCell: View {
     @Environment(EngineScanStore.self) private var engineScans
 
     var body: some View {
+        let _ = RenderProbe.hit("LibraryCell")
         let status = games.status(for: game.appID)
         GameLink(game: game) {
             VStack(alignment: .leading, spacing: 6) {

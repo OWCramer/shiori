@@ -203,6 +203,9 @@ final class GameLibrary {
 
     private func startDownload(appID: UInt32, name: String) {
         guard tasks[appID] == nil else { return }
+        #if DEBUG
+        if fakeDownloads.contains(appID) { return startFakeDownload(appID: appID, name: name) }
+        #endif
         names[appID] = name
         if let active = activeDownload, active != appID {
             if !queue.contains(appID) { queue.append(appID) }
@@ -250,6 +253,41 @@ final class GameLibrary {
             startNextQueued()
         }
     }
+
+    #if DEBUG
+    /// Games downloading for show (`-ShioriFakeDownload`); Resume restarts the fake, never Steam.
+    @ObservationIgnored private var fakeDownloads: Set<UInt32> = []
+
+    /// `-ShioriFakeDownload <appid>` (debug): progress for a download that isn't happening,
+    /// reported as SteamKit reports a real one (every 250 ms, ~24 MB/s of a 2 GB game), with
+    /// nothing fetched or written, to measure what a progress tick costs the screens.
+    func startFakeDownload(appID: UInt32, name: String) {
+        guard tasks[appID] == nil else { return }
+        fakeDownloads.insert(appID)
+        names[appID] = name
+        if let active = activeDownload, active != appID {
+            if !queue.contains(appID) { queue.append(appID) }
+            statuses[appID] = .queued
+            return
+        }
+        queue.removeAll { $0 == appID }
+        activeDownload = appID
+        statuses[appID] = .preparing
+        let total: UInt64 = 2_000_000_000
+        var done = lastProgress(appID)?.completedBytes ?? 0
+        tasks[appID] = Task {
+            while !Task.isCancelled, done < total {
+                try? await Task.sleep(for: .milliseconds(250))
+                done = min(total, done + 6_000_000)
+                report(DownloadProgress(phase: .downloading, totalBytes: total, completedBytes: done, downloadedBytes: done), for: appID)
+            }
+            statuses[appID] = done < total ? .paused(lastProgress(appID)) : nil
+            tasks[appID] = nil
+            activeDownload = nil
+            startNextQueued()
+        }
+    }
+    #endif
 
     private func startNextQueued() {
         guard activeDownload == nil, let next = queue.first, let name = names[next] else { return }

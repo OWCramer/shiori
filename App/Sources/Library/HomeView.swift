@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
+        let _ = RenderProbe.hit("HomeView")
         let shelves = HomeShelves(library: steam.library, games: games, curation: curation,
                                   engineScans: engineScans, history: .shared)
         let capsuleWidth = sizeClass == .regular ? ShowcaseMetrics.wideShelfCapsule : ShowcaseMetrics.shelfCapsule

@@ -77,7 +77,7 @@ struct ShioriApp: App {
                 }
                 .task(id: visualNovelIDs) { await collections.refreshVNDB(appIDs: visualNovelIDs) }
             #if DEBUG || SHIORI_AUTOMATION
-                .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games) }
+                .task(id: "\(steam.library.count)-\(steam.isLoggedOn)") { DebugAutomation.run(steam: steam, games: games, patches: patchInstaller) }
             #endif
             #if os(tvOS)
                 // tvOS may have cleared downloaded games while Shiori wasn't running.
@@ -276,7 +276,7 @@ struct SessionEndingView: View {
 enum DebugAutomation {
     private static var done: Set<String> = []
 
-    static func run(steam: SteamModel, games: GameLibrary) {
+    static func run(steam: SteamModel, games: GameLibrary, patches: PatchInstaller) {
         let defaults = UserDefaults.standard
         if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriAutoDownload")), appID != 0, steam.isLoggedOn,
            !done.contains("download"), let app = steam.library.first(where: { $0.appID == appID })
@@ -284,6 +284,22 @@ enum DebugAutomation {
             done.insert("download")
             games.download(app)
         }
+        #if DEBUG
+        // `-ShioriFakeDownload "<appid>,<appid>…"`: pretend downloads (the first runs, the rest
+        // queue) ticking as real ones do, for measuring the screens; nothing is fetched.
+        // `-ShioriFakePatch <appid>` (with `-ShioriFakePatchID <listed patch id>` to show it on
+        // the game page) does the same for a patch download, ticking per network chunk.
+        if let list = defaults.string(forKey: "ShioriFakeDownload"), !done.contains("fake") {
+            done.insert("fake")
+            for appID in list.split(separator: ",").compactMap({ UInt32($0) }) {
+                if let game = steam.library.first(where: { $0.appID == appID }) { games.startFakeDownload(appID: appID, name: game.name) }
+            }
+        }
+        if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriFakePatch")), appID != 0, !done.contains("fakePatch") {
+            done.insert("fakePatch")
+            patches.startFakeJob(appID: appID, patchID: defaults.string(forKey: "ShioriFakePatchID") ?? "fake")
+        }
+        #endif
         if let appID = UInt32(exactly: defaults.integer(forKey: "ShioriAutoPlay")), appID != 0, !done.contains("play") {
             done.insert("play")
             // `-ShioriInput "<s>:<x>,<y>;<s>:esc;…"` replays taps and keys into the game.

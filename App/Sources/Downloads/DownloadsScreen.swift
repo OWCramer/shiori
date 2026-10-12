@@ -45,6 +45,7 @@ struct DownloadsScreen: View {
     }
 
     var body: some View {
+        let _ = RenderProbe.hit("DownloadsScreen")
         let active = active
         let upNext = games.downloadItems.filter { $0 != active?.appID }.compactMap(game)
         let patchJobs = patches.jobs.keys.sorted().compactMap { appID in patches.jobs[appID].flatMap { job in game(appID).map { (game: $0, job: job) } } }

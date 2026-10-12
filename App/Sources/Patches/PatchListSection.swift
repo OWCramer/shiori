@@ -46,6 +46,7 @@ struct PatchListSection: View {
     private var record: GameRecord? { if case let .installed(record) = games.status(for: appID) { record } else { nil } }
 
     var body: some View {
+        let _ = RenderProbe.hit("PatchListSection")
         VStack(alignment: .leading, spacing: 14) {
             if let dlcs, !dlcs.isEmpty { dlcList(dlcs) }
             if !patches.isEmpty {

@@ -98,6 +98,26 @@ final class PatchInstaller {
         }
     }
 
+    #if DEBUG
+    /// A patch download for show (`-ShioriFakePatch`): progress reported as URLSession hands
+    /// over data (a 64 KB chunk every 10 ms, a 300 MB file), with nothing fetched or written.
+    func startFakeJob(appID: UInt32, patchID: String) {
+        guard tasks[appID] == nil else { return }
+        let total: Int64 = 300_000_000
+        jobs[appID] = Job(patchID: patchID, name: "Fake patch", phase: .downloading(written: 0, total: total, part: 1, parts: 1))
+        tasks[appID] = Task { [weak self] in
+            var written: Int64 = 0
+            while !Task.isCancelled, written < total {
+                try? await Task.sleep(for: .milliseconds(10))
+                written = min(total, written + 65_536)
+                self?.jobs[appID]?.phase = .downloading(written: written, total: total, part: 1, parts: 1)
+            }
+            self?.jobs[appID] = nil
+            self?.tasks[appID] = nil
+        }
+    }
+    #endif
+
     func cancel(appID: UInt32) {
         tasks[appID]?.cancel()
     }
