@@ -43,9 +43,22 @@ struct ShowcaseShell: View {
 
     @AppStorage("tabViewCustomization") private var tabCustomization = TabViewCustomization()
 
+    /// Whether the tab view carries the iPad sidebar's own sections (Recently Played, the
+    /// Engines section, Settings): only on an iPad at regular width. A phone stays a phone,
+    /// whatever its width says: the unfolded iPhone Duo (951 points, regular) and a large
+    /// iPhone in landscape keep the five tabs, with the rest in the sort and filter menus
+    /// and the toolbar's Settings.
+    private var usesSidebar: Bool {
+        sizeClass == .regular && !Self.isPhone
+    }
+
+    /// A phone, iPhone Duo included (folded or open). The device, not the window: a size
+    /// class can't tell an unfolded Duo from an iPad.
+    private static let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+
     var body: some View {
         @Bindable var shell = shell
-        let engines = sizeClass == .regular
+        let engines = usesSidebar
             ? SidebarEngines(library: steam.library, games: games, curation: curation,
                              engineScans: engineScans, compatibility: compatibility)
             : SidebarEngines.none
@@ -62,7 +75,7 @@ struct ShowcaseShell: View {
                 LibraryGridScreen(section: .installed)
             }
             .customizationID("installed")
-            if sizeClass == .regular {
+            if usesSidebar {
                 Tab("Recently Played", systemImage: "clock.fill", value: ShellTab.recentlyPlayed) {
                     LibraryGridScreen(section: .recentlyPlayed)
                 }
@@ -75,7 +88,7 @@ struct ShowcaseShell: View {
             .badge(games.downloadItems.count + patchInstaller.jobs.count)
             .customizationID("downloads")
             // The sidebar's own sections: in the tab bar they'd push Search into More.
-            if sizeClass == .regular {
+            if usesSidebar {
                 TabSection("Engines") {
                     ForEach(engines.items) { engine in
                         Tab(engine.title, systemImage: engine.systemImage, value: ShellTab.engine(engine.key)) {
@@ -122,7 +135,7 @@ struct ShowcaseShell: View {
         }
         .onAppear(perform: restoreTab)
         .onChange(of: shell.tab) { _, tab in savedTab = tab }
-        .onChange(of: sizeClass, initial: true) { _, size in sizeClassChanged(size) }
+        .onChange(of: usesSidebar, initial: true) { _, sidebar in sidebarChanged(sidebar) }
         // A sidebar item that went away (an engine no game uses any more) goes back Home.
         .onChange(of: engines) { _, engines in
             if case let .engine(key) = shell.tab, !engines.items.contains(where: { $0.key == key }) { shell.select(.home) }
@@ -131,9 +144,9 @@ struct ShowcaseShell: View {
 
     /// The sidebar's own sections have no tab in the tab bar: a window narrowing to compact
     /// width (Stage Manager, Split View) goes from them to the nearest tab.
-    private func sizeClassChanged(_ size: UserInterfaceSizeClass?) {
-        shell.usesSidebar = size == .regular
-        guard size != .regular else { return }
+    private func sidebarChanged(_ sidebar: Bool) {
+        shell.usesSidebar = sidebar
+        guard !sidebar else { return }
         switch shell.tab {
         case .recentlyPlayed: shell.select(.home)
         case .engine: shell.select(.visualNovels)

@@ -2,7 +2,7 @@
 import SwiftUI
 
 /// Opens a game's page: pushed onto the current navigation stack, or, on an opened iPhone
-/// Duo, shown on the right-hand page (`BookSelection`).
+/// Duo, shown on the left-hand page (`BookSelection`).
 struct GameLink<Label: View>: View {
     let game: LibraryGame
     @ViewBuilder var label: Label
