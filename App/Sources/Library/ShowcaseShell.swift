@@ -81,6 +81,15 @@ struct ShowcaseShell: View {
         shell.tab = savedTab
         #if DEBUG
         if let name = UserDefaults.standard.string(forKey: "ShioriTab"), let start = ShellTab(rawValue: name) { shell.tab = start }
+        // `-ShioriOrientation landscape|portrait` turns the window (simulators only turn from
+        // Device Hub otherwise).
+        if let orientation = UserDefaults.standard.string(forKey: "ShioriOrientation") {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+                OrientationLock.set(orientation == "landscape" ? .landscape : .portrait, in: scene)
+            }
+        }
         #endif
     }
 }
