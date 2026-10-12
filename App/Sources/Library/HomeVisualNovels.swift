@@ -10,9 +10,7 @@ struct HomeVisualNovels: View {
     var body: some View {
         let limit = sizeClass == .regular ? 24 : 18
         VStack(alignment: .leading, spacing: 12) {
-            HomeSectionTitle(title: "Your Visual Novels",
-                             subtitle: "\(games.count) games",
-                             destination: .visualNovels)
+            HomeSectionTitle(title: "Your Visual Novels", destination: .visualNovels)
             LibraryGrid(games: Array(games.prefix(limit)))
             if games.count > limit {
                 Button("Show All \(games.count)", action: showAll)

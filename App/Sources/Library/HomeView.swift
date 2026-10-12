@@ -33,8 +33,7 @@ struct HomeView: View {
                         }
                     }
                     if !shelves.downloading.isEmpty {
-                        HomeShelf(title: "Downloading", subtitle: "\(shelves.downloading.count) in the queue",
-                                  destination: .downloads) {
+                        HomeShelf(title: "Downloading", destination: .downloads) {
                             ForEach(shelves.downloading) { LibraryCell(game: $0).frame(width: capsuleWidth) }
                         }
                     }
@@ -44,14 +43,13 @@ struct HomeView: View {
                         }
                     }
                     if !shelves.playsInShiori.isEmpty {
-                        HomeShelf(title: "Plays in Shiori",
-                                  subtitle: "\(shelves.playsInShiori.count) not downloaded") {
+                        HomeShelf(title: "Plays in Shiori") {
                             ForEach(shelves.playsInShiori.prefix(30)) { LibraryCell(game: $0).frame(width: capsuleWidth) }
                         }
                     }
                     let series = collectionShelf
                     if !series.isEmpty {
-                        HomeShelf(title: "Collections", subtitle: "\(collections.collections.count) series",
+                        HomeShelf(title: "Collections",
                                   destination: shell.usesSidebar ? .collections : nil) {
                             ForEach(series, id: \.collection.id) { entry in
                                 CollectionCell(collection: entry.collection, games: entry.games).frame(width: capsuleWidth)

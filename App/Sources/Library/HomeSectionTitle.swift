@@ -4,7 +4,6 @@ import SwiftUI
 /// A Home shelf's heading: a title (with a chevron when it leads to a tab) and a line under it.
 struct HomeSectionTitle: View {
     var title: String
-    var subtitle: String?
     var destination: ShellTab?
     @Environment(ShellModel.self) private var shell
 
@@ -28,9 +27,6 @@ struct HomeSectionTitle: View {
                 .buttonStyle(.plain)
             } else {
                 Text(title).font(.title2).bold()
-            }
-            if let subtitle {
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, ShowcaseMetrics.margin)
