@@ -29,7 +29,7 @@ struct HomeHero: View {
         NavigationLink(value: game) {
             HomeHeroArt(game: game, wide: wide)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")
         .accessibilityHint("Opens the game's page")
         // Outside the link's label: the text lets taps through to the art; the buttons
