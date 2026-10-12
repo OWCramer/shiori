@@ -184,8 +184,8 @@ final class PatchInstaller {
 
         var errorDescription: String? {
             switch self {
-            case let .hashMismatch(name): "\(name) didn't match the patch list's checksum, so it wasn't installed. The file may have changed since it was listed."
-            case .windowsInstaller: "This patch is a Windows installer program, which can't run here. Shiori can only install patches that are plain game files."
+            case let .hashMismatch(name): "\(name) didn't match the patch list's checksum, so it wasn't installed."
+            case .windowsInstaller: "This patch is a Windows installer, which can't run here."
             }
         }
     }

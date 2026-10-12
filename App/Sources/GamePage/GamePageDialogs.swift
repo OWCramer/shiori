@@ -17,19 +17,19 @@ struct GamePageDialogs: ViewModifier {
             .confirmationDialog("Remove all patches?", isPresented: $model.confirmingRemovePatches, titleVisibility: .visible) {
                 Button("Remove \(model.patchFiles.count) Patch Files", role: .destructive, action: removePatches)
             } message: {
-                Text("The game goes back to exactly what Steam delivered. Saves are kept.")
+                Text("Saves are kept.")
             }
             .confirmationDialog("Download the \(GameText.branch(model.pendingBranch ?? "public", of: game)) version?",
                                 isPresented: Binding(get: { model.pendingBranch != nil }, set: { if !$0 { model.pendingBranch = nil } }),
                                 titleVisibility: .visible) {
                 Button("Download Again", action: switchBranch)
             } message: {
-                Text("The game files are replaced with that Steam version. Saves and patches stay.")
+                Text("Saves and patches stay.")
             }
             .confirmationDialog("Delete \(game.name)?", isPresented: $model.confirmingDelete, titleVisibility: .visible) {
                 Button("Delete Game Files and Saves", role: .destructive, action: delete)
             } message: {
-                Text("This removes the game's folder, including any patches and saves in it.")
+                Text("Its patches and saves are deleted too.")
             }
     }
 

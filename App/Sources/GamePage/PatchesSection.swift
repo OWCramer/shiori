@@ -15,7 +15,7 @@ struct PatchesSection: View {
 
     var body: some View {
         GamePageSection(title: "Patches & DLC",
-                        footer: "Files in the game's patch folder replace or add to its own files, and are picked up the next time you play. Shiori never runs anything from a patch.") {
+                        footer: "Files in the patch folder replace or add to the game's files.") {
             PatchListSection(appID: game.appID, gameFolder: folder, onChange: reloadPatches,
                              onContentChange: { listHasContent = $0 })
                 .padding(.vertical, listHasContent ? 12 : 0)

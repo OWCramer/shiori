@@ -18,8 +18,7 @@ struct DownloadStatusPanel: View {
         case let .paused(progress?):
             panel(title: "Paused", fraction: progress.fraction, detail: bytes(progress), tint: .orange)
         case .queued:
-            GamePageCallout(title: "Queued", systemImage: "clock",
-                            message: "Waiting for the download ahead of it.")
+            GamePageCallout(title: "Queued", systemImage: "clock")
         case let .failed(message, _):
             GamePageCallout(title: "Download stopped", systemImage: "exclamationmark.triangle.fill", tint: .red, message: message)
         case let .verifying(progress):

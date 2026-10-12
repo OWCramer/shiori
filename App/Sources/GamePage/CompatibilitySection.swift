@@ -26,13 +26,13 @@ struct CompatibilitySection: View {
                 }
                 if let branch = entry.branch {
                     GamePageRow {
-                        Label("Play the \(branch) beta (Steam Version).", systemImage: "arrow.triangle.branch")
+                        Label("Play the \(branch) beta.", systemImage: "arrow.triangle.branch")
                             .font(.subheadline)
                     }
                 }
             } else {
                 GamePageRow {
-                    Text("Not in the compatibility list yet.").foregroundStyle(.secondary)
+                    Text("Not on the list yet.").foregroundStyle(.secondary)
                 }
             }
             GamePageRow {

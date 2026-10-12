@@ -39,7 +39,7 @@ struct PatchDropTarget: ViewModifier {
                 Button("Import Patch", action: importPending)
                 Button("Cancel", role: .cancel, action: discard)
             } message: {
-                Text("Its files go into the game's patch folder and are picked up the next time you play. Shiori never runs anything from a patch.")
+                Text("Its files go into the game's patch folder.")
             }
     }
 

@@ -66,7 +66,7 @@ struct VersionSection: View {
                 GamePageRow {
                     VStack(alignment: .leading, spacing: 2) {
                         Toggle(isOn: $phoneLayout) { Label("Phone Layout", systemImage: "iphone") }
-                        Text("Ren'Py's phone screens instead of the PC layout, for games that include them.")
+                        Text("Uses the game's phone screens, if it has them.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

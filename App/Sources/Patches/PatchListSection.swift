@@ -98,7 +98,7 @@ struct PatchListSection: View {
             switch prompt {
             case let .install(patch): Text(confirmationMessage(patch))
             case let .installFile(patch, file): Text("Installs \(file.isEmpty ? "the file" : file) from your Denpasoft downloads. " + confirmationMessage(patch))
-            case .remove: Text("Only this patch's files are deleted; saves and other patches stay.")
+            case .remove: Text("Saves and other patches stay.")
             }
         }
     }
@@ -148,7 +148,7 @@ struct PatchListSection: View {
 
     private func dlcStatus(_ dlc: DLCInfo) -> String {
         guard dlc.owned else { return "Not owned" }
-        if dlc.depotIDs.isEmpty { return "Owned · no files of its own (on PC it unlocks through Steam, which Shiori can't answer for)" }
+        if dlc.depotIDs.isEmpty { return "Owned · no files of its own" }
         return isInstalled(dlc) ? "Owned · installed with the game" : "Owned · not downloaded yet"
     }
 
@@ -263,9 +263,9 @@ struct PatchListSection: View {
                 badge(price.lowercased() == "free" ? "Free" : price, tint: .blue)
             }
             if patch.verified != nil {
-                badge("Works in Shiori", tint: .green)
+                badge("Works", tint: .green)
             } else {
-                badge("Not checked in Shiori", tint: .gray)
+                badge("Untested", tint: .gray)
             }
             if patch.status == "dead" { badge("Link down", tint: .red) }
             if let size = patch.totalSize, size > 0 {
@@ -335,17 +335,17 @@ struct PatchListSection: View {
 
     private func confirmationMessage(_ patch: PatchListStore.Patch) -> String {
         var parts: [String] = []
-        if let size = patch.totalSize { parts.append("Downloads \(size.formatted(.byteCount(style: .file))) and installs it into this game's patch folder.") }
-        else { parts.append("Downloads the patch and installs it into this game's patch folder.") }
-        if !patch.official { parts.append("This is a community patch, not one from the game's publisher.") }
-        if patch.verified == nil { parts.append("Nobody has checked it in Shiori yet; if the game misbehaves, remove it from here.") }
+        if let size = patch.totalSize { parts.append("Downloads \(size.formatted(.byteCount(style: .file))) into the game's patch folder.") }
+        else { parts.append("Downloads into the game's patch folder.") }
+        if !patch.official { parts.append("Community patch, not from the publisher.") }
+        if patch.verified == nil { parts.append("Not tested in Shiori yet.") }
         if denpasoftProduct(patch) != nil {
             // The installFile message already says where it comes from.
         } else if patch.files.contains(where: { $0.sha256 == nil }) {
-            parts.append("The list has no checksum for it yet, so the download can't be checked.")
+            parts.append("The download can't be verified: the list has no checksum for it.")
         }
         if !(installer.installed[appID] ?? []).isEmpty, installedVersion(patch) == nil {
-            parts.append("Files it shares with an installed patch are replaced by this one.")
+            parts.append("It replaces files it shares with an installed patch.")
         }
         return parts.joined(separator: " ")
     }

@@ -15,7 +15,7 @@ struct FilesSection: View {
 
     var body: some View {
         GamePageSection(title: "Files & Storage",
-                        footer: "base holds what Steam delivered, patch your changes, saves the game's saves.") {
+                        footer: "base holds Steam's files; patch holds your changes.") {
             GamePageValueRow(title: "On this \(UIDevice.current.localizedModel)",
                              value: record.sizeBytes.formatted(.byteCount(style: .file)))
             GamePageValueRow(title: "Downloaded", value: record.installedAt.formatted(date: .abbreviated, time: .omitted),

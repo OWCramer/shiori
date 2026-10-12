@@ -27,7 +27,7 @@ struct GamePageNotices: View {
                     let playability = Playability(scan.engine, appID: appID)
                     if playability == .playable {
                         GamePageCallout(title: "Plays in Shiori", systemImage: "checkmark.circle.fill", tint: .green,
-                                        message: "\(engineLine(scan)), read from Steam's files.")
+                                        message: engineLine(scan))
                     } else {
                         GamePageCallout(title: "Doesn't play in Shiori yet", systemImage: "exclamationmark.triangle", tint: .orange,
                                         message: "\(engineLine(scan)). \(GameText.playability(playability, engine: scan.engine, appID: appID))")
@@ -38,9 +38,9 @@ struct GamePageNotices: View {
             }
         }
         if let hint = BranchHint.find(for: game, games: games, engineScans: engineScans, compatibility: compatibility) {
-            GamePageCallout(title: hint.scanned ? "Another version of this game plays in Shiori" : "Another version may work",
+            GamePageCallout(title: hint.scanned ? "Another version plays in Shiori" : "Another version may work",
                             systemImage: "arrow.triangle.branch", tint: .orange,
-                            message: "\(hint.detail) Saves and patches stay if you switch.") {
+                            message: hint.detail) {
                 Button("Use This Version") { model.chooseBranch(hint.branch, game: game, games: games) }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)

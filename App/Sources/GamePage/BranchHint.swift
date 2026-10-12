@@ -27,7 +27,7 @@ struct BranchHint: Equatable {
         {
             let size = scan.installSize > 0 ? ", \(scan.installSize.formatted(.byteCount(style: .file)))" : ""
             return BranchHint(branch: scan.branch,
-                              detail: "The \(GameText.branch(scan.branch, of: game)) version is \(GameText.engine(scan.engine)) and plays in Shiori (a Steam beta\(size)).",
+                              detail: "The \(GameText.branch(scan.branch, of: game)) beta is \(GameText.engine(scan.engine))\(size).",
                               scanned: true)
         }
         if let entry = compatibility.entry(for: appID)?.entry, let branch = entry.branch, branch != current,
@@ -35,7 +35,7 @@ struct BranchHint: Equatable {
         {
             let verb = entry.status == .boots ? "starts" : "plays"
             return BranchHint(branch: branch,
-                              detail: "The compatibility list says the \(GameText.branch(branch, of: game)) version \(verb) in Shiori (a Steam beta).")
+                              detail: "The compatibility list says the \(GameText.branch(branch, of: game)) beta \(verb).")
         }
         return nil
     }

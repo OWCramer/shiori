@@ -48,7 +48,7 @@ struct GamePageMoreMenu: View {
                 ForEach(branches, id: \.name) { branch in
                     VStack {
                         Text(GameText.branch(branch.name, of: game))
-                        if branch.name == state.suggestedBranch { Text("Should work in Shiori") }
+                        if branch.name == state.suggestedBranch { Text("Should work") }
                     }
                     .tag(branch.name)
                 }

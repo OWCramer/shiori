@@ -68,11 +68,10 @@ struct SavesSection: View {
 
     @ViewBuilder private var steamCloudRow: some View {
         if games.steamCloudSupport[appID] == false {
-            GamePageValueRow(title: "Steam Cloud", value: "Not used by this game",
-                             detail: "The PC version keeps its saves on the PC only; iCloud keeps saves made here in step between your devices.")
+            GamePageValueRow(title: "Steam Cloud", value: "Not used by this game")
         } else if !engineUsesSteamCloud {
             GamePageValueRow(title: "Steam Cloud", value: "Not yet",
-                             detail: "Shiori can't read or write this engine's PC saves yet, so they don't travel to or from your PC. iCloud keeps them in step between your devices.")
+                             detail: "Shiori can't sync this engine's PC saves yet.")
         } else {
             GamePageRow {
                 VStack(alignment: .leading, spacing: 2) {
@@ -93,16 +92,16 @@ struct SavesSection: View {
 
     private var steamCloudNote: String {
         if !SteamCloudSync.uploadsEnabled {
-            return "Saves from your PC come down before you play. Uploading is off in Settings."
+            return "Saves download before you play. Uploads are off in Settings."
         }
         if games.canUploadSteamCloud(appID) {
-            return "Saves from your PC come down before you play; newer ones go up when you stop, after a backup of the cloud copy."
+            return "Syncs when you start and stop; cloud copies are backed up first."
         }
-        return "Saves from your PC come down before you play. Saves made here stay here: Shiori runs this game on a newer Ren'Py than your PC, which might not load them."
+        return "Saves download before you play. Saves made here don't upload: the PC's older Ren'Py might not load them."
     }
 
     private var footer: String {
-        "Saves come down before you play and go up when you stop. If two devices changed the same save, the older copy is kept in saves/conflicts."
+        "If two devices change the same save, the older copy goes to saves/conflicts."
     }
 
     private func syncColour(_ state: GameLibrary.SaveSyncState?) -> Color {

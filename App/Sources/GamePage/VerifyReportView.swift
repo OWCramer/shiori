@@ -24,11 +24,11 @@ struct VerifyReportView: View {
                 }
             }
             if !report.extraFiles.isEmpty {
-                Text("\(report.extraFiles.count) extra files in base that aren't from Steam")
+                Text("\(report.extraFiles.count) extra files in base")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if patchCount > 0 {
-                Text("\(patchCount) patch file\(patchCount == 1 ? " is" : "s are") layered on top; they live in patch/, not in the Steam files.")
+                Text("Plus \(patchCount) patch file\(patchCount == 1 ? "" : "s") in patch/")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
