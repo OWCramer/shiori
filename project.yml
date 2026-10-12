@@ -82,7 +82,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # SDL (in the Ren'Py runtimes) links CoreBluetooth for controllers, so App Store Connect
         # asks for a purpose string (ITMS-90683) even though Shiori never asks for Bluetooth.
-        NSBluetoothAlwaysUsageDescription: Shiori uses Bluetooth only to talk to game controllers you connect, so you can play with them.
+        NSBluetoothAlwaysUsageDescription: Shiori uses Bluetooth to connect game controllers.
     # iCloud Documents container that mirrors each game's saves/ (SaveSync).
     entitlements:
       path: App/Shiori.entitlements
