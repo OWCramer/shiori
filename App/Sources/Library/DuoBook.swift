@@ -33,10 +33,17 @@ struct DuoBook<Library: View>: View {
                     .frame(width: fold.map { max(0, proxy.size.width - $0.maxX) } ?? proxy.size.width)
                     // Each page is a phone's width: compact, whatever the whole screen says.
                     .environment(\.horizontalSizeClass, fold == nil ? sizeClass : .compact)
-                    .environment(fold == nil ? nil : book)
+                    .environment(book)
             }
             .onChange(of: fold == nil, initial: true) { _, single in
-                if !single, book.game == nil { book.game = defaultGame }
+                if single {
+                    // Folding: the left page's game goes back onto the current tab.
+                    if book.isOpen { book.foldedGame = book.game }
+                    book.isOpen = false
+                } else {
+                    if book.game == nil { book.game = defaultGame }
+                    book.isOpen = true
+                }
             }
         }
         .ignoresSafeArea(.container)

@@ -48,7 +48,7 @@ struct DownloadsScreen: View {
         let active = active
         let upNext = games.downloadItems.filter { $0 != active?.appID }.compactMap(game)
         let patchJobs = patches.jobs.keys.sorted().compactMap { appID in patches.jobs[appID].flatMap { job in game(appID).map { (game: $0, job: job) } } }
-        NavigationStack(path: $path) {
+        BookHandoffStack(path: $path, tab: .downloads) {
             ScrollView {
                 VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
                     if let active { ActiveDownloadCard(game: active) }

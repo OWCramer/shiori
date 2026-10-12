@@ -49,7 +49,7 @@ struct LibraryGridScreen: View {
     var body: some View {
         let entries = entries
         let shown = entries.filter { filters.admits($0.traits, isDownloaded: $0.isDownloaded) }.map(\.game)
-        NavigationStack(path: $path) {
+        BookHandoffStack(path: $path, tab: section.shellTab) {
             ScrollView {
                 if let error = steam.libraryError {
                     Text(error)

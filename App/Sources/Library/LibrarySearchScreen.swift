@@ -30,7 +30,7 @@ struct LibrarySearchScreen: View {
         let visualNovels = matches.filter { curation.isVisualNovel($0) }
         let others = matches.filter { !curation.isVisualNovel($0) }
         let recent = query.isEmpty ? recent : []
-        NavigationStack(path: $path) {
+        BookHandoffStack(path: $path, tab: .search) {
             ScrollView {
                 VStack(alignment: .leading, spacing: ShowcaseMetrics.shelfSpacing) {
                     if !recent.isEmpty {

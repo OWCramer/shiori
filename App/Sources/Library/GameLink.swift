@@ -9,7 +9,7 @@ struct GameLink<Label: View>: View {
     @Environment(BookSelection.self) private var book: BookSelection?
 
     var body: some View {
-        if let book {
+        if let book, book.isOpen {
             Button { book.show(game) } label: { label }
         } else {
             NavigationLink(value: game) { label }

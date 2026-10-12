@@ -50,3 +50,15 @@ enum LibrarySection: Hashable {
         }
     }
 }
+
+extension LibrarySection {
+    /// The tab that shows this section.
+    var shellTab: ShellTab {
+        switch self {
+        case .visualNovels: .visualNovels
+        case .installed: .installed
+        case .recentlyPlayed: .recentlyPlayed
+        case let .engine(key): .engine(key)
+        }
+    }
+}
