@@ -47,7 +47,7 @@ struct ShowcaseShell: View {
                 LibraryGridScreen(list: .installed)
             }
             Tab("Downloads", systemImage: "arrow.down.circle.fill", value: ShellTab.downloads) {
-                DownloadsView(library: steam.library, isTab: true)
+                DownloadsScreen()
             }
             .badge(games.downloadItems.count + patchInstaller.jobs.count)
             Tab(value: ShellTab.search, role: .search) {
@@ -57,7 +57,7 @@ struct ShowcaseShell: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .modifier(DownloadAccessory(game: accessoryGame, open: openDownloads))
         .environment(shell)
-        .sheet(isPresented: $shell.showingSettings) { SettingsView() }
+        .sheet(isPresented: $shell.showingSettings) { SettingsScreen() }
         .sheet(isPresented: $shell.showingAddGame) { AddVisualNovelView() }
         .preferredColorScheme(.dark)
         .task(id: installedFolders.keys.sorted()) { refreshSaves() }
