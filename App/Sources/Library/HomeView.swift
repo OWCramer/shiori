@@ -58,7 +58,7 @@ struct HomeView: View {
             .scrollOverscroll($overscroll)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
             .overlay {
-                if shelves.isEmpty { HomePlaceholder() }
+                if shelves.isEmpty { HomePlaceholder().frame(maxWidth: .infinity, maxHeight: .infinity) }
             }
             .background {
                 if let featured = shelves.featured { GameBackdrop(game: featured) } else { Color.black.ignoresSafeArea() }

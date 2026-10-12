@@ -41,6 +41,8 @@ struct ShowcaseShell: View {
         return folders
     }
 
+    @AppStorage("tabViewCustomization") private var tabCustomization = TabViewCustomization()
+
     var body: some View {
         @Bindable var shell = shell
         let engines = sizeClass == .regular
@@ -51,22 +53,27 @@ struct ShowcaseShell: View {
             Tab("Home", systemImage: "play.rectangle.on.rectangle.fill", value: ShellTab.home) {
                 HomeView()
             }
+            .customizationID("home")
             Tab("Visual Novels", systemImage: "books.vertical.fill", value: ShellTab.visualNovels) {
                 LibraryGridScreen(section: .visualNovels)
             }
+            .customizationID("visualNovels")
             Tab("Installed", systemImage: "checkmark.circle.fill", value: ShellTab.installed) {
                 LibraryGridScreen(section: .installed)
             }
+            .customizationID("installed")
             if sizeClass == .regular {
                 Tab("Recently Played", systemImage: "clock.fill", value: ShellTab.recentlyPlayed) {
                     LibraryGridScreen(section: .recentlyPlayed)
                 }
+                .customizationID("recentlyPlayed")
                 .defaultVisibility(.hidden, for: .tabBar)
             }
             Tab("Downloads", systemImage: "arrow.down.circle.fill", value: ShellTab.downloads) {
                 DownloadsScreen()
             }
             .badge(games.downloadItems.count + patchInstaller.jobs.count)
+            .customizationID("downloads")
             // The sidebar's own sections: in the tab bar they'd push Search into More.
             if sizeClass == .regular {
                 TabSection("Engines") {
@@ -75,19 +82,26 @@ struct ShowcaseShell: View {
                             LibraryGridScreen(section: .engine(engine.key))
                         }
                         .badge(engine.count)
+                        .customizationID("engine-\(engine.key)")
                     }
                 }
+                .customizationID("engines")
                 .defaultVisibility(.hidden, for: .tabBar)
                 Tab("Settings", systemImage: "gearshape.fill", value: ShellTab.settings) {
                     SettingsScreen(isTab: true)
                 }
+                .customizationID("settings")
                 .defaultVisibility(.hidden, for: .tabBar)
             }
             Tab(value: ShellTab.search, role: .search) {
                 LibrarySearchScreen()
             }
+            .customizationID("search")
         }
         .tabViewStyle(.sidebarAdaptable)
+        // `defaultVisibility(.hidden, for: .tabBar)` only takes effect with a customization:
+        // without one, iPad's top tab bar showed every sidebar item and scrolled.
+        .tabViewCustomization($tabCustomization)
         .tabViewSidebarHeader {
             Label("Shiori", systemImage: "bookmark.fill")
                 .font(.title2)
