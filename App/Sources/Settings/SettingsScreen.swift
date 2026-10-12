@@ -45,7 +45,8 @@ struct SettingsScreen: View {
                 }
             }
             // On the Form, not its row: a sheet attached to a Form row is dismissed as it appears.
-            .sheet(isPresented: $signingInToDenpasoft) {
+            // Checked again when it closes, as well as live while it's open.
+            .sheet(isPresented: $signingInToDenpasoft, onDismiss: checkDenpasoft) {
                 DenpasoftWebSheet(url: DenpasoftAccount.account, title: "Sign In to Denpasoft")
             }
             .onChange(of: uploads) { _, on in SteamCloudSync.uploadsEnabled = on }
@@ -54,5 +55,9 @@ struct SettingsScreen: View {
     }
 
     private func close() { dismiss() }
+
+    private func checkDenpasoft() {
+        Task { await DenpasoftAccount.shared.checkSession() }
+    }
 }
 #endif

@@ -97,6 +97,14 @@ final class DenpasoftAccount: NSObject {
         loadedAt = Date()
     }
 
+    /// The sign-in sheet saw the account signed in (its session cookie, or the account pages
+    /// open): show it at once and read the downloads, without waiting for the sheet to close.
+    func noteSignedIn() {
+        guard !isSignedIn else { return }
+        isSignedIn = true
+        Task { await refresh(force: true) }
+    }
+
     /// Checks the session after the sign-in sheet closes.
     func checkSession() async {
         guard let page = await load(Self.account) else { return }
@@ -288,10 +296,45 @@ private struct DenpasoftWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let view = WKWebView(frame: .zero, configuration: DenpasoftAccount.configuration())
+        view.navigationDelegate = context.coordinator
+        view.configuration.websiteDataStore.httpCookieStore.add(context.coordinator)
         view.load(URLRequest(url: url))
         return view
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {}
+
+    static func dismantleUIView(_ view: WKWebView, coordinator: SignInWatcher) {
+        view.configuration.websiteDataStore.httpCookieStore.remove(coordinator)
+    }
+
+    func makeCoordinator() -> SignInWatcher { SignInWatcher() }
+
+    /// Notices the sign-in happening in the page: WordPress's logged-in cookie appearing, or
+    /// a page under /account/ other than the login form.
+    final class SignInWatcher: NSObject, WKNavigationDelegate, WKHTTPCookieStoreObserver {
+        nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                guard let url = webView.url, url.host()?.contains("denpasoft.com") == true else { return }
+                let path = url.path()
+                if path.hasPrefix("/account"), !path.hasPrefix("/account/login") {
+                    // The account pages show to signed-in players; confirm with the page itself.
+                    let signedIn = (try? await webView.evaluateJavaScript(
+                        "!!document.querySelector('a[href*=\"logout\"]') && !document.querySelector('input[type=password]')"
+                    ) as? Bool) ?? false
+                    if signedIn { DenpasoftAccount.shared.noteSignedIn() }
+                }
+            }
+        }
+
+        nonisolated func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+            Task { @MainActor in
+                let cookies = await cookieStore.allCookies()
+                if cookies.contains(where: { $0.domain.contains("denpasoft.com") && $0.name.hasPrefix("wordpress_logged_in") }) {
+                    DenpasoftAccount.shared.noteSignedIn()
+                }
+            }
+        }
+    }
 }
 #endif

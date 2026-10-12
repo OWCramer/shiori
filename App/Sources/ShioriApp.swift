@@ -74,6 +74,7 @@ struct ShioriApp: App {
                 shiori_renpy_did_enter_background()
                 if shiori_renpy_is_running() != 0 { games.pushRunningGameSaves() }
                 games.didEnterBackground()
+                steam.didEnterBackground()
             case .inactive where old == .active:
                 shiori_renpy_will_resign_active()
             case .active:
@@ -89,6 +90,7 @@ struct ShioriApp: App {
                 #endif
                 shiori_renpy_did_become_active()
                 games.willEnterForeground()
+                steam.willEnterForeground()
             default: break
             }
         }

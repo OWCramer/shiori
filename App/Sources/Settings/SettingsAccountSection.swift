@@ -12,14 +12,17 @@ struct SettingsAccountSection: View {
         let visualNovels = steam.library.filter { curation.isVisualNovel($0) }.count
         Section {
             HStack(spacing: 14) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.largeTitle)
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .blue.gradient)
-                    .accessibilityHidden(true)
+                let profile = steam.profile.info
+                let name = profile?.personaName ?? steam.accountName ?? "Steam"
+                SteamAvatar(url: profile?.avatar, name: name)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(steam.accountName ?? "Not signed in").font(.headline)
-                    Text("Steam · \(steam.library.count) games · \(visualNovels) visual novels")
+                    Text(name).font(.headline)
+                    if let account = steam.accountName ?? (steam.hasStoredSession ? nil : "Not signed in") {
+                        Text(profile != nil && account != name ? "Steam · \(account)" : "Steam")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("\(steam.library.count) games · \(visualNovels) visual novels")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

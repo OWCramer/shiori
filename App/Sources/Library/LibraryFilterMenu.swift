@@ -22,6 +22,10 @@ struct LibraryFilterMenu: View {
 
     var body: some View {
         Menu {
+            if filters.isActive {
+                Button("Clear Filters", systemImage: "xmark.circle", action: clear)
+                    .menuActionDismissBehavior(.enabled)
+            }
             Picker("Show", selection: $filters.playability) {
                 ForEach(LibraryFilters.Playability.allCases) { option in
                     Text("\(option.rawValue) (\(count(option)))").tag(option)
@@ -43,9 +47,6 @@ struct LibraryFilterMenu: View {
                     ForEach(LibraryFilters.Download.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.inline)
-            }
-            if filters.isActive {
-                Button("Clear Filters", systemImage: "xmark.circle", role: .destructive, action: clear)
             }
         } label: {
             Label("Filter", systemImage: filters.isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")

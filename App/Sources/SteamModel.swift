@@ -23,6 +23,8 @@ final class SteamModel {
     private var steamLibrary: [LibraryGame] = LibraryCache.load()
     /// Alternate artwork picked from SteamGridDB.
     let artwork = ArtworkStore()
+    /// The signed-in player's persona name and avatar (Settings).
+    let profile = SteamProfile()
     private(set) var isLoadingLibrary = false
     private(set) var libraryError: String?
     private(set) var resumeError: String?
@@ -32,6 +34,16 @@ final class SteamModel {
 
     let session: SteamSession
     private var signInTask: Task<Void, Never>?
+
+    /// Whether to show that Steam can't be reached (the offline icon, "Can't reach Steam").
+    /// A reconnect is normal: iOS suspends the socket whenever Shiori is in the background,
+    /// so the last known state stands (signed in, the cached library) for a grace period,
+    /// and only a reconnect still failing after it, or a refused sign-in, shows.
+    private(set) var showsOffline = false
+    /// How long a reconnect may take before it's shown.
+    private static let offlineGrace: Duration = .seconds(10)
+    @ObservationIgnored private var graceTask: Task<Void, Never>?
+    @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     init() {
         // In iCloud Keychain: signing in on one device signs in the user's others (spec: Sign-in).
@@ -64,9 +76,13 @@ final class SteamModel {
             self.state = state
             if isLoggedOn { connectionError = nil }
             if state == .signedOut, let rejection = await session.tokenRejection { connectionError = rejection }
+            updateOfflineIndicator()
             SteamLog.write("state \(state)" + (connectionError.map { " (\($0))" } ?? ""))
             hasStoredSession = await session.storedAccountName != nil
-            if isLoggedOn, !wasLoggedOn { await loadLibrary() }
+            if case let .loggedOn(_, steamID) = state, !wasLoggedOn {
+                Task { await profile.load(steamID: steamID.rawValue) }
+                await loadLibrary()
+            }
         }
     }
 
@@ -84,6 +100,7 @@ final class SteamModel {
             try await session.resume()
         } catch SteamError.sessionExpired {
             resumeError = SteamError.sessionExpired.description
+            updateOfflineIndicator()
             SteamLog.write("resume: session expired (\(await session.tokenRejection ?? "?"))")
         } catch {
             // Offline or Steam unreachable: SteamSession keeps retrying in the background.
@@ -100,6 +117,55 @@ final class SteamModel {
         SteamLog.write("adopting a sign-in synced from another device")
         cancelSignIn()
         await resume()
+    }
+
+    /// Shows the offline indicator only once a reconnect has gone on past the grace period,
+    /// or at once when the stored sign-in was refused.
+    private func updateOfflineIndicator() {
+        if isLoggedOn || !hasStoredSession {
+            graceTask?.cancel()
+            graceTask = nil
+            showsOffline = false
+            return
+        }
+        if resumeError != nil {
+            graceTask?.cancel()
+            graceTask = nil
+            showsOffline = true
+            return
+        }
+        guard graceTask == nil, !showsOffline else { return }
+        graceTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.offlineGrace)
+            guard let self, !Task.isCancelled else { return }
+            graceTask = nil
+            if !isLoggedOn { showsOffline = true }
+        }
+    }
+
+    /// Going to the background: asks iOS for a little time, so a quick trip to another app
+    /// doesn't drop the connection at all.
+    func didEnterBackground() {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Steam connection") { [weak self] in
+            MainActor.assumeIsolated { self?.endBackgroundTask() }
+        }
+    }
+
+    /// Back in the foreground: a reconnect starting now gets the whole grace period again.
+    func willEnterForeground() {
+        endBackgroundTask()
+        guard !isLoggedOn, hasStoredSession, resumeError == nil else { return }
+        graceTask?.cancel()
+        graceTask = nil
+        showsOffline = false
+        updateOfflineIndicator()
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 
     func signIn(accountName: String, password: String) {
@@ -171,6 +237,7 @@ final class SteamModel {
         await session.signOut()
         steamLibrary = []
         LibraryCache.clear()
+        profile.forget()
         hasStoredSession = false
     }
 
@@ -183,7 +250,10 @@ final class SteamModel {
             steamLibrary = try await session.ownedApps().map(LibraryGame.init)
             LibraryCache.save(steamLibrary)
         } catch {
-            libraryError = Self.message(for: error)
+            // With a library on screen, a failed refresh (the connection dropping mid-way)
+            // isn't worth an error: the cached one stands, and the next logon reloads it.
+            if steamLibrary.isEmpty { libraryError = Self.message(for: error) }
+            SteamLog.write("library refresh failed: \(String(describing: error))")
         }
     }
 
@@ -195,17 +265,19 @@ final class SteamModel {
         }
     }
 
-    /// Why Steam actions are unavailable right now, for a line under a disabled button.
+    /// Why Steam actions are unavailable right now, for a line under a disabled button:
+    /// calm while a reconnect is within its grace period, what's wrong once it isn't.
     var offlineReason: String? {
         switch state {
         case .loggedOn: return nil
-        case .connecting: return "Connecting to Steam…"
-        case let .reconnecting(attempt): return "Reconnecting to Steam (attempt \(attempt))" + (connectionError.map { ": \($0)" } ?? "…")
+        case .connecting, .reconnecting:
+            return showsOffline ? "Can't reach Steam right now. Shiori keeps trying." : "Reconnecting to Steam…"
         case .connectedAnonymously: return "Not signed in to Steam."
         case .signedOut:
             if let resumeError { return resumeError }
-            if let connectionError { return "Not connected to Steam: \(connectionError)" }
-            return hasStoredSession ? "Not connected to Steam." : "Not signed in to Steam."
+            if hasStoredSession, !showsOffline { return "Reconnecting to Steam…" }
+            if let connectionError { return "Can't reach Steam: \(connectionError)" }
+            return hasStoredSession ? "Can't reach Steam right now." : "Not signed in to Steam."
         }
     }
 

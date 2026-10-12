@@ -52,9 +52,6 @@ struct LibraryGridScreen: View {
                         .foregroundStyle(.red)
                         .padding(.horizontal, ShowcaseMetrics.margin)
                 }
-                if filters.isActive, !shown.isEmpty {
-                    LibraryFilterSummary(filters: $filters, shown: shown.count, total: entries.count)
-                }
                 LibraryGrid(games: shown)
                     .padding(.vertical, 8)
             }
