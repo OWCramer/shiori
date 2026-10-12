@@ -180,6 +180,7 @@ struct RootView: View {
                 LauncherView()
             } else {
                 ShowcaseShell()
+                    .modifier(DebugCanvas())
             }
             #endif
         } else {

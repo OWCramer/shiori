@@ -8,6 +8,9 @@ struct HomeHero: View {
     var overscroll: CGFloat = 0
     @Environment(GameLibrary.self) private var games
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var parallax = HeroParallax()
 
     private var record: GameRecord? {
         if case let .installed(record) = games.status(for: game.appID) { record } else { nil }
@@ -25,11 +28,10 @@ struct HomeHero: View {
     }
 
     /// The extended region under the banner: room for the line and the actions, bringing the
-    /// hero to about two-thirds of an iPhone screen, while on iPad the next shelf still
-    /// starts on screen.
+    /// hero to about two-thirds of an iPhone screen. iPad's line fits on one row, so its
+    /// region is shorter and the actions sit close under the banner.
     private func extensionHeight(wide: Bool) -> CGFloat {
-        // The line and the actions (with breathing room), more on iPad's wider row.
-        wide ? 300 : 180
+        wide ? 150 : 180
     }
 
     var body: some View {
@@ -37,7 +39,7 @@ struct HomeHero: View {
         let alignment: HorizontalAlignment = wide ? .leading : .center
         NavigationLink(value: game) {
             HomeHeroArt(game: game, bannerHeight: GameHeroHeader.standardHeight,
-                        extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
+                        extensionHeight: extensionHeight(wide: wide), overscroll: overscroll, parallax: parallax)
         }
         .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")
@@ -48,7 +50,8 @@ struct HomeHero: View {
         .overlay(alignment: .top) {
             let banner = GameHeroHeader.standardHeight
             VStack(alignment: alignment, spacing: 0) {
-                GameLogo(game: game, maxWidth: wide ? 420 : 300, maxHeight: wide ? 150 : 110, alignment: alignment)
+                ParallaxLogo(game: game, parallax: parallax, maxWidth: wide ? 420 : 300, maxHeight: wide ? 150 : 110,
+                             alignment: alignment)
                     .shadow(color: .black.opacity(0.6), radius: 8)
                     .frame(maxWidth: .infinity, alignment: wide ? .bottomLeading : .bottom)
                     .frame(height: banner - 20, alignment: .bottom)
@@ -70,6 +73,15 @@ struct HomeHero: View {
             }
             .padding(.horizontal, wide ? ShowcaseMetrics.wideMargin : ShowcaseMetrics.margin)
         }
+        // Motion only while Home shows and the app is active, never with Reduce Motion.
+        .onAppear(perform: updateMotion)
+        .onDisappear(perform: parallax.stop)
+        .onChange(of: scenePhase) { updateMotion() }
+        .onChange(of: reduceMotion) { updateMotion() }
+    }
+
+    private func updateMotion() {
+        if scenePhase == .active, !reduceMotion { parallax.start() } else { parallax.stop() }
     }
 }
 #endif
