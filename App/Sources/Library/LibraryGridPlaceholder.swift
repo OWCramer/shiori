@@ -12,20 +12,18 @@ struct LibraryGridPlaceholder: View {
         } else {
             switch section {
             case .installed:
-                ContentUnavailableView("Nothing downloaded yet", systemImage: "arrow.down.circle",
+                ContentUnavailableView("No Installed Games", systemImage: "arrow.down.circle",
                                        description: Text("Open a game and tap Download."))
             case .recentlyPlayed:
-                ContentUnavailableView("Nothing played yet", systemImage: "clock",
-                                       description: nil)
+                ContentUnavailableView("No Recently Played Games", systemImage: "clock")
             case .engine:
-                ContentUnavailableView("No games", systemImage: "cpu",
-                                       description: nil)
+                ContentUnavailableView("No Games", systemImage: "cpu")
             case .visualNovels:
                 if !steam.library.isEmpty {
-                    ContentUnavailableView("No visual novels", systemImage: "books.vertical",
+                    ContentUnavailableView("No Visual Novels", systemImage: "books.vertical",
                                            description: Text("Tap + to add games."))
                 } else if steam.isLoggedOn, steam.libraryError == nil {
-                    ContentUnavailableView("No games", systemImage: "books.vertical")
+                    ContentUnavailableView("No Games", systemImage: "books.vertical")
                 }
             }
         }

@@ -17,7 +17,7 @@ struct GamePageNotices: View {
         let stage = games.stage(for: appID)
         DownloadStatusPanel(appID: appID)
         if stage == .installed, let blocker = games.playBlocker(appID: appID) {
-            GamePageCallout(title: "Not playable yet", systemImage: "info.circle", tint: .orange, message: blocker)
+            GamePageCallout(title: "Not playable", systemImage: "info.circle", tint: .orange, message: blocker)
         }
         if stage == .notInstalled {
             if let scan = engineScans.result(for: appID) {
@@ -29,7 +29,7 @@ struct GamePageNotices: View {
                         GamePageCallout(title: "Plays in Shiori", systemImage: "checkmark.circle.fill", tint: .green,
                                         message: engineLine(scan))
                     } else {
-                        GamePageCallout(title: "Doesn't play in Shiori yet", systemImage: "exclamationmark.triangle", tint: .orange,
+                        GamePageCallout(title: "Doesn't play in Shiori", systemImage: "exclamationmark.triangle", tint: .orange,
                                         message: "\(engineLine(scan)). \(GameText.playability(playability, engine: scan.engine, appID: appID))")
                     }
                 }

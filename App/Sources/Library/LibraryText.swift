@@ -17,7 +17,7 @@ import UIKit
     switch status {
     case let .installed(record):
         if let activity = history.lastActivity(game.appID) { return activity.description }
-        if games.playBlocker(appID: game.appID) != nil { return "Not playable yet" }
+        if games.playBlocker(appID: game.appID) != nil { return "Not playable" }
         return Playability.badge(record.engine, appID: game.appID)
     case let .downloading(progress):
         if progress.phase == .finishing { return "Finishing…" }

@@ -70,8 +70,8 @@ struct SavesSection: View {
         if games.steamCloudSupport[appID] == false {
             GamePageValueRow(title: "Steam Cloud", value: "Not used by this game")
         } else if !engineUsesSteamCloud {
-            GamePageValueRow(title: "Steam Cloud", value: "Not yet",
-                             detail: "Shiori can't sync this engine's PC saves yet.")
+            GamePageValueRow(title: "Steam Cloud", value: "Not available",
+                             detail: "PC saves for this engine don't sync.")
         } else {
             GamePageRow {
                 VStack(alignment: .leading, spacing: 2) {

@@ -13,7 +13,7 @@ enum ArchiveExtractor {
 
         var errorDescription: String? {
             switch self {
-            case .unavailable: "This device can't open archives (libarchive is missing)."
+            case .unavailable: "This archive can't be opened on this device."
             case let .unreadable(message): "The archive couldn't be read: \(message)"
             case let .unsafePath(path): "The archive has a file outside its own folder (\(path)); nothing was installed."
             }

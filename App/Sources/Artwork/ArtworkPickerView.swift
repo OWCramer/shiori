@@ -170,9 +170,9 @@ struct SteamGridDBKeySection: View {
                     Task { await test() }
                 } label: {
                     if status == .testing {
-                        HStack { ProgressView(); Text("Testing…") }
+                        HStack { ProgressView(); Text("Verifying…") }
                     } else {
-                        Text("Test and Save")
+                        Text("Verify and Save")
                     }
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || status == .testing)

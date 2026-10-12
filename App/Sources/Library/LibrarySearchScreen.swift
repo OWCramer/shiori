@@ -47,8 +47,7 @@ struct LibrarySearchScreen: View {
             }
             .overlay {
                 if query.isEmpty, recent.isEmpty {
-                    ContentUnavailableView("Search Your Library", systemImage: "magnifyingglass",
-                                           description: Text("Search by name or app ID."))
+                    ContentUnavailableView("Search Your Library", systemImage: "magnifyingglass")
                 } else if !query.isEmpty, matches.isEmpty {
                     ContentUnavailableView.search
                 }

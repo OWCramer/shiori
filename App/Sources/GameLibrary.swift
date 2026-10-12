@@ -868,7 +868,7 @@ final class GameLibrary {
         if status == RenPyEngine.notStarted || status == RenPyEngine.runtimeNotLoaded {
             shiori_renpy_restore_hub()
             launchFailure = RenPyEngine.lastSessionError()
-                ?? (status == RenPyEngine.runtimeNotLoaded ? "Ren'Py's runtime didn't load." : "The game couldn't start.")
+                ?? (status == RenPyEngine.runtimeNotLoaded ? "The game engine couldn't load." : "The game couldn't start.")
             log.error("Ren'Py didn't start (status \(status)): \(self.launchFailure ?? "", privacy: .public)")
             return
         }
@@ -953,13 +953,13 @@ final class GameLibrary {
         if ["artemis", "siglus", "luca", "catsystem2"].contains(engine.engine) { return nil }
         if engine.engine == "kirikiri" {
             #if targetEnvironment(simulator)
-            return "KiriKiri games play on an iPhone or iPad, not in the simulator."
+            return "KiriKiri games don't run in Simulator."
             #else
             return nil
             #endif
         }
         guard engine.engine == RenPyEngine.id else {
-            return "\(EngineDetection.displayName(for: engine.engine)) isn't supported yet."
+            return "\(EngineDetection.displayName(for: engine.engine)) isn't supported."
         }
         return RenPyEngine.incompatibility(engine)
     }

@@ -37,7 +37,7 @@ struct SettingsScreen: View {
                     Toggle(isOn: $metalFX) {
                         Label("MetalFX Upscaling", systemImage: "sparkles.tv")
                     }
-                    LabeledContent("Ren'Py runtimes", value: RenPyEngine.runtimeVersion)
+                    LabeledContent("Ren'Py Versions", value: RenPyEngine.runtimeVersion)
                 } header: {
                     Text("Engines")
                 } footer: {

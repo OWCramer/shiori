@@ -9,13 +9,13 @@ struct HomePlaceholder: View {
         if steam.isLoadingLibrary, steam.library.isEmpty {
             ProgressView("Loading library…")
         } else if let error = steam.libraryError {
-            ContentUnavailableView("Couldn't load your library", systemImage: "exclamationmark.triangle",
+            ContentUnavailableView("Couldn't Load Library", systemImage: "exclamationmark.triangle",
                                    description: Text(error))
         } else if !steam.library.isEmpty {
-            ContentUnavailableView("No visual novels yet", systemImage: "books.vertical",
+            ContentUnavailableView("No Visual Novels", systemImage: "books.vertical",
                                    description: Text("Tap + to add games."))
         } else {
-            ContentUnavailableView("No games yet", systemImage: "books.vertical",
+            ContentUnavailableView("No Games", systemImage: "books.vertical",
                                    description: steam.offlineReason.map { Text($0) })
         }
     }

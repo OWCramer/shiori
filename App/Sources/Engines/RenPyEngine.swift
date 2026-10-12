@@ -161,9 +161,7 @@ extension RenPyEngine {
         guard let version = match.version, let major = version.split(separator: ".").first.flatMap({ Int($0) }) else {
             return "Couldn't read this game's Ren'Py version."
         }
-        let python = match.details["python"]
         if runtime(for: match) == nil {
-            if let python { return "This game uses Ren'Py \(version) on Python \(python), which Shiori can't run." }
             return "This game uses Ren'Py \(version), which Shiori can't run."
         }
         // Ren'Py 7.8 loads compiled scripts back to the 6.1x generation, given the default
@@ -237,7 +235,7 @@ extension RenPyEngine {
                 status = shiori_renpy_run(runtime.framework, runner.path, "main", saves.path)
             } catch {
                 NSLog("Shiori: couldn't prepare the Ren'Py runner: %@", String(describing: error))
-                setupError = "Couldn't prepare the game's runner: \((error as NSError).localizedDescription) (\(String(describing: error)))"
+                setupError = "Couldn't prepare the game: \((error as NSError).localizedDescription)"
                 status = notStarted
             }
         }

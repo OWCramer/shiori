@@ -29,7 +29,7 @@ enum GameText {
         switch playability {
         case .playable: return "Plays in Shiori."
         case let .needsRuntime(reason): return reason
-        case let .unsupportedEngine(name): return "\(name) games can be downloaded and patched, not played yet."
+        case let .unsupportedEngine(name): return "\(name) games can be downloaded and patched, but not played."
         case .unknownEngine: return "Shiori doesn't recognise this game's engine."
         case .onlineGame: return OnlineGames.explanation
         case let .notOnThisDevice(reason): return reason

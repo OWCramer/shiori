@@ -25,7 +25,7 @@ struct ArchiveBrowserView: View {
                                            description: Text(error))
                 } else if let fileSystem {
                     List {
-                        Section("Archives (load order)") {
+                        Section("Archives") {
                             ForEach(fileSystem.archives, id: \.url) { archive in
                                 LabeledContent(archive.url.lastPathComponent,
                                                value: "pf\(archive.version.rawValue) · \(archive.entries.count) files")

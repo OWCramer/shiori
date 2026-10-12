@@ -202,7 +202,7 @@ final class SiglusGameViewController: UIViewController {
             siglus_ios_create(viewPointer, drawableSize.width, drawableSize.height, scale, path)
         }
         guard let handle else {
-            fail("The Siglus engine couldn't start this game.")
+            fail("The game couldn't start.")
             return
         }
         var width: UInt32 = 1280, height: UInt32 = 720

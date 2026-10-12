@@ -149,7 +149,7 @@ struct PatchListSection: View {
     private func dlcStatus(_ dlc: DLCInfo) -> String {
         guard dlc.owned else { return "Not owned" }
         if dlc.depotIDs.isEmpty { return "Owned · no files of its own" }
-        return isInstalled(dlc) ? "Owned · installed with the game" : "Owned · not downloaded yet"
+        return isInstalled(dlc) ? "Owned · installed with the game" : "Owned · not downloaded"
     }
 
     // MARK: Patch list
@@ -338,7 +338,7 @@ struct PatchListSection: View {
         if let size = patch.totalSize { parts.append("Downloads \(size.formatted(.byteCount(style: .file))) into the game's patch folder.") }
         else { parts.append("Downloads into the game's patch folder.") }
         if !patch.official { parts.append("Community patch, not from the publisher.") }
-        if patch.verified == nil { parts.append("Not tested in Shiori yet.") }
+        if patch.verified == nil { parts.append("Not tested in Shiori.") }
         if denpasoftProduct(patch) != nil {
             // The installFile message already says where it comes from.
         } else if patch.files.contains(where: { $0.sha256 == nil }) {

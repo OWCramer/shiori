@@ -82,7 +82,7 @@ struct LibraryFilters: Codable, Equatable {
     static func engineName(_ key: String) -> String {
         switch key {
         case unknownEngine: "Unknown Engine"
-        case uncheckedEngine: "Not Checked Yet"
+        case uncheckedEngine: "Not Checked"
         default: EngineDetection.displayName(for: key)
         }
     }

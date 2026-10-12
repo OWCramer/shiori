@@ -57,7 +57,7 @@ struct SteamGridDB: Sendable {
             switch self {
             case .noKey: "Add a SteamGridDB API key in Settings."
             case .rejectedKey: "SteamGridDB rejected the API key. Check it at steamgriddb.com › Preferences › API."
-            case let .http(status): "SteamGridDB answered with HTTP \(status)."
+            case let .http(status): "SteamGridDB returned an error (\(status))."
             }
         }
     }

@@ -78,7 +78,7 @@ struct VersionSection: View {
                         .disabled(!steam.isLoggedOn || engineScans.scanning == appID)
                 }
             }
-            GamePageValueRow(title: "Store", value: "Steam", detail: "App \(appID)")
+            GamePageValueRow(title: "Store", value: "Steam")
         }
         .onAppear(perform: load)
         .onChange(of: games.branch(for: appID)) { _, current in branch = current }

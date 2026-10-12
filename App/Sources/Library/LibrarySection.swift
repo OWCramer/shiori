@@ -17,7 +17,7 @@ enum LibrarySection: Hashable {
         case .visualNovels: "Visual Novels"
         case .installed: "Installed"
         case .recentlyPlayed: "Recently Played"
-        case let .engine(key): key == Self.notPlayable ? "Not Yet Playable" : LibraryFilters.engineName(key)
+        case let .engine(key): key == Self.notPlayable ? "Not Playable" : LibraryFilters.engineName(key)
         }
     }
 

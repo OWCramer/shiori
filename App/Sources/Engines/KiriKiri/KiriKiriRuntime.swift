@@ -21,11 +21,11 @@ enum KiriKiriRuntime {
     static func open(gameFolder: URL, appID: UInt32, width: UInt32, height: UInt32) throws -> engine_handle_t {
         if !started {
             guard shiori_krkr_install_services() == ENGINE_RESULT_OK.rawValue else {
-                throw Failure(errorDescription: "The KiriKiri runtime didn't start.")
+                throw Failure(errorDescription: "The game engine couldn't start.")
             }
             _ = shiori_krkr_ensure_core(width, height)
             guard shiori_krkr_metal_install() else {
-                throw Failure(errorDescription: "Metal isn't available for the KiriKiri renderer.")
+                throw Failure(errorDescription: "This device can't display this game.")
             }
             started = true
         }
@@ -55,9 +55,9 @@ enum KiriKiriRuntime {
             unsetenv("AETHERKIRI_CX_SCHEME")
             switch KiriKiriArchiveCheck.unhandledEncryption(base: root) {
             case .cx:
-                throw Failure(errorDescription: "This game's CxDec encryption isn't in GARbro's database yet, or the database couldn't download.")
+                throw Failure(errorDescription: "This game's archives are encrypted in a way Shiori can't open.")
             case .hx:
-                throw Failure(errorDescription: "This game's archives use KiriKiri Z's Hx encryption, which Shiori can't open yet.")
+                throw Failure(errorDescription: "This game's archives are encrypted in a way Shiori can't open.")
             case nil:
                 break
             }
@@ -81,7 +81,7 @@ enum KiriKiriRuntime {
             }
         }
         guard created == ENGINE_RESULT_OK, let handle else {
-            throw Failure(errorDescription: "The KiriKiri engine couldn't be created (\(created.rawValue)).")
+            throw Failure(errorDescription: "The game couldn't start (\(created.rawValue)).")
         }
         // Render through the GPU bridge (Shiori's Metal host) rather than the CPU fallback.
         setOption(handle, ENGINE_OPTION_RENDERER, ENGINE_RENDERER_GODOT_NATIVE)

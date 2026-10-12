@@ -17,10 +17,10 @@ final class PatchDownloader: NSObject, URLSessionDataDelegate, @unchecked Sendab
 
         var errorDescription: String? {
             switch self {
-            case .unsupportedLink: "Shiori can't download from this kind of link yet."
+            case .unsupportedLink: "Shiori can't download from this link."
             case let .gone(detail): "The file is no longer there (\(detail))."
             case .quota: "MEGA's download limit for this network is used up; try again in a few hours."
-            case let .server(code): "The server answered \(code)."
+            case let .server(code): "The server returned an error (\(code))."
             case .notAFile: "The link opened a web page instead of the file."
             case .megaIntegrity: "The file from MEGA didn't match its checksum; it was discarded."
             }

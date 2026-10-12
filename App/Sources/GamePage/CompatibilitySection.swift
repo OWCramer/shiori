@@ -32,7 +32,7 @@ struct CompatibilitySection: View {
                 }
             } else {
                 GamePageRow {
-                    Text("Not on the list yet.").foregroundStyle(.secondary)
+                    Text("Not on the list.").foregroundStyle(.secondary)
                 }
             }
             GamePageRow {

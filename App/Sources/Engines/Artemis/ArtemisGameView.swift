@@ -527,7 +527,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
         if let failure = player.failure, presentedViewController == nil, !reportedFailure {
             reportedFailure = true
-            let alert = UIAlertController(title: "The game hit a script error", message: failure, preferredStyle: .alert)
+            let alert = UIAlertController(title: "The game stopped", message: failure, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
             present(alert, animated: true)
         }

@@ -206,7 +206,7 @@ final class DenpasoftAccount: NSObject {
 
         var errorDescription: String? {
             switch self {
-            case .notInAccount: "This patch isn't in your Denpasoft downloads yet. Claim it on its Denpasoft page first."
+            case .notInAccount: "This patch isn't in your Denpasoft downloads. Get it on its Denpasoft page first."
             case .signedOut: "Sign in to Denpasoft in Settings first."
             }
         }
