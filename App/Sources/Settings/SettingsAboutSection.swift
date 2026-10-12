@@ -1,7 +1,7 @@
 #if os(iOS)
 import SwiftUI
 
-/// Settings' last section: the version, and the public lists Shiori reads.
+/// Settings' last section: the version, What's New, the controls guide, and the public lists Shiori reads.
 struct SettingsAboutSection: View {
     private var version: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
@@ -12,6 +12,19 @@ struct SettingsAboutSection: View {
     var body: some View {
         Section {
             LabeledContent("Version", value: version)
+            if let release = WhatsNewCatalog.latest {
+                NavigationLink {
+                    WhatsNewView(release: release)
+                        .inlineNavigationTitle()
+                } label: {
+                    Label("What's New in Shiori", systemImage: "sparkles")
+                }
+            }
+            NavigationLink {
+                ControlsSettingsScreen()
+            } label: {
+                Label("Controls", systemImage: "hand.tap")
+            }
             Link(destination: CompatibilityStore.repository) {
                 Label("Compatibility List", systemImage: "checklist")
             }

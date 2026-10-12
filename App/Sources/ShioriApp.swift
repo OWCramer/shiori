@@ -21,6 +21,9 @@ struct ShioriApp: App {
         PressFilter.install()
         #endif
         APIKeyStore.steamGridDB.migrateToSynced()
+        #if os(iOS)
+        WhatsNew.shared.checkAtLaunch() // Before the library cache is written: tells an update from a first install.
+        #endif
         SyncedPreferences.reload() // Loads (and migrates) the synced per-game choices now.
         // Other downloads (covers for the game runtime, SteamGridDB lookups) use URLCache.
         URLCache.shared = URLCache(memoryCapacity: 16 << 20, diskCapacity: 128 << 20)
@@ -154,6 +157,9 @@ struct RootView: View {
                     .ignoresSafeArea()
                 }
             }
+            #endif
+            #if os(iOS)
+            .modifier(OnboardingSheets())
             #endif
             .overlay {
                 if let appID = games.endingSession {
