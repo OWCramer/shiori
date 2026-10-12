@@ -57,10 +57,6 @@ private struct SignInWorkingPanel: View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
             Text("Contacting Steam…").font(.headline)
-            Text("Checking your account name and password with Steam.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)

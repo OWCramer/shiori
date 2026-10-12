@@ -19,7 +19,7 @@ struct SignInSteamGuardPanel: View {
                 .bold()
             if prompt.approveInApp {
                 SignInWaitingRow(title: "Approve in the Steam app",
-                                 detail: "Open the Steam app on your phone and tap Approve on the sign-in request, then come back here.")
+                                 detail: "Tap Approve on the sign-in request in the Steam app.")
             }
             if prompt.confirmByEmail {
                 SignInWaitingRow(title: "Check your email",

@@ -36,7 +36,7 @@ struct SignInQRPanel: View {
                     SignInQRStep(number: 3, text: "Point it at this code and approve.")
                 }
             }
-            Text("The code changes now and then; keep this screen open until you're in.")
+            Text("Keep this screen open until you're signed in.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Button(action: cancel) {

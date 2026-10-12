@@ -49,16 +49,16 @@ enum ControlsTable {
 
     private static let renPy = EngineControls(
         engine: "renpy",
-        note: "To stop playing, choose Quit in the game's menu (or hold two fingers). Shiori closes; open it again to come back to your library.",
+        note: "Quit from the game's menu or hold two fingers. Shiori closes; reopen it for your library.",
         touch: [
             tap,
-            ControlRow("hand.tap.fill", "Two-finger tap", "Game menu (save, load, preferences)"),
+            ControlRow("hand.tap.fill", "Two-finger tap", "Game menu"),
             twoFingerSwipeDownBacklog,
             twoFingerSwipeRightSkip,
             twoFingerSwipeUpAuto,
             ControlRow("hand.point.up.left", "Touch and hold", "Hide the text box"),
             ControlRow("arrow.up.and.down", "Drag", "Scroll lists and the history"),
-            ControlRow("hand.raised", "Two-finger hold", "Quit, through the game's own question"),
+            ControlRow("hand.raised", "Two-finger hold", "Quit"),
         ],
         pointer: [
             click,
@@ -103,7 +103,7 @@ enum ControlsTable {
         keyboard: [
             returnKey,
             escape,
-            ControlRow("arrow.up.arrow.down", "Arrow keys", "The game's own arrow keys, or move between buttons"),
+            ControlRow("arrow.up.arrow.down", "Arrow keys", "Move between buttons"),
             controlKey,
             pageUp,
         ],
@@ -126,7 +126,7 @@ enum ControlsTable {
             ControlRow("hand.tap.fill", "Two-finger tap", "Right click: menu, or back out"),
             twoFingerSwipeDownBacklog,
             ControlRow("forward", "Two-finger swipe right", "Skip until you tap"),
-            ControlRow("arrow.up", "Two-finger swipe up", "Turn auto on or off (the game's Auto menu item)"),
+            ControlRow("arrow.up", "Two-finger swipe up", "Turn auto on or off"),
             twoFingerHold,
         ],
         pointer: [
@@ -141,7 +141,7 @@ enum ControlsTable {
 
     private static let siglus = EngineControls(
         engine: "siglus",
-        note: "Auto is the AUTO button on the game's message window; Siglus has no key for it.",
+        note: "Auto is the AUTO button on the message window.",
         touch: [
             tap,
             ControlRow("hand.tap.fill", "Two-finger tap", "Right click: menu, or back out"),
@@ -214,7 +214,7 @@ enum ControlsTable {
             returnKey,
             ControlRow("escape", "Escape", "Hide the window, or back out"),
             controlKey,
-            ControlRow("arrow.up.arrow.down", "Arrow keys", "Move between buttons; left and right along the window's"),
+            ControlRow("arrow.up.arrow.down", "Arrow keys", "Move between buttons"),
             pageUp,
         ],
         controller: [

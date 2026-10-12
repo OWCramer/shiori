@@ -26,7 +26,7 @@ struct ControlsGuideView: View {
                     section(input)
                 }
                 if isBeforePlay {
-                    Text("You can see this again from a game's More menu, or in Settings › Controls.")
+                    Text("Also in a game's More menu and Settings › Controls.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

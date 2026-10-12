@@ -11,7 +11,7 @@ struct EngineControls {
     /// Empty when the engine doesn't take a controller.
     let controller: [ControlRow]
     /// Said in place of the controller's rows when it has none.
-    var noController = "This game doesn't support controllers. Use touch to play."
+    var noController = "This game doesn't support controllers."
 
     func rows(for input: ControlsInput) -> [ControlRow] {
         switch input {

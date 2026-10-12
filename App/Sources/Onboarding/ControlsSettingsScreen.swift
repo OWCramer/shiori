@@ -13,13 +13,11 @@ struct ControlsSettingsScreen: View {
                             .inlineNavigationTitle()
                     }
                 }
-            } footer: {
-                Text("Shiori shows a game's controls the first time you play a game on each engine. A game's More menu has them too.")
             }
             Section {
                 Button("Show Before Playing Again", action: reset)
             } footer: {
-                Text("The controls show again the next time you play a game on each engine.")
+                Text("Shows each engine's controls again the next time you play.")
             }
         }
         .navigationTitle("Controls")

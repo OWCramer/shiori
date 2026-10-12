@@ -16,12 +16,7 @@ struct SignInCredentialsForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Sign in to Steam").font(.title2).bold()
-                Text("With the account that owns your games.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Sign in to Steam").font(.title2).bold()
             VStack(spacing: 0) {
                 TextField("Steam account name", text: $accountName)
                     .textContentType(.username)
@@ -50,7 +45,7 @@ struct SignInCredentialsForm: View {
             .controlSize(.large)
             .tint(Color(red: 0.80, green: 0.18, blue: 0.22))
             .disabled(!canSubmit)
-            Label("Your password goes only to Steam, encrypted, and is never saved. Steam then asks you to approve the sign-in in the Steam app or enter a Steam Guard code.",
+            Label("Your password goes only to Steam, encrypted, and is never saved.",
                   systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
