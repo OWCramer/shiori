@@ -13,7 +13,7 @@ struct ContinueCard: View {
 
     var body: some View {
         NavigationLink(value: game) {
-            HeaderArt(game: game)
+            LandscapeArt(game: game)
                 .frame(width: sizeClass == .regular ? ShowcaseMetrics.wideCard : ShowcaseMetrics.card)
                 .overlay(alignment: .bottomLeading) {
                     VStack(alignment: .leading, spacing: 2) {

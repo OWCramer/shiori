@@ -660,7 +660,6 @@ final class GameLibrary {
         guard playBlocker(appID: appID) == nil, tasks[appID] == nil, launching == nil,
               case let .installed(record) = statuses[appID], let engine = record.engine
         else { return }
-        PlayHistory.shared.recordLaunch(appID) // Home's "last played" (synced).
         let folder = folder(appID: appID, name: record.name)
         if ["artemis", "kirikiri", "siglus", "luca", "catsystem2"].contains(engine.engine) {
             // ArtemisKit's saves aren't the PC's format, so no Steam Cloud; iCloud mirrors them.
@@ -696,6 +695,10 @@ final class GameLibrary {
                 } else {
                     artemisSession = ArtemisSession(appID: appID, folder: folder, cover: art)
                 }
+                // Home's "last played" (synced) changes once the launch cover has slid over the
+                // library, so Continue Playing doesn't reshuffle under the finger.
+                try? await Task.sleep(for: .milliseconds(600))
+                PlayHistory.shared.recordLaunch(appID)
             }
             return
         }
@@ -719,6 +722,7 @@ final class GameLibrary {
             if isCloudSaveEnabled(appID) { launching = (appID, .iCloud) }
             await syncSaves(appID: appID, direction: .pull)
             launching = (appID, .starting)
+            PlayHistory.shared.recordLaunch(appID) // Home's "last played" (synced), as the game takes over.
             let (heroFile, logoFile) = await cover
             for (name, file) in [("SHIORI_COVER_HERO", heroFile), ("SHIORI_COVER_LOGO", logoFile)] {
                 if let file { setenv(name, file.path, 1) } else { unsetenv(name) }
