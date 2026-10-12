@@ -15,6 +15,15 @@ xcodegen generate --quiet
 rm -rf build/Shiori.xcarchive build/export
 xcodebuild -project Shiori.xcodeproj -scheme Shiori -configuration Release -destination 'generic/platform=iOS' \
     -archivePath build/Shiori.xcarchive CURRENT_PROJECT_VERSION="$BUILD" -allowProvisioningUpdates archive | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)"
+# The engine frameworks are prebuilt (Scripts/*/build-*.sh), so the archive has no dSYMs for
+# them and App Store Connect's symbol upload warns ("Upload completed with warnings"). Make
+# one per framework from its binary, so the UUIDs match (symbolicated as far as the binary's
+# debug info allows).
+for fw in build/Shiori.xcarchive/Products/Applications/Shiori.app/Frameworks/*.framework; do
+    name=$(basename "$fw" .framework)
+    dsym="build/Shiori.xcarchive/dSYMs/$name.framework.dSYM"
+    [ -d "$dsym" ] || dsymutil "$fw/$name" -o "$dsym" 2>/dev/null || true
+done
 xcodebuild -exportArchive -archivePath build/Shiori.xcarchive -exportOptionsPlist Scripts/ExportOptions.plist \
     -exportPath build/export -allowProvisioningUpdates | grep -E "error:|EXPORT (SUCCEEDED|FAILED)"
 echo "Shiori $VERSION ($BUILD): build/Shiori.xcarchive, build/export/Shiori.ipa"
