@@ -9,3 +9,4 @@ build/
 Scripts/kirikiri/harness/harness
 Scripts/kirikiri/harness/libshiorieval.dylib
 .claude/worktrees/
+Packages/*/Package.resolved
