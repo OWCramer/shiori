@@ -1,13 +1,17 @@
 import Foundation
 
 /// Per-game choices that follow the user between devices (iCloud Keychain): the Steam version
-/// (beta) a game downloads from, and Ren'Py's Phone Layout. Mirrored into the UserDefaults
-/// keys code off the main actor reads (`steamBranch.<appid>`, `renpyPhoneLayout.<appid>`).
+/// (beta) a game downloads from, Ren'Py's Phone Layout, and which KiriKiri engine plays it.
+/// Mirrored into the UserDefaults keys code off the main actor reads (`steamBranch.<appid>`,
+/// `renpyPhoneLayout.<appid>`, `kirikiriEngine.<appid>`).
 @MainActor
 enum SyncedPreferences {
     private struct Saved: Codable, Equatable {
         var branches: [String: String] = [:]
         var phoneLayout: [UInt32] = []
+        /// KiriKiri games played on Shiori's own engine (Phase 23); optional, so choices saved
+        /// before it existed still decode.
+        var shioriKrkr: [UInt32]?
     }
 
     private static let account = "gamePreferences"
@@ -29,6 +33,17 @@ enum SyncedPreferences {
         reload()
         saved.phoneLayout.removeAll { $0 == appID }
         if enabled { saved.phoneLayout.append(appID) }
+        save()
+    }
+
+    static func usesShioriKrkr(appID: UInt32) -> Bool { saved.shioriKrkr?.contains(appID) ?? false }
+
+    static func setShioriKrkr(_ enabled: Bool, appID: UInt32) {
+        reload()
+        var list = saved.shioriKrkr ?? []
+        list.removeAll { $0 == appID }
+        if enabled { list.append(appID) }
+        saved.shioriKrkr = list.isEmpty ? nil : list
         save()
     }
 
@@ -68,10 +83,12 @@ enum SyncedPreferences {
 
     private static func mirror(_ saved: Saved) {
         let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("steamBranch.") || key.hasPrefix("renpyPhoneLayout.") {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("steamBranch.") || key.hasPrefix("renpyPhoneLayout.")
+            || key.hasPrefix("kirikiriEngine.") {
             defaults.removeObject(forKey: key)
         }
         for (appID, branch) in saved.branches { defaults.set(branch, forKey: "steamBranch.\(appID)") }
         for appID in saved.phoneLayout { defaults.set(true, forKey: "renpyPhoneLayout.\(appID)") }
+        for appID in saved.shioriKrkr ?? [] { defaults.set("shiori", forKey: "kirikiriEngine.\(appID)") }
     }
 }

@@ -12,6 +12,7 @@ struct VersionSection: View {
     @Environment(CompatibilityStore.self) private var compatibility
     @State private var branch = "public"
     @State private var phoneLayout = false
+    @State private var kirikiriEngine = KiriKiriEngineChoice.aether
 
     private var appID: UInt32 { game.appID }
     private var record: GameRecord? {
@@ -62,6 +63,21 @@ struct VersionSection: View {
                 // controller as their keyboard: see KiriKiriGameViewController.pad.)
                 GamePageValueRow(title: "Controls", value: "Touch, keyboard and mouse")
             }
+            #if !SHIORI_APP_STORE
+            // While both KiriKiri engines exist (Phase 23): the full edition's Standard
+            // (AetherKrkr) or Shiori's own. The App Store edition has only Shiori's.
+            if record?.engine?.engine == "kirikiri" {
+                GamePageRow {
+                    LabeledContent("KiriKiri Engine") {
+                        Picker("KiriKiri Engine", selection: $kirikiriEngine) {
+                            ForEach(KiriKiriEngineChoice.allCases) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+                }
+            }
+            #endif
             if record?.engine?.engine == RenPyEngine.id {
                 GamePageRow {
                     VStack(alignment: .leading, spacing: 2) {
@@ -88,11 +104,15 @@ struct VersionSection: View {
             if pending == nil { branch = games.branch(for: appID) }
         }
         .onChange(of: phoneLayout) { _, on in if on != model.phoneLayout { model.setPhoneLayout(on) } }
+        .onChange(of: kirikiriEngine) { _, picked in
+            if picked != KiriKiriEngineChoice.engine(for: appID) { KiriKiriEngineChoice.set(picked, for: appID) }
+        }
     }
 
     private func load() {
         branch = games.branch(for: appID)
         phoneLayout = model.phoneLayout
+        kirikiriEngine = KiriKiriEngineChoice.engine(for: appID)
     }
 
     private func checkEngine() { engineScans.scan([appID], force: true) }
