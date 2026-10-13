@@ -254,6 +254,8 @@ final class ShioriKrkrGameViewController: UIViewController {
     private weak var pointerTouch: UITouch?
     private var pointerButton = Int32(SHIORIKRKR_BUTTON_LEFT)
     private var padReader = GamePadReader()
+    /// Keys the controller holds down in the game (let go when an alert takes the controller).
+    private var padKeys: Set<Int32> = []
     private var keyDownAt: [Int32: CFTimeInterval] = [:]
     private var skipLatched = false
     private var leaveAlert: UIAlertController?
@@ -323,6 +325,31 @@ final class ShioriKrkrGameViewController: UIViewController {
         NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.saveSystemData(reason: "leaving the screen") }
         }
+        #if DEBUG
+        // `-ShioriKiriKiriInput "20:skip;30:auto;40:pageup"`, as on the Standard engine: the
+        // shared gestures (`skip`, `auto`, `backlog`, `menu`, `tap`) and keys (`pageup`,
+        // `enter`) at seconds from launch.
+        for step in (UserDefaults.standard.string(forKey: "ShioriKiriKiriInput") ?? "").split(separator: ";") {
+            let parts = step.split(separator: ":")
+            guard parts.count == 2, let delay = Double(parts[0]) else { continue }
+            let name = String(parts[1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                ShioriKrkrRuntime.log.notice("Debug input \(name, privacy: .public)")
+                switch name {
+                case "skip": self.swipedSkip()
+                case "auto": self.swipedAuto()
+                case "backlog", "pageup": self.wheelUp()
+                case "menu": self.rightClickMiddle()
+                case "enter":
+                    self.press(0x0D, down: true)
+                    self.press(0x0D, down: false)
+                case "tap": self.releaseSkipLatch()
+                default: break
+                }
+            }
+        }
+        #endif
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -595,13 +622,65 @@ final class ShioriKrkrGameViewController: UIViewController {
         toggleAuto()
     }
 
-    /// KAG's own auto mode (MainWindow's enterAutoMode / cancelAutoMode).
+    /// Auto as the Standard engine turns it on: the main window's Auto menu item (KAG's
+    /// autoModeMenuItem, or the first item whose caption says "自動", "オート" or "auto"), which
+    /// works whether the game shows its menu bar or not and runs the game's own handler. Games
+    /// without one fall back to KAG's enterAutoMode / cancelAutoMode.
     private func toggleAuto() {
-        let result = evaluate("""
-            (typeof global.kag == "Object" && typeof kag.enterAutoMode == "Object") \
-            ? (kag.autoMode ? (kag.cancelAutoMode(), "off") : (kag.enterAutoMode(), "on")) : "none"
-            """)
+        let result = evaluate(Self.autoTJS)
+        ShioriKrkrRuntime.log.notice("Auto: \(result ?? "not run", privacy: .public)")
         if result == "none" { GameNotice.show("This game turns Auto on with its own button.", in: view) }
+    }
+
+    private static let autoTJS = """
+        (function() {
+            if (typeof global.kag != "Object" || !isvalid kag) return "none";
+            var match = function(item) {
+                var caption = ("" + item.caption).toLowerCase();
+                return caption.indexOf("自動") >= 0 || caption.indexOf("オート") >= 0 || caption.indexOf("auto") >= 0;
+            };
+            var found = void;
+            if (typeof kag.autoModeMenuItem == "Object" && kag.autoModeMenuItem !== null && isvalid kag.autoModeMenuItem) {
+                found = kag.autoModeMenuItem;
+            } else {
+                var stack = [];
+                try {
+                    var top = kag.menu.children;
+                    for (var i = top.count - 1; i >= 0; i--) stack.add(top[i]);
+                } catch (e) {}
+                while (stack.count > 0 && found === void) {
+                    var item = stack[stack.count - 1];
+                    stack.count = stack.count - 1;
+                    if (match(item)) { found = item; break; }
+                    var children = item.children;
+                    for (var j = children.count - 1; j >= 0; j--) stack.add(children[j]);
+                }
+            }
+            if (found !== void) {
+                if (!found.enabled) return "disabled";
+                found.fireClick();
+                return "menu";
+            }
+            if (typeof kag.enterAutoMode != "Object") return "none";
+            if (kag.autoMode) { kag.cancelAutoMode(); return "off"; }
+            kag.enterAutoMode();
+            return "on";
+        })()
+        """
+
+    /// The wheel turned up at the middle of the game (the backlog).
+    private func wheelUp() {
+        cancelPointer()
+        let (x, y) = normalized(CGPoint(x: gameRect.midX, y: gameRect.midY))
+        api?.pointee.wheel(1, x, y)
+    }
+
+    /// A right click at the middle of the game (the menu, or back).
+    private func rightClickMiddle() {
+        cancelPointer()
+        let point = CGPoint(x: gameRect.midX, y: gameRect.midY)
+        pointer(Int32(SHIORIKRKR_POINTER_DOWN), point, button: Int32(SHIORIKRKR_BUTTON_RIGHT))
+        pointer(Int32(SHIORIKRKR_POINTER_UP), point, button: Int32(SHIORIKRKR_BUTTON_RIGHT))
     }
 
     #if os(iOS)
@@ -612,10 +691,9 @@ final class ShioriKrkrGameViewController: UIViewController {
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil || $0 == .keyboardPageUp }
         for key in keys {
-            if key == .keyboardPageUp {
-                let (x, y) = normalized(CGPoint(x: gameRect.midX, y: gameRect.midY))
-                api?.pointee.wheel(1, x, y)
-            }
+            // As on the Standard engine, a key ends a touch's press without a click.
+            cancelPointer()
+            if key == .keyboardPageUp { wheelUp() }
             if let code = key.windowsVirtualKey { press(code, down: true) }
         }
         if !rest.isEmpty { super.pressesBegan(rest, with: event) }
@@ -623,7 +701,11 @@ final class ShioriKrkrGameViewController: UIViewController {
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil }
-        for key in keys { if let code = key.windowsVirtualKey { press(code, down: false) } }
+        for key in keys {
+            guard let code = key.windowsVirtualKey else { continue }
+            cancelPointer()
+            press(code, down: false)
+        }
         if !rest.isEmpty { super.pressesEnded(rest, with: event) }
     }
 
@@ -644,7 +726,7 @@ final class ShioriKrkrGameViewController: UIViewController {
             cursorLayer.isHidden = true
             return
         }
-        guard pointerTouch == nil else { return }
+        guard pointerTouch == nil, recognizer.state == .began || recognizer.state == .changed else { return }
         setHovering(true)
         pointerLocation = recognizer.location(in: view)
         pointer(Int32(SHIORIKRKR_POINTER_MOVED), recognizer.location(in: view))
@@ -715,6 +797,7 @@ final class ShioriKrkrGameViewController: UIViewController {
     /// held skips, Escape cancels.
     private func pad(_ pad: GCExtendedGamepad) {
         if let alert = leaveAlert, presentedViewController === alert {
+            releasePadKeys()
             for (button, down) in padReader.read(pad) where down {
                 if button == .a {
                     alert.dismiss(animated: true) { [weak self] in
@@ -728,33 +811,45 @@ final class ShioriKrkrGameViewController: UIViewController {
             return
         }
         guard api != nil, presentedViewController == nil else {
+            // A game's message box (or another alert) has the controller: let go of what the
+            // controller held in the game, and ignore buttons until they come back up.
+            releasePadKeys()
             padReader.absorb(pad)
             return
         }
         for (button, down) in padReader.read(pad) {
+            // As on the Standard engine, a button ends a touch's press without a click.
+            if down { cancelPointer() }
             switch button {
-            case .up: press(0x26, down: down)
-            case .down: press(0x28, down: down)
-            case .left: press(0x25, down: down)
-            case .right: press(0x27, down: down)
-            case .a: press(0x0D, down: down)
-            case .rb: press(0x11, down: down)
-            case .menu: press(0x1B, down: down)
-            case .b where down:
-                let point = CGPoint(x: gameRect.midX, y: gameRect.midY)
-                pointer(Int32(SHIORIKRKR_POINTER_DOWN), point, button: Int32(SHIORIKRKR_BUTTON_RIGHT))
-                pointer(Int32(SHIORIKRKR_POINTER_UP), point, button: Int32(SHIORIKRKR_BUTTON_RIGHT))
-            case .y where down, .lb where down:
-                let (x, y) = normalized(CGPoint(x: gameRect.midX, y: gameRect.midY))
-                api?.pointee.wheel(1, x, y)
-            case .x where down:
-                toggleAuto()
+            case .up: padKey(0x26, down: down) // VK_UP
+            case .down: padKey(0x28, down: down) // VK_DOWN
+            case .left: padKey(0x25, down: down) // VK_LEFT
+            case .right: padKey(0x27, down: down) // VK_RIGHT
+            case .a: padKey(0x0D, down: down) // VK_RETURN
+            case .rb: padKey(0x11, down: down) // VK_CONTROL: skip while held (R1 or R2)
+            case .menu: padKey(0x1B, down: down) // VK_ESCAPE
+            case .b where down: rightClickMiddle()
+            case .y where down, .lb where down: wheelUp()
+            case .x where down: toggleAuto()
             case .options where down:
+                // Nothing stays held in the game behind the question.
+                releasePadKeys()
                 presentLeaveQuestion()
             default:
                 break
             }
         }
+    }
+
+    /// A key the controller presses or lets go (held arrows repeat: presses with no release).
+    private func padKey(_ code: Int32, down: Bool) {
+        if down { padKeys.insert(code) } else if padKeys.remove(code) == nil { return }
+        press(code, down: down)
+    }
+
+    private func releasePadKeys() {
+        for code in padKeys { press(code, down: false) }
+        padKeys.removeAll()
     }
 
     // MARK: Leaving
@@ -823,9 +918,11 @@ final class ShioriKrkrGameViewController: UIViewController {
 
 #if os(iOS)
 extension ShioriKrkrGameViewController: UIPointerInteractionDelegate {
-    /// The iPad's pointer hides while the game draws its own cursor.
+    /// The iPad's pointer hides while the game draws its own cursor in its place (or the game
+    /// hid the cursor), as the PC build replaces Windows's.
     func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
-        cursorKind == 0 ? nil : .hidden()
+        guard pointerHovering, cursorKind != 0 else { return nil }
+        return .hidden()
     }
 }
 #endif
