@@ -104,7 +104,28 @@ enum ShioriKrkrRuntime {
                                                         hasScheme: hasScheme) == nil
     }
 
+    /// The engine's log for the current game, `logs/shiori-engine.log` in the game's folder (so
+    /// it can be shared from the Files app when something goes wrong on a device); replaced
+    /// each launch.
+    nonisolated(unsafe) static var engineLog: FileHandle?
+
+    private static func openEngineLog(gameFolder: URL) {
+        try? engineLog?.close()
+        let folder = gameFolder.appendingPathComponent("logs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("shiori-engine.log")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        engineLog = try? FileHandle(forWritingTo: file)
+        let device = UIDevice.current
+        engineLog?.write(Data("Shiori \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "") (\(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "")), \(device.model) \(device.systemName) \(device.systemVersion)\n".utf8))
+        for folder in ["base", "patch"] {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: gameFolder.appendingPathComponent(folder).path))?.sorted() ?? []
+            engineLog?.write(Data("\(folder)/: \(names.joined(separator: ", "))\n".utf8))
+        }
+    }
+
     static func start(gameFolder: URL, messages: ShioriKrkrGameViewController) throws -> UnsafePointer<shiorikrkr_api_t> {
+        openEngineLog(gameFolder: gameFolder)
         let scheme = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)/scheme.shcx")
         if KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
                                                      hasScheme: FileManager.default.fileExists(atPath: scheme.path)) != nil {
@@ -137,6 +158,7 @@ enum ShioriKrkrRuntime {
                             guard let line else { return }
                             let text = String(cString: line)
                             ShioriKrkrRuntime.log.notice("\(text, privacy: .public)")
+                            ShioriKrkrRuntime.engineLog?.write(Data((text + "\n").utf8))
                         }
                         config.message = { context, text, caption, buttons, count in
                             guard let context else { return 0 }
