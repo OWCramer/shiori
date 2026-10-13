@@ -10,7 +10,8 @@ import UIKit
 import MetalFX
 #endif
 
-/// Shows ShioriKrkr's composed frames: each new frame is copied into a texture, then drawn
+/// Shows ShioriKrkr's composed frames: the engine's own texture when it composes on the GPU
+/// (waiting on its event), otherwise each new frame copied into a texture; then drawn
 /// aspect-fitted into a CAMetalLayer, enlarged with MetalFX's spatial scaler where it's on
 /// (Settings › Engines; devices only) and with a bilinear sampler otherwise. Written for
 /// ShioriKrkr; nothing here comes from the Standard engine's presenter or its shaders.
@@ -96,7 +97,7 @@ final class ShioriKrkrPresenter {
 
     /// Presents the frame (copying the pixels first when they've changed).
     func present(pixels: UnsafePointer<UInt8>, width: Int, height: Int, pitch: Int, changed: Bool) {
-        guard let device, let queue, let pipeline, width > 0, height > 0 else { return }
+        guard let device, let queue, width > 0, height > 0 else { return }
         if frameTextures.first?.width != width || frameTextures.first?.height != height {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height,
                                                                       mipmapped: false)
@@ -111,9 +112,26 @@ final class ShioriKrkrPresenter {
         let frameTexture = frameTextures[frameIndex]
         frameTexture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: pixels,
                              bytesPerRow: pitch)
-        guard layer.drawableSize.width > 0, let drawable = layer.nextDrawable(),
-              let commands = queue.makeCommandBuffer()
-        else { return }
+        guard let commands = queue.makeCommandBuffer() else { return }
+        draw(frameTexture, width: width, height: height, commands: commands)
+    }
+
+    /// Presents a frame the engine composed on the GPU: `texture` is ready once `event`
+    /// reaches `value`, which this frame's GPU work waits for.
+    func present(texture: MTLTexture, event: MTLSharedEvent?, value: UInt64, width: Int, height: Int,
+                 changed: Bool) {
+        guard let queue, width > 0, height > 0 else { return }
+        if !changed, lastEngineTexture === texture { return } // Nothing new to show.
+        lastEngineTexture = texture
+        guard let commands = queue.makeCommandBuffer() else { return }
+        if let event { commands.encodeWaitForEvent(event, value: value) }
+        draw(texture, width: width, height: height, commands: commands)
+    }
+
+    private weak var lastEngineTexture: MTLTexture?
+
+    private func draw(_ frameTexture: MTLTexture, width: Int, height: Int, commands: MTLCommandBuffer) {
+        guard let pipeline, layer.drawableSize.width > 0, let drawable = layer.nextDrawable() else { return }
 
         // Where the game goes: aspect-fitted, in drawable pixels.
         let target = CGSize(width: drawable.texture.width, height: drawable.texture.height)

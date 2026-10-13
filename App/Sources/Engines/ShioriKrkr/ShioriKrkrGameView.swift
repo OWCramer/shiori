@@ -5,6 +5,7 @@
 import AVFoundation
 import CShioriKrkr
 import GameController
+import Metal
 import os
 import ShioriKrkrEmote
 import SwiftUI
@@ -366,12 +367,19 @@ final class ShioriKrkrGameViewController: UIViewController {
         }
         #endif
         var frame = shiorikrkr_frame_t()
-        if api.pointee.frame(&frame) != 0, let pixels = frame.pixels {
+        if api.pointee.frame(&frame) != 0, frame.pixels != nil || frame.texture != nil {
             frameSize = CGSize(width: Int(frame.width), height: Int(frame.height))
             let isNew = frame.serial != lastSerial
             lastSerial = frame.serial
-            presenter?.present(pixels: pixels, width: Int(frame.width), height: Int(frame.height),
-                               pitch: Int(frame.pitch), changed: isNew)
+            if let texture = frame.texture {
+                let event = frame.event.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as? MTLSharedEvent }
+                presenter?.present(texture: Unmanaged<AnyObject>.fromOpaque(texture).takeUnretainedValue() as! MTLTexture,
+                                   event: event ?? nil, value: frame.event_value, width: Int(frame.width),
+                                   height: Int(frame.height), changed: isNew)
+            } else if let pixels = frame.pixels {
+                presenter?.present(pixels: pixels, width: Int(frame.width), height: Int(frame.height),
+                                   pitch: Int(frame.pitch), changed: isNew)
+            }
             // The cover lifts on the first frame with something on it (the game's first
             // frames are black while its title loads).
             if frame.blank == 0, let lift = onFirstFrame {
