@@ -460,7 +460,7 @@ final class ShioriKrkrGameViewController: UIViewController {
         guard span >= 10, let presenter else { return }
         let shown = presenter.takeStatistics()
         let line = String(format: "Shiori frames (%.0f s): %d ticks (%.1f/s), engine %.2f ms avg, %.1f ms worst, %d over 16.7 ms; "
-                          + "longest gap %.1f ms; shown %.1f/s (%.1f/s new), drawable wait %.2f ms/frame, %d refreshes skipped (GPU busy)",
+                          + "longest gap %.1f ms; shown %.1f/s (%.1f/s new), presenter drawable wait %.2f ms/frame (off the engine thread), %d frames replaced before shown",
                           span, statsTicks, Double(statsTicks) / span, statsTickTime * 1000 / Double(max(statsTicks, 1)),
                           statsTickWorst * 1000, statsSlow, statsGapWorst * 1000, Double(shown.shown) / span,
                           Double(shown.new) / span, shown.drawableWait * 1000 / Double(max(shown.shown, 1)), shown.skipped)

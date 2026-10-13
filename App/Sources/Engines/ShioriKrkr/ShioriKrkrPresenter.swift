@@ -15,24 +15,22 @@ import MetalFX
 /// aspect-fitted into a CAMetalLayer, enlarged with MetalFX's spatial scaler where it's on
 /// (Settings › Engines; devices only) and with a bilinear sampler otherwise. Written for
 /// ShioriKrkr; nothing here comes from the Standard engine's presenter or its shaders.
+///
+/// Presentation runs on a queue of its own: the engine's tick only hands over the newest frame
+/// and returns, and the queue waits for a drawable (a frame not yet shown is replaced by a newer
+/// one). Waiting for drawables on the engine's thread tied its ticks to the display and held
+/// busy scenes at around 30.
 @MainActor
 final class ShioriKrkrPresenter {
     let view: UIView
     private let layer: CAMetalLayer
     private let device: MTLDevice?
-    private let queue: MTLCommandQueue?
-    private let pipeline: MTLRenderPipelineState?
-    private let sampler: MTLSamplerState?
+    private let renderer: Renderer?
     /// Three textures in turn, so a new frame is never copied into one the GPU may still be
-    /// reading.
+    /// reading (the CPU-composed path).
     private var frameTextures: [MTLTexture] = []
     private var frameIndex = 0
-    private let upscaling: Bool
-    #if !targetEnvironment(simulator)
-    private var scaler: MTLFXSpatialScaler?
-    private var scaledTexture: MTLTexture?
-    private var scalerSizes: (input: CGSize, output: CGSize) = (.zero, .zero)
-    #endif
+    private weak var lastEngineTexture: MTLTexture?
 
     private final class LayerView: UIView {
         override class var layerClass: AnyClass { CAMetalLayer.self }
@@ -42,6 +40,103 @@ final class ShioriKrkrPresenter {
             onLayout?()
         }
     }
+
+    init(upscaling: Bool) {
+        let view = LayerView()
+        self.view = view
+        layer = view.layer as! CAMetalLayer
+        device = MTLCreateSystemDefaultDevice()
+        layer.device = device
+        layer.pixelFormat = .bgra8Unorm
+        layer.framebufferOnly = true
+        layer.isOpaque = true
+        layer.maximumDrawableCount = 3
+        renderer = device.flatMap { Renderer(device: $0, layer: layer, upscaling: upscaling) }
+        view.onLayout = { [weak self] in self?.resize() }
+    }
+
+    private func resize() {
+        let scale = view.window?.screen.scale ?? view.traitCollection.displayScale
+        layer.contentsScale = scale
+        let size = CGSize(width: view.bounds.width * scale, height: view.bounds.height * scale)
+        guard size != layer.drawableSize else { return }
+        layer.drawableSize = size
+        renderer?.redraw() // the last frame again, at the new size
+    }
+
+    /// Presents the frame (copying the pixels first when they've changed).
+    func present(pixels: UnsafePointer<UInt8>, width: Int, height: Int, pitch: Int, changed: Bool) {
+        guard let device, let renderer, width > 0, height > 0 else { return }
+        if frameTextures.first?.width != width || frameTextures.first?.height != height {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height,
+                                                                      mipmapped: false)
+            descriptor.usage = [.shaderRead]
+            descriptor.storageMode = .shared
+            frameTextures = (0 ..< 3).compactMap { _ in device.makeTexture(descriptor: descriptor) }
+        } else if !changed {
+            return // Nothing new to show.
+        }
+        guard frameTextures.count == 3 else { return }
+        frameIndex = (frameIndex + 1) % 3
+        let frameTexture = frameTextures[frameIndex]
+        frameTexture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: pixels,
+                             bytesPerRow: pitch)
+        renderer.submit(.init(texture: frameTexture, event: nil, value: 0, width: width, height: height))
+    }
+
+    /// Presents a frame the engine composed on the GPU: `texture` is ready once `event`
+    /// reaches `value`, which the presentation's GPU work waits for. Called every display
+    /// refresh; only a new frame is handed on (the layer keeps showing the last one).
+    func present(texture: MTLTexture, event: MTLSharedEvent?, value: UInt64, width: Int, height: Int,
+                 changed: Bool) {
+        guard let renderer, width > 0, height > 0 else { return }
+        let fresh = changed || lastEngineTexture !== texture
+        lastEngineTexture = texture
+        guard fresh else { return }
+        renderer.submit(.init(texture: texture, event: event, value: value, width: width, height: height))
+    }
+
+    /// Frames shown since the last call, how many were new (all are), the time the presentation
+    /// queue spent waiting for drawables, and frames replaced by a newer one before they could
+    /// be shown.
+    func takeStatistics() -> (shown: Int, new: Int, drawableWait: CFTimeInterval, skipped: Int) {
+        renderer?.takeStatistics() ?? (0, 0, 0, 0)
+    }
+}
+
+/// The presentation queue's side: everything here runs on `queue`, except `submit`, `redraw`
+/// and `takeStatistics`, which hand over under `lock`.
+private final class Renderer: @unchecked Sendable {
+    struct Frame {
+        let texture: MTLTexture
+        let event: MTLSharedEvent?
+        let value: UInt64
+        let width: Int, height: Int
+    }
+
+    private let device: MTLDevice
+    private let layer: CAMetalLayer
+    private let commandQueue: MTLCommandQueue
+    private let pipeline: MTLRenderPipelineState
+    private let sampler: MTLSamplerState
+    private let upscaling: Bool
+    private let queue = DispatchQueue(label: "com.owencramer.shiori.krkr-presenter", qos: .userInteractive)
+
+    private let lock = NSLock()
+    private var pending: Frame?
+    private var draining = false
+    private var redrawWanted = false
+    private var shown = 0, dropped = 0
+    private var drawableWait: CFTimeInterval = 0
+
+    // Queue-only state.
+    private var lastFrame: Frame?
+    private var lastSource: MTLTexture?
+    #if !targetEnvironment(simulator)
+    private var scaler: MTLFXSpatialScaler?
+    private var scaledTexture: MTLTexture?
+    private var scalerSizes: (input: CGSize, output: CGSize) = (.zero, .zero)
+    #endif
 
     /// Draws a texture over a rectangle given in clip space (x0, y0, x1, y1); its alpha is
     /// ignored (KiriKiri's primary layer is opaque, but not every pixel says so).
@@ -62,121 +157,92 @@ final class ShioriKrkrPresenter {
         }
         """
 
-    init(upscaling: Bool) {
-        let view = LayerView()
-        self.view = view
-        layer = view.layer as! CAMetalLayer
-        device = MTLCreateSystemDefaultDevice()
-        queue = device?.makeCommandQueue()
-        self.upscaling = upscaling
-        layer.device = device
-        layer.pixelFormat = .bgra8Unorm
-        layer.framebufferOnly = true
-        layer.isOpaque = true
-        var pipeline: MTLRenderPipelineState?
-        if let device, let library = try? device.makeLibrary(source: Self.shaderSource, options: nil) {
-            let descriptor = MTLRenderPipelineDescriptor()
-            descriptor.vertexFunction = library.makeFunction(name: "shioriKrkrVertex")
-            descriptor.fragmentFunction = library.makeFunction(name: "shioriKrkrFragment")
-            descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-            pipeline = try? device.makeRenderPipelineState(descriptor: descriptor)
-        }
-        self.pipeline = pipeline
+    init?(device: MTLDevice, layer: CAMetalLayer, upscaling: Bool) {
+        guard let commandQueue = device.makeCommandQueue(),
+              let library = try? device.makeLibrary(source: Self.shaderSource, options: nil) else { return nil }
+        let descriptor = MTLRenderPipelineDescriptor()
+        descriptor.vertexFunction = library.makeFunction(name: "shioriKrkrVertex")
+        descriptor.fragmentFunction = library.makeFunction(name: "shioriKrkrFragment")
+        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
         let samplerDescriptor = MTLSamplerDescriptor()
         samplerDescriptor.minFilter = .linear
         samplerDescriptor.magFilter = .linear
-        sampler = device?.makeSamplerState(descriptor: samplerDescriptor)
-        view.onLayout = { [weak self] in self?.resize() }
+        guard let pipeline = try? device.makeRenderPipelineState(descriptor: descriptor),
+              let sampler = device.makeSamplerState(descriptor: samplerDescriptor) else { return nil }
+        self.device = device
+        self.layer = layer
+        self.commandQueue = commandQueue
+        self.pipeline = pipeline
+        self.sampler = sampler
+        self.upscaling = upscaling
     }
 
-    private func resize() {
-        let scale = view.window?.screen.scale ?? view.traitCollection.displayScale
-        layer.contentsScale = scale
-        layer.drawableSize = CGSize(width: view.bounds.width * scale, height: view.bounds.height * scale)
+    /// The newest frame, replacing one not yet shown; returns at once.
+    func submit(_ frame: Frame) {
+        lock.lock()
+        if pending != nil { dropped += 1 }
+        pending = frame
+        let start = !draining
+        draining = true
+        lock.unlock()
+        if start { queue.async { self.drain() } }
     }
 
-    /// Presents the frame (copying the pixels first when they've changed).
-    func present(pixels: UnsafePointer<UInt8>, width: Int, height: Int, pitch: Int, changed: Bool) {
-        guard let device, let queue, width > 0, height > 0 else { return }
-        if frameTextures.first?.width != width || frameTextures.first?.height != height {
-            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height,
-                                                                      mipmapped: false)
-            descriptor.usage = [.shaderRead]
-            descriptor.storageMode = .shared
-            frameTextures = (0 ..< 3).compactMap { _ in device.makeTexture(descriptor: descriptor) }
-        } else if !changed {
-            return // Nothing new to show.
-        }
-        guard frameTextures.count == 3 else { return }
-        frameIndex = (frameIndex + 1) % 3
-        let frameTexture = frameTextures[frameIndex]
-        frameTexture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: pixels,
-                             bytesPerRow: pitch)
-        guard let commands = queue.makeCommandBuffer() else { return }
-        draw(frameTexture, width: width, height: height, commands: commands, fresh: true)
+    /// The last frame drawn again (the drawable changed size).
+    func redraw() {
+        lock.lock()
+        redrawWanted = true
+        let start = !draining
+        draining = true
+        lock.unlock()
+        if start { queue.async { self.drain() } }
     }
-
-    /// Presents a frame the engine composed on the GPU: `texture` is ready once `event`
-    /// reaches `value`, which this frame's GPU work waits for. Called on every display refresh:
-    /// an unchanged frame is shown again from what was drawn last (no new enlargement), so
-    /// the display gets a steady 60 frames a second whatever the game is doing.
-    func present(texture: MTLTexture, event: MTLSharedEvent?, value: UInt64, width: Int, height: Int,
-                 changed: Bool) {
-        guard let queue, width > 0, height > 0 else { return }
-        let fresh = changed || lastEngineTexture !== texture || owedFresh
-        // The GPU is still on the last two presentations: this refresh is skipped rather than
-        // waiting for a drawable on the engine's thread (which held the game at 30 when the
-        // GPU was busy); a new frame is owed and shown at the next refresh.
-        if presentsInFlight >= 2 {
-            if fresh { owedFresh = true }
-            skipped += 1
-            return
-        }
-        owedFresh = false
-        lastEngineTexture = texture
-        guard let commands = queue.makeCommandBuffer() else { return }
-        if fresh, let event { commands.encodeWaitForEvent(event, value: value) }
-        draw(texture, width: width, height: height, commands: commands, fresh: fresh)
-    }
-
-    private weak var lastEngineTexture: MTLTexture?
-    /// Presentations committed and not yet done on the GPU (read and written on the main actor).
-    private var presentsInFlight = 0
-    /// A new frame was skipped while the GPU was busy; the next refresh shows it.
-    private var owedFresh = false
-    /// Refreshes skipped since the last `takeStatistics()`.
-    private(set) var skipped = 0
-    /// What the last fresh frame was drawn from (MetalFX's output where it enlarged it).
-    private var lastSource: MTLTexture?
-
-    /// Frames shown since the last `takeStatistics()`, how many were new, and the time spent
-    /// waiting for a drawable.
-    private(set) var shown = 0, shownNew = 0
-    private(set) var drawableWait: CFTimeInterval = 0
 
     func takeStatistics() -> (shown: Int, new: Int, drawableWait: CFTimeInterval, skipped: Int) {
-        defer { shown = 0; shownNew = 0; drawableWait = 0; skipped = 0 }
-        return (shown, shownNew, drawableWait, skipped)
+        lock.lock()
+        defer { shown = 0; dropped = 0; drawableWait = 0; lock.unlock() }
+        return (shown, shown, drawableWait, dropped)
     }
 
-    private func draw(_ frameTexture: MTLTexture, width: Int, height: Int, commands: MTLCommandBuffer, fresh: Bool) {
-        guard let pipeline, layer.drawableSize.width > 0 else { return }
+    private func drain() {
+        while true {
+            lock.lock()
+            let frame = pending
+            let again = redrawWanted
+            pending = nil
+            redrawWanted = false
+            if frame == nil && !again {
+                draining = false
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+            if let frame {
+                lastFrame = frame
+                draw(frame, fresh: true)
+            } else if let lastFrame {
+                draw(lastFrame, fresh: false)
+            }
+        }
+    }
+
+    private func draw(_ frame: Frame, fresh: Bool) {
+        guard layer.drawableSize.width > 0, let commands = commandQueue.makeCommandBuffer() else { return }
+        if fresh, let event = frame.event { commands.encodeWaitForEvent(event, value: frame.value) }
         let waitStart = CACurrentMediaTime()
         guard let drawable = layer.nextDrawable() else { return }
-        drawableWait += CACurrentMediaTime() - waitStart
-        shown += 1
-        if fresh { shownNew += 1 }
+        let waited = CACurrentMediaTime() - waitStart
 
         // Where the game goes: aspect-fitted, in drawable pixels.
         let target = CGSize(width: drawable.texture.width, height: drawable.texture.height)
-        let fitted = AVMakeRect(aspectRatio: CGSize(width: width, height: height),
+        let fitted = AVMakeRect(aspectRatio: CGSize(width: frame.width, height: frame.height),
                                 insideRect: CGRect(origin: .zero, size: target)).integral
-        var source: MTLTexture = frameTexture
+        var source: MTLTexture = frame.texture
         if !fresh, let last = lastSource {
             source = last
         } else {
             #if !targetEnvironment(simulator)
-            if upscaling, let scaled = upscale(frameTexture, to: fitted.size, commands: commands) { source = scaled }
+            if upscaling, let scaled = upscale(frame.texture, to: fitted.size, commands: commands) { source = scaled }
             #endif
             lastSource = source
         }
@@ -196,17 +262,17 @@ final class ShioriKrkrPresenter {
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         encoder.endEncoding()
         commands.present(drawable)
-        presentsInFlight += 1
-        commands.addCompletedHandler { [weak self] _ in
-            Task { @MainActor in self?.presentsInFlight -= 1 }
-        }
         commands.commit()
+        lock.lock()
+        shown += 1
+        drawableWait += waited
+        lock.unlock()
     }
 
     #if !targetEnvironment(simulator)
     /// The frame enlarged to `size` by MetalFX; nil (bilinear instead) where it can't.
     private func upscale(_ input: MTLTexture, to size: CGSize, commands: MTLCommandBuffer) -> MTLTexture? {
-        guard let device, size.width > CGFloat(input.width) else { return nil }
+        guard size.width > CGFloat(input.width) else { return nil }
         let inputSize = CGSize(width: input.width, height: input.height)
         if scaler == nil || scalerSizes.input != inputSize || scalerSizes.output != size {
             let descriptor = MTLFXSpatialScalerDescriptor()
