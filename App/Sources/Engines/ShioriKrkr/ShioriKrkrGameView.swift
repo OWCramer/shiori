@@ -183,6 +183,17 @@ final class ShioriKrkrGameViewController: UIViewController {
     private var ticking = false
     private var leaving = false
     private var lastSerial: UInt64 = 0
+    #if DEBUG
+    /// `-ShioriKrkrEval "<seconds>|<TJS>;;<seconds>|<TJS>"`: TJS run that many seconds after the
+    /// game starts (testing movies and scenes in the simulator).
+    private lazy var debugEvals: [(at: CFTimeInterval, tjs: String)] = (UserDefaults.standard.string(forKey: "ShioriKrkrEval") ?? "")
+        .components(separatedBy: ";;").compactMap { item in
+            let parts = item.split(separator: "|", maxSplits: 1)
+            guard parts.count == 2, let at = Double(parts[0]) else { return nil }
+            return (at, String(parts[1]))
+        }
+    private var startedAt: CFTimeInterval = 0
+    #endif
     private var frameSize: CGSize = .zero
     private weak var pointerTouch: UITouch?
     private var pointerButton = Int32(SHIORIKRKR_BUTTON_LEFT)
@@ -316,6 +327,15 @@ final class ShioriKrkrGameViewController: UIViewController {
             leave()
             return
         }
+        #if DEBUG
+        if startedAt == 0 { startedAt = CACurrentMediaTime() }
+        while let next = debugEvals.first, CACurrentMediaTime() - startedAt >= next.at {
+            debugEvals.removeFirst()
+            var buffer = [CChar](repeating: 0, count: 1024)
+            let status = api.pointee.eval(next.tjs, &buffer, UInt32(buffer.count))
+            ShioriKrkrRuntime.log.notice("Debug eval [\(status)] \(String(cString: buffer), privacy: .public)")
+        }
+        #endif
         var frame = shiorikrkr_frame_t()
         if api.pointee.frame(&frame) != 0, let pixels = frame.pixels {
             frameSize = CGSize(width: Int(frame.width), height: Int(frame.height))
