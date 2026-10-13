@@ -93,6 +93,11 @@ enum ShioriKrkrRuntime {
             .first { !["unins", "steam", "setup", "config"].contains(where: $0.lowercased().contains) } ?? "game.exe"
     }
 
+    /// The app ID in a library folder's name ("<app ID>-<name>"), 0 when it has none.
+    static func folderAppID(_ folder: URL) -> UInt32 {
+        folder.lastPathComponent.split(separator: "-").first.flatMap { UInt32($0) } ?? 0
+    }
+
     /// What the game page says when the Shiori engine can't open a game yet.
     static let unsupportedTitle = "This Game Doesn't Run on Shiori (Beta) Yet"
     static let unsupportedMessage = "Switch to Standard in Version & Engine."
@@ -243,6 +248,7 @@ final class ShioriKrkrGameViewController: UIViewController {
             return (at, String(parts[1]))
         }
     private var startedAt: CFTimeInterval = 0
+    private var leaveScheduled = false
     #endif
     private var frameSize: CGSize = .zero
     private weak var pointerTouch: UITouch?
@@ -362,6 +368,15 @@ final class ShioriKrkrGameViewController: UIViewController {
         }
         #if DEBUG
         if startedAt == 0 { startedAt = CACurrentMediaTime() }
+        // `-ShioriKrkrLeaveAfter <seconds>`: leaves as the two-finger hold's Leave does.
+        let leaveAfter = UserDefaults.standard.double(forKey: "ShioriKrkrLeaveAfter")
+        if leaveAfter > 0, CACurrentMediaTime() - startedAt >= leaveAfter, !leaveScheduled {
+            leaveScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.saveSystemData(reason: "leaving the game")
+                self?.leave()
+            }
+        }
         while let next = debugEvals.first, CACurrentMediaTime() - startedAt >= next.at {
             debugEvals.removeFirst()
             var buffer = [CChar](repeating: 0, count: 1024)

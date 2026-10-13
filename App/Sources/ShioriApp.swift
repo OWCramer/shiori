@@ -178,9 +178,11 @@ struct RootView: View {
                     // Shiori's own KiriKiri engine by default where it can open the game; AetherKrkr
                     // when the game is set to Standard or Shiori's engine can't open it yet (Phase 23).
                     if KiriKiriEngineChoice.engine(for: session.appID) == .shiori,
-                       ShioriKrkrRuntime.canOpen(gameFolder: session.folder, appID: session.appID) {
+                       ShioriKrkrRuntime.canOpen(gameFolder: session.folder, appID: session.appID != 0 ? session.appID
+                                                     : ShioriKrkrRuntime.folderAppID(session.folder)) {
                         ShioriKrkrGameView(gameFolder: session.folder, onFirstFrame: firstFrame) {
                             games.kirikiriSession = nil
+                            DebugKiriKiriQueue.openNextLater(games)
                         }
                         .ignoresSafeArea()
                     } else {
@@ -320,10 +322,12 @@ enum DebugAutomation {
         // base/) without Steam: for running the engine on a Mac (Designed for iPad).
         // Not on Apple TV, which has no KiriKiri game view (the session would open nothing).
         #if !os(tvOS)
-        if let name = defaults.string(forKey: "ShioriKiriKiriGame"), !done.contains("kirikiri") {
+        // Several, comma-separated, play one after another (each left by the player, the game or
+        // `-ShioriKrkrLeaveAfter <seconds>`): leaving one game and starting the next.
+        if let names = defaults.string(forKey: "ShioriKiriKiriGame"), !done.contains("kirikiri") {
             done.insert("kirikiri")
-            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            games.kirikiriSession = .init(appID: 0, folder: documents.appendingPathComponent(name, isDirectory: true))
+            DebugKiriKiriQueue.names = names.split(separator: ",").map(String.init)
+            DebugKiriKiriQueue.openNext(games)
         }
         #endif
         // `-ShioriImportPatch <file in tmp/> -ShioriPatchGame <appid>` imports a patch.
@@ -421,6 +425,42 @@ enum DebugAutomation {
             done.insert("verify")
             games.verify(appID: appID)
         }
+    }
+}
+#endif
+
+#if !os(tvOS)
+/// `-ShioriKiriKiriGame A,B,…` (test hook): KiriKiri game folders in Documents, played one after
+/// another, as a player leaves one game and opens the next. Does nothing in shipped builds.
+@MainActor
+enum DebugKiriKiriQueue {
+    static var names: [String] = []
+
+    static func openNext(_ games: GameLibrary) {
+        #if DEBUG || SHIORI_AUTOMATION
+        guard !names.isEmpty else { return }
+        let name = names.removeFirst()
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = documents.appendingPathComponent(name, isDirectory: true)
+        // Library folders are named "<app ID>-<name>": the ID picks the game's CxDec scheme, as a
+        // launch from the library would. The session keeps app ID 0, so nothing syncs.
+        let appID = ShioriKrkrRuntime.folderAppID(folder)
+        Task { @MainActor in
+            if appID != 0 {
+                let runtimeCache = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(folder.lastPathComponent)", isDirectory: true)
+                await GARbroDatabase.prepare(appID: appID, runtimeCache: runtimeCache)
+            }
+            games.kirikiriSession = .init(appID: 0, folder: folder)
+        }
+        #endif
+    }
+
+    /// After a game is left: the next one, once the cover has gone.
+    static func openNextLater(_ games: GameLibrary) {
+        #if DEBUG || SHIORI_AUTOMATION
+        guard !names.isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { openNext(games) }
+        #endif
     }
 }
 #endif
