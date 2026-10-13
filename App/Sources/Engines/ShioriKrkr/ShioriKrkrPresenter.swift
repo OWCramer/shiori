@@ -113,34 +113,58 @@ final class ShioriKrkrPresenter {
         frameTexture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: pixels,
                              bytesPerRow: pitch)
         guard let commands = queue.makeCommandBuffer() else { return }
-        draw(frameTexture, width: width, height: height, commands: commands)
+        draw(frameTexture, width: width, height: height, commands: commands, fresh: true)
     }
 
     /// Presents a frame the engine composed on the GPU: `texture` is ready once `event`
-    /// reaches `value`, which this frame's GPU work waits for.
+    /// reaches `value`, which this frame's GPU work waits for. Called on every display refresh:
+    /// an unchanged frame is shown again from what was drawn last (no new enlargement), so
+    /// the display gets a steady 60 frames a second whatever the game is doing.
     func present(texture: MTLTexture, event: MTLSharedEvent?, value: UInt64, width: Int, height: Int,
                  changed: Bool) {
         guard let queue, width > 0, height > 0 else { return }
-        if !changed, lastEngineTexture === texture { return } // Nothing new to show.
+        let fresh = changed || lastEngineTexture !== texture
         lastEngineTexture = texture
         guard let commands = queue.makeCommandBuffer() else { return }
-        if let event { commands.encodeWaitForEvent(event, value: value) }
-        draw(texture, width: width, height: height, commands: commands)
+        if fresh, let event { commands.encodeWaitForEvent(event, value: value) }
+        draw(texture, width: width, height: height, commands: commands, fresh: fresh)
     }
 
     private weak var lastEngineTexture: MTLTexture?
+    /// What the last fresh frame was drawn from (MetalFX's output where it enlarged it).
+    private var lastSource: MTLTexture?
 
-    private func draw(_ frameTexture: MTLTexture, width: Int, height: Int, commands: MTLCommandBuffer) {
-        guard let pipeline, layer.drawableSize.width > 0, let drawable = layer.nextDrawable() else { return }
+    /// Frames shown since the last `takeStatistics()`, how many were new, and the time spent
+    /// waiting for a drawable.
+    private(set) var shown = 0, shownNew = 0
+    private(set) var drawableWait: CFTimeInterval = 0
+
+    func takeStatistics() -> (shown: Int, new: Int, drawableWait: CFTimeInterval) {
+        defer { shown = 0; shownNew = 0; drawableWait = 0 }
+        return (shown, shownNew, drawableWait)
+    }
+
+    private func draw(_ frameTexture: MTLTexture, width: Int, height: Int, commands: MTLCommandBuffer, fresh: Bool) {
+        guard let pipeline, layer.drawableSize.width > 0 else { return }
+        let waitStart = CACurrentMediaTime()
+        guard let drawable = layer.nextDrawable() else { return }
+        drawableWait += CACurrentMediaTime() - waitStart
+        shown += 1
+        if fresh { shownNew += 1 }
 
         // Where the game goes: aspect-fitted, in drawable pixels.
         let target = CGSize(width: drawable.texture.width, height: drawable.texture.height)
         let fitted = AVMakeRect(aspectRatio: CGSize(width: width, height: height),
                                 insideRect: CGRect(origin: .zero, size: target)).integral
         var source: MTLTexture = frameTexture
-        #if !targetEnvironment(simulator)
-        if upscaling, let scaled = upscale(frameTexture, to: fitted.size, commands: commands) { source = scaled }
-        #endif
+        if !fresh, let last = lastSource {
+            source = last
+        } else {
+            #if !targetEnvironment(simulator)
+            if upscaling, let scaled = upscale(frameTexture, to: fitted.size, commands: commands) { source = scaled }
+            #endif
+            lastSource = source
+        }
 
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = drawable.texture

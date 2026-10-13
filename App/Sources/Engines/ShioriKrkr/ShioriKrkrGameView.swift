@@ -342,7 +342,8 @@ final class ShioriKrkrGameViewController: UIViewController {
             return
         }
         let link = CADisplayLink(target: self, selector: #selector(tick))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        // A steady 60 (KiriKiri's own rate): a range down to 30 let ProMotion run the game at 40.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -353,6 +354,8 @@ final class ShioriKrkrGameViewController: UIViewController {
         guard let api, !leaving, !ticking else { return }
         ticking = true
         defer { ticking = false }
+        let tickStart = CACurrentMediaTime()
+        defer { noteTick(CACurrentMediaTime() - tickStart) }
         if api.pointee.tick() == 0 {
             leave()
             return
@@ -391,6 +394,42 @@ final class ShioriKrkrGameViewController: UIViewController {
         syncCursor()
         layoutCursor()
         #endif
+    }
+
+    // MARK: Frame statistics
+
+    private var statsStart: CFTimeInterval = 0
+    private var statsTicks = 0
+    private var statsTickTime: CFTimeInterval = 0, statsTickWorst: CFTimeInterval = 0, statsSlow = 0
+    private var statsLastTick: CFTimeInterval = 0, statsGapWorst: CFTimeInterval = 0
+
+    /// Every 10 seconds, a line in the engine's log (logs/shiori-engine.log): how long the
+    /// engine's ticks took, how often the display link came, and what the presenter showed.
+    private func noteTick(_ took: CFTimeInterval) {
+        let now = CACurrentMediaTime()
+        if statsStart == 0 { statsStart = now }
+        if statsLastTick > 0 { statsGapWorst = max(statsGapWorst, now - statsLastTick) }
+        statsLastTick = now
+        statsTicks += 1
+        statsTickTime += took
+        statsTickWorst = max(statsTickWorst, took)
+        if took > 1.0 / 60 { statsSlow += 1 }
+        let span = now - statsStart
+        guard span >= 10, let presenter else { return }
+        let shown = presenter.takeStatistics()
+        let line = String(format: "Shiori frames (%.0f s): %d ticks (%.1f/s), engine %.2f ms avg, %.1f ms worst, %d over 16.7 ms; "
+                          + "longest gap %.1f ms; shown %.1f/s (%.1f/s new), drawable wait %.2f ms/frame",
+                          span, statsTicks, Double(statsTicks) / span, statsTickTime * 1000 / Double(max(statsTicks, 1)),
+                          statsTickWorst * 1000, statsSlow, statsGapWorst * 1000, Double(shown.shown) / span,
+                          Double(shown.new) / span, shown.drawableWait * 1000 / Double(max(shown.shown, 1)))
+        ShioriKrkrRuntime.engineLog?.write(Data((line + "\n").utf8))
+        ShioriKrkrRuntime.log.notice("\(line, privacy: .public)")
+        statsStart = now
+        statsTicks = 0
+        statsSlow = 0
+        statsTickTime = 0
+        statsTickWorst = 0
+        statsGapWorst = 0
     }
 
     // MARK: Messages
