@@ -11,7 +11,7 @@ import SwiftUI
 import UIKit
 
 /// Which KiriKiri engine plays a game while both exist (Phase 23): AetherKrkr ("Standard",
-/// the full edition's default) or Shiori's own, krkrsdl3-based one ("Shiori (Beta)"). Per game,
+/// the full edition's default) or Shiori's own, krkr2-based one ("Shiori (Beta)"). Per game,
 /// chosen on the game page and kept in iCloud Keychain with the other per-game choices; the
 /// launch flag `-ShioriKrkrEngine shiori` (or `aether`) overrides every game.
 enum KiriKiriEngineChoice: String, CaseIterable, Identifiable {
@@ -65,7 +65,7 @@ enum ShioriKrkrRuntime {
 
     /// The folder the engine opens: `base/` with `patch/` over it (LayeredGameRoot), its
     /// `savedata/` linked to the game's `saves/`, and Shiori's bundled Japanese font as the
-    /// fallback `default.ttf` krkrsdl3 looks for. Rebuilt each launch.
+    /// fallback `default.ttf` the engine looks for. Rebuilt each launch.
     static func prepareRoot(gameFolder: URL) throws -> URL {
         let fileManager = FileManager.default
         let runner = URL.cachesDirectory.appendingPathComponent("ShioriKrkr/\(gameFolder.lastPathComponent)", isDirectory: true)
@@ -162,7 +162,7 @@ enum ShioriKrkrRuntime {
         // GARbroDatabase.prepare put the game's CxDec scheme here before launch, if it has one.
         let schemePath = FileManager.default.fileExists(atPath: scheme.path) ? scheme.path : nil
         let exe = exeName(in: root)
-        let options = ["-render=software"]
+        let options: [String] = []
         let context = Unmanaged.passUnretained(messages).toOpaque()
         let status: Int32 = root.path.withCString { rootPointer in
             exe.withCString { exePointer in
@@ -324,8 +324,7 @@ final class ShioriKrkrGameViewController: UIViewController {
         becomeFirstResponder()
         #endif
         OrientationLock.set(.landscape, in: view.window?.windowScene)
-        // Start once the scene has turned, so SDL's (hidden) window is made landscape: the
-        // pointer's coordinates are mapped through it.
+        // Start once the scene has turned to landscape.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.startIfNeeded() }
     }
 
@@ -414,12 +413,12 @@ final class ShioriKrkrGameViewController: UIViewController {
         return AVMakeRect(aspectRatio: frameSize, insideRect: view.bounds)
     }
 
-    /// krkrsdl3 maps its window's coordinates onto the game letterboxed the same way, so a
-    /// point in the view goes over as a fraction of the view.
+    /// A point in the view as a fraction of the game's frame (where the presenter draws it).
     private func normalized(_ point: CGPoint) -> (Float, Float) {
-        let bounds = view.bounds
-        guard bounds.width > 0, bounds.height > 0 else { return (0, 0) }
-        return (Float(min(max(point.x / bounds.width, 0), 1)), Float(min(max(point.y / bounds.height, 0), 1)))
+        let rect = gameRect
+        guard rect.width > 0, rect.height > 0 else { return (0, 0) }
+        return (Float(min(max((point.x - rect.minX) / rect.width, 0), 1)),
+                Float(min(max((point.y - rect.minY) / rect.height, 0), 1)))
     }
 
     private func pointer(_ phase: Int32, _ point: CGPoint, button: Int32 = Int32(SHIORIKRKR_BUTTON_LEFT)) {
