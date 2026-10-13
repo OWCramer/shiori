@@ -12,6 +12,9 @@ enum SyncedPreferences {
         /// KiriKiri games played on Shiori's own engine (Phase 23); optional, so choices saved
         /// before it existed still decode.
         var shioriKrkr: [UInt32]?
+        /// KiriKiri games set back to Standard (AetherKrkr) by hand; Shiori's engine is the
+        /// default where it can open the game (2026-10-12, the user: so testing doesn't get missed).
+        var standardKrkr: [UInt32]?
     }
 
     private static let account = "gamePreferences"
@@ -36,14 +39,18 @@ enum SyncedPreferences {
         save()
     }
 
-    static func usesShioriKrkr(appID: UInt32) -> Bool { saved.shioriKrkr?.contains(appID) ?? false }
+    static func usesShioriKrkr(appID: UInt32) -> Bool { !(saved.standardKrkr?.contains(appID) ?? false) }
 
     static func setShioriKrkr(_ enabled: Bool, appID: UInt32) {
         reload()
-        var list = saved.shioriKrkr ?? []
-        list.removeAll { $0 == appID }
-        if enabled { list.append(appID) }
-        saved.shioriKrkr = list.isEmpty ? nil : list
+        var standard = saved.standardKrkr ?? []
+        standard.removeAll { $0 == appID }
+        if !enabled { standard.append(appID) }
+        saved.standardKrkr = standard.isEmpty ? nil : standard
+        var shiori = saved.shioriKrkr ?? []
+        shiori.removeAll { $0 == appID }
+        if enabled { shiori.append(appID) }
+        saved.shioriKrkr = shiori.isEmpty ? nil : shiori
         save()
     }
 
@@ -89,6 +96,6 @@ enum SyncedPreferences {
         }
         for (appID, branch) in saved.branches { defaults.set(branch, forKey: "steamBranch.\(appID)") }
         for appID in saved.phoneLayout { defaults.set(true, forKey: "renpyPhoneLayout.\(appID)") }
-        for appID in saved.shioriKrkr ?? [] { defaults.set("shiori", forKey: "kirikiriEngine.\(appID)") }
+        for appID in saved.standardKrkr ?? [] { defaults.set("aether", forKey: "kirikiriEngine.\(appID)") }
     }
 }

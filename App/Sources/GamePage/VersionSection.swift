@@ -91,6 +91,8 @@ struct VersionSection: View {
                 .task(id: record?.name) {
                     guard let name = record?.name else { return }
                     shioriEngineAvailable = ShioriKrkrRuntime.canOpen(gameFolder: games.folder(appID: appID, name: name), appID: appID)
+                    // A game Shiori's engine can't open plays on Standard, so the picker says so.
+                    if !shioriEngineAvailable { kirikiriEngine = .aether }
                 }
             }
             #endif
@@ -121,7 +123,7 @@ struct VersionSection: View {
         }
         .onChange(of: phoneLayout) { _, on in if on != model.phoneLayout { model.setPhoneLayout(on) } }
         .onChange(of: kirikiriEngine) { _, picked in
-            if picked != KiriKiriEngineChoice.engine(for: appID) { KiriKiriEngineChoice.set(picked, for: appID) }
+            if shioriEngineAvailable, picked != KiriKiriEngineChoice.engine(for: appID) { KiriKiriEngineChoice.set(picked, for: appID) }
         }
     }
 
