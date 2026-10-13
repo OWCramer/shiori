@@ -6,6 +6,7 @@ import AVFoundation
 import CShioriKrkr
 import GameController
 import os
+import ShioriKrkrEmote
 import SwiftUI
 import UIKit
 
@@ -100,14 +101,38 @@ enum ShioriKrkrRuntime {
     static func canOpen(gameFolder: URL, appID: UInt32) -> Bool {
         let scheme = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)/scheme.shcx")
         let hasScheme = FileManager.default.fileExists(atPath: scheme.path) || GARbroDatabase.title(appID: appID) != nil
-        return KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
-                                                        hasScheme: hasScheme) == nil
+        return blocked(gameFolder: gameFolder, appID: appID, hasScheme: hasScheme) == false
+    }
+
+    /// NEKO WORKs titles whose characters Shiori's E-mote player draws (checked game by game
+    /// against the Standard engine); the rest stay on Standard until they are.
+    static let nekoWorksReady: Set<UInt32> = [
+        385800, // NEKOPARA Vol. 0
+        333600, // NEKOPARA Vol. 1
+        420110, // NEKOPARA Vol. 2
+        899970, // NEKOPARA Extra
+        1406990, // NEKOPARA Vol. 4
+    ]
+
+    private static func blocked(gameFolder: URL, appID: UInt32?, hasScheme: Bool) -> Bool {
+        switch KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
+                                                        hasScheme: hasScheme) {
+        case nil: return false
+        case .nekoWorks:
+            // The library's folders are named "<app ID>-<name>".
+            let id = appID ?? gameFolder.lastPathComponent.split(separator: "-").first.flatMap { UInt32($0) }
+            return !(id.map(nekoWorksReady.contains) ?? false)
+        default: return true
+        }
     }
 
     /// The engine's log for the current game, `logs/shiori-engine.log` in the game's folder (so
     /// it can be shared from the Files app when something goes wrong on a device); replaced
     /// each launch.
     nonisolated(unsafe) static var engineLog: FileHandle?
+
+    /// Shiori's E-mote player for the engine (NEKOPARA's characters); the engine copies it.
+    static var emoteTable = KrkrEmoteHost.makeTable()
 
     private static func openEngineLog(gameFolder: URL) {
         try? engineLog?.close()
@@ -127,8 +152,7 @@ enum ShioriKrkrRuntime {
     static func start(gameFolder: URL, messages: ShioriKrkrGameViewController) throws -> UnsafePointer<shiorikrkr_api_t> {
         openEngineLog(gameFolder: gameFolder)
         let scheme = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)/scheme.shcx")
-        if KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
-                                                     hasScheme: FileManager.default.fileExists(atPath: scheme.path)) != nil {
+        if blocked(gameFolder: gameFolder, appID: nil, hasScheme: FileManager.default.fileExists(atPath: scheme.path)) {
             throw Failure(errorDescription: unsupportedMessage)
         }
         let api = try load()
@@ -172,7 +196,10 @@ enum ShioriKrkrRuntime {
                         }
                         config.message_context = context
                         config.host_presents = 1
-                        return api.pointee.start(&config)
+                        return withUnsafePointer(to: &ShioriKrkrRuntime.emoteTable) { emote in
+                            config.emote = emote
+                            return api.pointee.start(&config)
+                        }
                     }
                 }
             }

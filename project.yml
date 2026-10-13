@@ -115,6 +115,8 @@ targets:
       # OpenGLES, which mustn't load ahead of MetalANGLE).
       - package: ShioriKrkrKit
         product: CShioriKrkr
+      - package: ShioriKrkrKit
+        product: ShioriKrkrEmote
       - framework: Vendor/ShioriKrkr.xcframework
         embed: true
         link: false
