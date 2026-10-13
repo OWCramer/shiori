@@ -218,8 +218,8 @@ enum ShioriKrkrRuntime {
     }
 }
 
-/// Plays a KiriKiri game on ShioriKrkr. The engine composes each frame in software; Shiori
-/// presents it with its own Metal (ShioriKrkrPresenter), MetalFX-upscaled where the setting is
+/// Plays a KiriKiri game on ShioriKrkr. The engine composes each frame on the GPU with
+/// Metal and hands over the texture; Shiori presents it (ShioriKrkrPresenter), MetalFX-upscaled where the setting is
 /// on. Touch, trackpad, keyboard and controller follow the Standard engine's view: a tap is a
 /// click, two fingers tap for the right button, hold to leave, swipe down for the backlog,
 /// right to skip and up for auto.
