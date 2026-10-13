@@ -250,10 +250,6 @@ final class ShioriKrkrGameViewController: UIViewController {
     private var keyDownAt: [Int32: CFTimeInterval] = [:]
     private var skipLatched = false
     private var leaveAlert: UIAlertController?
-    /// "Resume where you left off?" (KiriKiriResume), asked once before the engine starts.
-    private var resumeAsked = false
-    private var resumeAlert: UIAlertController?
-    private var resumeAnswer: ((Bool) -> Void)?
     #if os(iOS)
     private var pointerHovering = false
     private var pointerLocation: CGPoint?
@@ -315,10 +311,10 @@ final class ShioriKrkrGameViewController: UIViewController {
         view.layer.addSublayer(cursorLayer)
         #endif
         ControllerInput.gameReceiver = { [weak self] pad in self?.pad(pad) }
-        // While still in front: the game keeps its place and system data (the background save
-        // syncs them).
+        // While still in front: the game writes its system data (settings, read text); the
+        // background save syncs it.
         NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.savePlace(reason: "leaving the screen") }
+            MainActor.assumeIsolated { self?.saveSystemData(reason: "leaving the screen") }
         }
     }
 
@@ -335,24 +331,9 @@ final class ShioriKrkrGameViewController: UIViewController {
 
     private func startIfNeeded() {
         guard api == nil, !leaving else { return }
-        guard resumeAlert == nil else { return } // Waiting for the answer.
-        if !resumeAsked {
-            // A place kept last time: ask before the engine starts, so a Resume goes through
-            // the game's own start-up recovery (KiriKiriResume).
-            resumeAsked = true
-            if let date = KiriKiriResume.offer(gameFolder: gameFolder) {
-                KiriKiriResume.markOffered(date, gameFolder: gameFolder)
-                let answer: (Bool) -> Void = { [weak self] resume in
-                    guard let self else { return }
-                    self.resumeAlert = nil
-                    self.resumeAnswer = nil
-                    if resume { KiriKiriResume.useOnStart(gameFolder: self.gameFolder) }
-                    self.startIfNeeded()
-                }
-                resumeAnswer = answer
-                resumeAlert = KiriKiriResume.ask(date, over: self, answer: answer)
-                return
-            }
+        // The game opens on its title: no emergency bookmark for it to load by itself.
+        if let line = KiriKiriSaves.prepareForStart(gameFolder: gameFolder) {
+            ShioriKrkrRuntime.log.notice("\(line, privacy: .public)")
         }
         do {
             api = try ShioriKrkrRuntime.start(gameFolder: gameFolder, messages: self)
@@ -672,18 +653,11 @@ final class ShioriKrkrGameViewController: UIViewController {
     /// arrows move between buttons, a right click opens the menu, the wheel the backlog, Ctrl
     /// held skips, Escape cancels.
     private func pad(_ pad: GCExtendedGamepad) {
-        if let alert = resumeAlert, presentedViewController === alert, let answer = resumeAnswer {
-            for (button, down) in padReader.read(pad) where down && (button == .a || button == .b) {
-                alert.dismiss(animated: true) { answer(button == .a) }
-                break
-            }
-            return
-        }
         if let alert = leaveAlert, presentedViewController === alert {
             for (button, down) in padReader.read(pad) where down {
                 if button == .a {
                     alert.dismiss(animated: true) { [weak self] in
-                        self?.savePlace(reason: "leaving the game")
+                        self?.saveSystemData(reason: "leaving the game")
                         self?.leave()
                     }
                 } else if button == .b {
@@ -732,12 +706,13 @@ final class ShioriKrkrGameViewController: UIViewController {
 
     private func presentLeaveQuestion() {
         guard presentedViewController == nil else { return }
-        let kept = evaluate(KiriKiriResume.canKeepPlaceTJS) == "1" ? "Your place is kept." : "Progress since your last save is lost."
-        let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
+        // Only the game's own saves are kept.
+        let lost = "Progress since your last save is lost."
+        let message = GCController.current?.extendedGamepad != nil ? lost + " Ⓐ Leave, Ⓑ Keep Playing." : lost
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in
-            self?.savePlace(reason: "leaving the game")
+            self?.saveSystemData(reason: "leaving the game")
             self?.leave()
         })
         leaveAlert = alert
@@ -763,7 +738,7 @@ final class ShioriKrkrGameViewController: UIViewController {
         onExit()
     }
 
-    // MARK: Keeping the place
+    // MARK: System data
 
     /// Runs TJS in the game between ticks; nil if it can't now or threw.
     private func evaluate(_ tjs: String) -> String? {
@@ -777,13 +752,11 @@ final class ShioriKrkrGameViewController: UIViewController {
         return String(cString: buffer)
     }
 
-    /// Keeps the player's place as the app leaves the screen or the player leaves the game:
-    /// in Shiori's own resume save, offered at the next launch (KiriKiriResume), never in the
-    /// emergency bookmark the game loads at start-up by itself. KAG's system data too.
-    private func savePlace(reason: String) {
-        guard let result = evaluate(KiriKiriResume.saveTJS) else { return }
-        let line = KiriKiriResume.saved(result, gameFolder: gameFolder)
-        ShioriKrkrRuntime.log.notice("\(line, privacy: .public), \(reason, privacy: .public)")
+    /// Writes KAG's system data (settings, read text) as the app leaves the screen or the
+    /// player leaves the game. No bookmark: the player's place is only in the game's own saves.
+    private func saveSystemData(reason: String) {
+        guard let result = evaluate(KiriKiriSaves.systemDataTJS) else { return }
+        ShioriKrkrRuntime.log.notice("System data: \(result, privacy: .public), \(reason, privacy: .public)")
     }
 }
 

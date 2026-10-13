@@ -205,17 +205,13 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         }
         #endif
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            // The game's slots are its own (saved from its screens); the reading position is
-            // kept in Shiori's resume save where the game allows it, and what the game keeps
-            // between slots (the g. variables) is written now. The background save syncs both.
+            // The game's slots are its own (saved from its screens); what the game keeps
+            // between slots (the g. variables) is written now, and the background save syncs it.
             MainActor.assumeIsolated {
-                guard let self else { return }
-                let kept = self.saveResume()
-                self.player?.saveGlobals()
-                NSLog("Artemis: %@ for the background", kept ? "saved the place and globals" : "saved globals (no place to keep)")
+                self?.player?.saveGlobals()
+                NSLog("Artemis: saved globals for the background")
             }
         }
-        offerResumeWhenReady = player?.supportsResume == true ? resumeOffer() : nil
         startTime = CACurrentMediaTime()
         #if DEBUG
         // `-ShioriArtemisTaps "25:1135,151;30:640,300"`: taps at stage points, seconds from start.
@@ -420,13 +416,6 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             }
             return
         }
-        if let alert = resumeAlert, presentedViewController === alert {
-            for (button, down) in padReader.read(pad) where down {
-                if button == .a { resumeChosen = true; alert.dismiss(animated: true) }
-                if button == .b { alert.dismiss(animated: true) }
-            }
-            return
-        }
         guard presentedViewController == nil, let player else {
             padReader.absorb(pad)
             return
@@ -531,7 +520,6 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
             alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
             present(alert, animated: true)
         }
-        resumeIfReady(player)
         if player.stage.presentationCount != lastPresentation {
             lastPresentation = player.stage.presentationCount
             if let last = player.stage.lastTransition, last.duration > 0, !player.skipMode {
@@ -657,12 +645,9 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
 
     private func presentLeaveQuestion() {
         guard presentedViewController == nil else { return }
-        // Honest about what leaving keeps: the place where the game allows it (Shiori's
-        // resume save, offered when the game next starts), else only the game's own saves.
-        let kept = player?.canSaveResume == true
-            ? "Your place is kept."
-            : "Progress since your last save is lost."
-        let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
+        // Only the game's own saves are kept.
+        let lost = "Progress since your last save is lost."
+        let message = GCController.current?.extendedGamepad != nil ? lost + " Ⓐ Leave, Ⓑ Keep Playing." : lost
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
@@ -863,7 +848,6 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     }
 
     private func leave() {
-        if player?.interpreter.state != .finished { saveResume() }
         player?.saveGlobals()
         displayLink?.invalidate()
         displayLink = nil
@@ -874,71 +858,6 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         requestOrientations(.all)
         #endif
         onExit()
-    }
-
-    // MARK: Resume
-
-    /// Shiori's resume save in `saves/`: the reading position kept when the app leaves the
-    /// screen or the player leaves the game, in the format of the game's own saves (Artemis
-    /// saves are Shiori's, so iCloud only). The game's screens don't list it; Shiori offers it
-    /// when the game next starts, once per save on each device.
-    static let resumeFile = "shiori-resume.dat"
-    /// The resume save to offer once the title has settled, if any.
-    private var offerResumeWhenReady: Date?
-    /// Resume was chosen before the game could take it (still starting up).
-    private var resumeChosen = false
-    private weak var resumeAlert: UIAlertController?
-
-    private var resumeURL: URL {
-        gameFolder.appendingPathComponent("saves", isDirectory: true).appendingPathComponent(Self.resumeFile)
-    }
-
-    /// Where this device last offered a resume save of this game (its modification date).
-    private var resumeOfferedKey: String { "ArtemisResumeOffered.\(gameFolder.lastPathComponent)" }
-
-    /// Writes the resume save when the game allows it here. Returns whether it did.
-    @discardableResult
-    private func saveResume() -> Bool {
-        guard let player, player.saveResume(to: Self.resumeFile) else { return false }
-        // This device made it: nothing to offer here next time but the place itself.
-        if let date = Self.modificationDate(resumeURL) {
-            UserDefaults.standard.set(date.timeIntervalSince1970 - 1, forKey: resumeOfferedKey)
-        }
-        return true
-    }
-
-    /// The resume save to offer at this launch: one newer than the last offered here.
-    private func resumeOffer() -> Date? {
-        guard let date = Self.modificationDate(resumeURL) else { return nil }
-        let offered = UserDefaults.standard.double(forKey: resumeOfferedKey)
-        return date.timeIntervalSince1970 > offered ? date : nil
-    }
-
-    private static func modificationDate(_ url: URL) -> Date? {
-        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-    }
-
-    /// Once the game waits on its title: asks whether to resume, or resumes if already chosen.
-    private func resumeIfReady(_ player: ArtemisPlayer) {
-        guard player.canResume else { return }
-        if resumeChosen {
-            resumeChosen = false
-            let resumed = player.resume(from: Self.resumeFile)
-            NSLog("Artemis: %@", resumed ? "resumed from Shiori's resume save" : "couldn't load the resume save")
-            return
-        }
-        guard let date = offerResumeWhenReady, presentedViewController == nil else { return }
-        offerResumeWhenReady = nil
-        UserDefaults.standard.set(date.timeIntervalSince1970, forKey: resumeOfferedKey)
-        let when = date.formatted(.relative(presentation: .named))
-        let alert = UIAlertController(title: "Resume where you left off?",
-                                      message: "Saved \(when)."
-                                          + (GCController.current?.extendedGamepad != nil ? " Ⓐ Resume, Ⓑ Not Now." : ""),
-                                      preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Not Now", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Resume", style: .default) { [weak self] _ in self?.resumeChosen = true })
-        resumeAlert = alert
-        present(alert, animated: true)
     }
 
     // MARK: ArtemisMediaDelegate

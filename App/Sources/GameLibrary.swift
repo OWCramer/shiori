@@ -809,9 +809,8 @@ final class GameLibrary {
     private func backgroundSaveSteps(appID: UInt32, engine: String, saves: URL, entered: Date) async {
         // 1. The game's own save. Ren'Py autosaves and writes its reload save as it leaves the
         // screen, Luca and CatSystem2 autosave, Siglus saves the place into one of the game's
-        // slots and KiriKiri into NEKOPARA's resume bookmark (both as the app resigns active,
-        // while the GPU and the engine are still theirs), Artemis keeps the place in Shiori's
-        // resume save; each writes its globals or system data too.
+        // slots (as the app resigns active, while the GPU and the engine are still its);
+        // KiriKiri writes its system data then too, and Artemis its globals.
         let written = await Self.waitForSaveWrites(in: saves, since: entered.addingTimeInterval(-3))
         log.notice("Background save \(appID) step 1, game's save (\(engine, privacy: .public)): \(written.isEmpty ? "no new files" : "wrote " + written.joined(separator: ", "), privacy: .public)")
         guard !Task.isCancelled else { return }
@@ -936,7 +935,11 @@ final class GameLibrary {
 
     private nonisolated static func syncNow(appID: UInt32, saves: URL, direction: SaveSync.Direction) -> Result<SaveSync.Result, Error> {
         guard let root = SaveSync.remoteRoot() else { return .failure(SaveSync.Error.unavailable) }
-        return Result { try SaveSync.sync(local: saves, remote: root.appendingPathComponent(String(appID), isDirectory: true), direction: direction) }
+        let remote = root.appendingPathComponent(String(appID), isDirectory: true)
+        // Before anything moves: the files the removed "pick up where you left off" left behind.
+        let removed = ResumeLeftovers.removeOnce(appID: appID, local: saves, remote: remote)
+        if !removed.isEmpty { NSLog("Saves %u: removed Shiori's old resume files %@", appID, removed.joined(separator: ", ")) }
+        return Result { try SaveSync.sync(local: saves, remote: remote, direction: direction) }
     }
 
     // MARK: - Play
