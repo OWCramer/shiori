@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds a minimal FFmpeg for iOS as Vendor/ShioriFFmpeg.xcframework (static, with a CFFmpeg
-# module map): the ASF demuxer and the WMV 9 (wmv3) and WMA 2 (wmav2) decoders, nothing else
+# module map): the ASF and MPEG program-stream demuxers and the WMV 9 (wmv3), WMA 2 (wmav2),
+# MPEG-1/2 video and MPEG audio layer 2/3 decoders (WORLD END ECONOMiCA's .mpg movies), nothing else
 # (no programs, protocols, filters, scalers, encoders, network or external libraries).
 # LGPL-2.1-or-later as configured (no --enable-gpl, no --enable-nonfree).
 # NEKOPARA Vol. 3's movies are read from memory through a custom AVIOContext.
@@ -16,7 +17,8 @@ COMMON="--disable-everything --disable-autodetect --disable-programs --disable-d
   --disable-avdevice --disable-avfilter --disable-swscale --disable-swresample --disable-pixelutils \
   --disable-debug --enable-static --disable-shared --enable-pic --enable-cross-compile \
   --target-os=darwin --arch=aarch64 \
-  --enable-demuxer=asf --enable-decoder=wmv3,wmav2"
+  --enable-demuxer=asf,mpegps,mpegvideo --enable-decoder=wmv3,wmav2,mpeg1video,mpeg2video,mp2,mp3 \
+  --enable-parser=mpegvideo,mpegaudio"
 
 build() { # name sdk min-flag
   name=$1; sdk=$2; minflag=$3
