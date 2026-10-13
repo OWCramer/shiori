@@ -109,10 +109,10 @@ targets:
       # (Scripts/kirikiri/build-ios-framework.sh). Exports only the engine API.
       - framework: Vendor/ShioriKiriKiri.xcframework
         embed: true
-      # Shiori's own KiriKiri engine (krkrsdl3, clean-room; Phase 23), as one dynamic
-      # framework (Scripts/krkrsdl3/build-framework.sh) exporting only shiorikrkr.h. Embedded
-      # but not linked: it's opened with dlopen when a game starts (its SDL3 links Apple's
-      # OpenGLES, which mustn't load ahead of MetalANGLE).
+      # Shiori's own KiriKiri engine (krkr2's core with Shiori's environment and Metal
+      # compositor; Phase 23), as one dynamic framework (Scripts/krkr2/build-framework.sh)
+      # exporting only shiorikrkr.h. Embedded but not linked: it's opened with dlopen when a
+      # game starts, so its TVP/TJS symbols never meet the Standard engine's.
       - package: ShioriKrkrKit
         product: CShioriKrkr
       - package: ShioriKrkrKit

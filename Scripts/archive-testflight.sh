@@ -22,7 +22,7 @@ xcodebuild -project Shiori.xcodeproj -scheme Shiori -configuration Release -dest
 for fw in build/Shiori.xcarchive/Products/Applications/Shiori.app/Frameworks/*.framework; do
     name=$(basename "$fw" .framework)
     dsym="build/Shiori.xcarchive/dSYMs/$name.framework.dSYM"
-    # ShioriKrkr keeps the real one from its build (Scripts/krkrsdl3/build-framework.sh).
+    # ShioriKrkr keeps the real one from its build (Scripts/krkr2/build-framework.sh).
     if [ ! -d "$dsym" ] && [ -d "Vendor/$name.dSYM/device/$name.framework.dSYM" ]; then
         cp -R "Vendor/$name.dSYM/device/$name.framework.dSYM" "$dsym"
     fi
