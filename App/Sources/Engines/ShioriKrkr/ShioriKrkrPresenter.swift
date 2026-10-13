@@ -123,7 +123,16 @@ final class ShioriKrkrPresenter {
     func present(texture: MTLTexture, event: MTLSharedEvent?, value: UInt64, width: Int, height: Int,
                  changed: Bool) {
         guard let queue, width > 0, height > 0 else { return }
-        let fresh = changed || lastEngineTexture !== texture
+        let fresh = changed || lastEngineTexture !== texture || owedFresh
+        // The GPU is still on the last two presentations: this refresh is skipped rather than
+        // waiting for a drawable on the engine's thread (which held the game at 30 when the
+        // GPU was busy); a new frame is owed and shown at the next refresh.
+        if presentsInFlight >= 2 {
+            if fresh { owedFresh = true }
+            skipped += 1
+            return
+        }
+        owedFresh = false
         lastEngineTexture = texture
         guard let commands = queue.makeCommandBuffer() else { return }
         if fresh, let event { commands.encodeWaitForEvent(event, value: value) }
@@ -131,6 +140,12 @@ final class ShioriKrkrPresenter {
     }
 
     private weak var lastEngineTexture: MTLTexture?
+    /// Presentations committed and not yet done on the GPU (read and written on the main actor).
+    private var presentsInFlight = 0
+    /// A new frame was skipped while the GPU was busy; the next refresh shows it.
+    private var owedFresh = false
+    /// Refreshes skipped since the last `takeStatistics()`.
+    private(set) var skipped = 0
     /// What the last fresh frame was drawn from (MetalFX's output where it enlarged it).
     private var lastSource: MTLTexture?
 
@@ -139,9 +154,9 @@ final class ShioriKrkrPresenter {
     private(set) var shown = 0, shownNew = 0
     private(set) var drawableWait: CFTimeInterval = 0
 
-    func takeStatistics() -> (shown: Int, new: Int, drawableWait: CFTimeInterval) {
-        defer { shown = 0; shownNew = 0; drawableWait = 0 }
-        return (shown, shownNew, drawableWait)
+    func takeStatistics() -> (shown: Int, new: Int, drawableWait: CFTimeInterval, skipped: Int) {
+        defer { shown = 0; shownNew = 0; drawableWait = 0; skipped = 0 }
+        return (shown, shownNew, drawableWait, skipped)
     }
 
     private func draw(_ frameTexture: MTLTexture, width: Int, height: Int, commands: MTLCommandBuffer, fresh: Bool) {
@@ -181,6 +196,10 @@ final class ShioriKrkrPresenter {
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         encoder.endEncoding()
         commands.present(drawable)
+        presentsInFlight += 1
+        commands.addCompletedHandler { [weak self] _ in
+            Task { @MainActor in self?.presentsInFlight -= 1 }
+        }
         commands.commit()
     }
 
