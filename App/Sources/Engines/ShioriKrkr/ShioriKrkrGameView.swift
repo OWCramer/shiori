@@ -120,7 +120,7 @@ enum ShioriKrkrRuntime {
         case nil: return false
         case .nekoWorks:
             // The library's folders are named "<app ID>-<name>".
-            let id = appID ?? gameFolder.lastPathComponent.split(separator: "-").first.flatMap { UInt32($0) }
+            let id = appID.flatMap { $0 == 0 ? nil : $0 } ?? gameFolder.lastPathComponent.split(separator: "-").first.flatMap { UInt32($0) }
             return !(id.map(nekoWorksReady.contains) ?? false)
         default: return true
         }
