@@ -91,13 +91,30 @@ enum ShioriKrkrRuntime {
             .first { !["unins", "steam", "setup", "config"].contains(where: $0.lowercased().contains) } ?? "game.exe"
     }
 
+    /// What the game page says when the Shiori engine can't open a game yet.
+    static let unsupportedTitle = "This Game Doesn't Run on Shiori (Beta) Yet"
+    static let unsupportedMessage = "Switch to Standard in Version & Engine."
+
+    /// Whether the Shiori engine can open the game (its archives' encryption); checked before
+    /// starting so the player sees Shiori's message rather than the game's decoy error.
+    static func canOpen(gameFolder: URL, appID: UInt32) -> Bool {
+        let scheme = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)/scheme.shcx")
+        let hasScheme = FileManager.default.fileExists(atPath: scheme.path) || GARbroDatabase.title(appID: appID) != nil
+        return KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
+                                                        hasScheme: hasScheme) == nil
+    }
+
     static func start(gameFolder: URL, messages: ShioriKrkrGameViewController) throws -> UnsafePointer<shiorikrkr_api_t> {
+        let scheme = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)/scheme.shcx")
+        if KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
+                                                     hasScheme: FileManager.default.fileExists(atPath: scheme.path)) != nil {
+            throw Failure(errorDescription: unsupportedMessage)
+        }
         let api = try load()
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
         let root = try prepareRoot(gameFolder: gameFolder)
         // GARbroDatabase.prepare put the game's CxDec scheme here before launch, if it has one.
-        let scheme = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)/scheme.shcx")
         let schemePath = FileManager.default.fileExists(atPath: scheme.path) ? scheme.path : nil
         let exe = exeName(in: root)
         let options = ["-render=software"]
@@ -173,6 +190,10 @@ final class ShioriKrkrGameViewController: UIViewController {
     private var keyDownAt: [Int32: CFTimeInterval] = [:]
     private var skipLatched = false
     private var leaveAlert: UIAlertController?
+    /// "Resume where you left off?" (KiriKiriResume), asked once before the engine starts.
+    private var resumeAsked = false
+    private var resumeAlert: UIAlertController?
+    private var resumeAnswer: ((Bool) -> Void)?
     #if os(iOS)
     private var pointerHovering = false
     private var pointerLocation: CGPoint?
@@ -254,6 +275,25 @@ final class ShioriKrkrGameViewController: UIViewController {
 
     private func startIfNeeded() {
         guard api == nil, !leaving else { return }
+        guard resumeAlert == nil else { return } // Waiting for the answer.
+        if !resumeAsked {
+            // A place kept last time: ask before the engine starts, so a Resume goes through
+            // the game's own start-up recovery (KiriKiriResume).
+            resumeAsked = true
+            if let date = KiriKiriResume.offer(gameFolder: gameFolder) {
+                KiriKiriResume.markOffered(date, gameFolder: gameFolder)
+                let answer: (Bool) -> Void = { [weak self] resume in
+                    guard let self else { return }
+                    self.resumeAlert = nil
+                    self.resumeAnswer = nil
+                    if resume { KiriKiriResume.useOnStart(gameFolder: self.gameFolder) }
+                    self.startIfNeeded()
+                }
+                resumeAnswer = answer
+                resumeAlert = KiriKiriResume.ask(date, over: self, answer: answer)
+                return
+            }
+        }
         do {
             api = try ShioriKrkrRuntime.start(gameFolder: gameFolder, messages: self)
         } catch {
@@ -563,6 +603,13 @@ final class ShioriKrkrGameViewController: UIViewController {
     /// arrows move between buttons, a right click opens the menu, the wheel the backlog, Ctrl
     /// held skips, Escape cancels.
     private func pad(_ pad: GCExtendedGamepad) {
+        if let alert = resumeAlert, presentedViewController === alert, let answer = resumeAnswer {
+            for (button, down) in padReader.read(pad) where down && (button == .a || button == .b) {
+                alert.dismiss(animated: true) { answer(button == .a) }
+                break
+            }
+            return
+        }
         if let alert = leaveAlert, presentedViewController === alert {
             for (button, down) in padReader.read(pad) where down {
                 if button == .a {
@@ -616,7 +663,7 @@ final class ShioriKrkrGameViewController: UIViewController {
 
     private func presentLeaveQuestion() {
         guard presentedViewController == nil else { return }
-        let kept = evaluate(Self.canKeepPlaceTJS) == "1" ? "Your place is kept." : "Progress since your last save is lost."
+        let kept = evaluate(KiriKiriResume.canKeepPlaceTJS) == "1" ? "Your place is kept." : "Progress since your last save is lost."
         let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
@@ -629,7 +676,8 @@ final class ShioriKrkrGameViewController: UIViewController {
     }
 
     private func fail(_ message: String) {
-        let alert = UIAlertController(title: "This game couldn't start", message: message, preferredStyle: .alert)
+        let title = message == ShioriKrkrRuntime.unsupportedMessage ? ShioriKrkrRuntime.unsupportedTitle : "This Game Couldn't Start"
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in self?.leave() })
         present(alert, animated: true)
     }
@@ -660,50 +708,13 @@ final class ShioriKrkrGameViewController: UIViewController {
         return String(cString: buffer)
     }
 
-    /// Whether the game can keep its place now: KAG games with NEKO WORKs' emergency resume,
-    /// in the story, where the game allows a bookmark.
-    private static let canKeepPlaceTJS = """
-        (typeof global.kag == "Object" && typeof global.checkEmergencySaveData == "Object" \
-        && typeof global.inGameState == "Object" && typeof kag.getBookMarkFileNameBySystem == "Object" \
-        && inGameState(kag) && (typeof kag.canStore != "Object" || kag.canStore())) ? 1 : 0
-        """
-
-    /// Keeps the game's place in its own format as the app leaves the screen or the player
-    /// leaves the game, as the Standard engine's view does: the game's "emergency" resume
-    /// bookmark where it has one (written beside it, then renamed into place), and KAG's
-    /// system data (settings, read text, the bookmark index) in every KAG game.
+    /// Keeps the player's place as the app leaves the screen or the player leaves the game:
+    /// in Shiori's own resume save, offered at the next launch (KiriKiriResume), never in the
+    /// emergency bookmark the game loads at start-up by itself. KAG's system data too.
     private func savePlace(reason: String) {
-        let tjs = """
-            (function() {
-                if (typeof global.kag != "Object" || !isvalid kag) return "none";
-                var result = "system";
-                if (\(Self.canKeepPlaceTJS)) {
-                    var temp = kag.getBookMarkFileNameBySystem("emergency-shiori");
-                    var file = kag.getBookMarkFileNameBySystem("emergency");
-                    result = kag.saveBookMarkToFile(temp) ? "kept\\t" + Storages.getLocalName(temp) + "\\t" + Storages.getLocalName(file) : "failed";
-                } else if (typeof global.checkEmergencySaveData == "Object" && typeof kag.getBookMarkFileNameBySystem == "Object") {
-                    result = "outside\\t" + Storages.getLocalName(kag.getBookMarkFileNameBySystem("emergency"));
-                }
-                if (typeof kag.saveSystemVariables == "Object") kag.saveSystemVariables();
-                return result;
-            })()
-            """
-        guard let result = evaluate(tjs) else { return }
-        let parts = result.components(separatedBy: "\t")
-        switch parts.first {
-        case "kept" where parts.count == 3:
-            if Darwin.rename(parts[1], parts[2]) == 0 {
-                ShioriKrkrRuntime.log.notice("Kept the place and system data, \(reason, privacy: .public)")
-            } else {
-                ShioriKrkrRuntime.log.error("Couldn't move the resume bookmark into place (\(errno)), \(reason, privacy: .public)")
-            }
-        case "outside" where parts.count == 2:
-            let size = (try? FileManager.default.attributesOfItem(atPath: parts[1]))?[.size] as? Int ?? 0
-            if size > 64 { _ = evaluate(#"[].save(kag.getBookMarkFileNameBySystem("emergency"))"#) }
-            ShioriKrkrRuntime.log.notice("Wrote the system data (outside the story), \(reason, privacy: .public)")
-        default:
-            ShioriKrkrRuntime.log.notice("Wrote the system data (\(result, privacy: .public)), \(reason, privacy: .public)")
-        }
+        guard let result = evaluate(KiriKiriResume.saveTJS) else { return }
+        let line = KiriKiriResume.saved(result, gameFolder: gameFolder)
+        ShioriKrkrRuntime.log.notice("\(line, privacy: .public), \(reason, privacy: .public)")
     }
 }
 

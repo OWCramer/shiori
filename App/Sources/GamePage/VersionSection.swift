@@ -13,6 +13,8 @@ struct VersionSection: View {
     @State private var branch = "public"
     @State private var phoneLayout = false
     @State private var kirikiriEngine = KiriKiriEngineChoice.aether
+    /// Whether Shiori's own KiriKiri engine can open this game yet (its archives' encryption).
+    @State private var shioriEngineAvailable = true
 
     private var appID: UInt32 { game.appID }
     private var record: GameRecord? {
@@ -68,13 +70,27 @@ struct VersionSection: View {
             // (AetherKrkr) or Shiori's own. The App Store edition has only Shiori's.
             if record?.engine?.engine == "kirikiri" {
                 GamePageRow {
-                    LabeledContent("KiriKiri Engine") {
-                        Picker("KiriKiri Engine", selection: $kirikiriEngine) {
-                            ForEach(KiriKiriEngineChoice.allCases) { Text($0.title).tag($0) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        LabeledContent("KiriKiri Engine") {
+                            Picker("KiriKiri Engine", selection: $kirikiriEngine) {
+                                ForEach(KiriKiriEngineChoice.allCases) { choice in
+                                    Text(choice.title).tag(choice)
+                                        .selectionDisabled(choice == .shiori && !shioriEngineAvailable)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
+                        if !shioriEngineAvailable {
+                            Text("Shiori (Beta) doesn't run this game yet.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                }
+                .task(id: record?.name) {
+                    guard let name = record?.name else { return }
+                    shioriEngineAvailable = ShioriKrkrRuntime.canOpen(gameFolder: games.folder(appID: appID, name: name), appID: appID)
                 }
             }
             #endif

@@ -22,6 +22,25 @@ enum KiriKiriArchiveCheck {
         return entry.isProtected && !entry.hasNekoNames && !looksPlain(entry.head) ? .cx : nil
     }
 
+    /// Why Shiori's own KiriKiri engine (Phase 23) can't open the game yet, if it can't.
+    enum ShioriEngineBlocker {
+        /// NEKO WORKs archives (`neko` or `eliF` index chunks): NEKOPARA and its family.
+        case nekoWorks
+        /// KiriKiri Z's Hx.
+        case hx
+        /// CxDec with no scheme for the title.
+        case cxWithoutScheme
+    }
+
+    /// `hasScheme`: the title's CxDec scheme is ready (GARbroDatabase), or known to exist.
+    static func shioriEngineBlocker(base: URL, hasScheme: Bool) -> ShioriEngineBlocker? {
+        guard let entry = startupEntry(in: base.appendingPathComponent("data.xp3")) else { return nil }
+        if entry.hasNekoNames { return .nekoWorks }
+        if entry.hasHxIndex { return .hx }
+        if unhandledEncryption(base: base) == .cx, !hasScheme { return .cxWithoutScheme }
+        return nil
+    }
+
     private struct Entry {
         var isProtected = false
         var hasNekoNames = false
@@ -65,7 +84,8 @@ enum KiriKiriArchiveCheck {
             guard size >= 0, at + 12 + size <= index.count else { break }
             let body = index.subdata(in: at + 12..<at + 12 + size)
             at += 12 + size
-            if tag == Data("neko".utf8) { hasNekoNames = true }
+            // NEKO WORKs: `neko` name chunks, or the older `eliF` entries (NEKOPARA Vol. 0-2).
+            if tag == Data("neko".utf8) || tag == Data("eliF".utf8) { hasNekoNames = true }
             if tag == Data("Hxv4".utf8) { hasHxIndex = true }
             if tag == Data("hnfn".utf8) { hasHashedNames = true }
             guard tag == Data("File".utf8) else { continue }
@@ -93,7 +113,9 @@ enum KiriKiriArchiveCheck {
                 startup = (isProtected, segment.0, segment.1, segment.2)
             }
         }
-        guard let startup else { return hasHxIndex ? Entry(hasHxIndex: true) : nil }
+        guard let startup else {
+            return hasHxIndex || hasNekoNames ? Entry(hasNekoNames: hasNekoNames, hasHxIndex: hasHxIndex) : nil
+        }
         var entry = Entry(isProtected: startup.isProtected, hasNekoNames: hasNekoNames, hasHxIndex: hasHxIndex,
                           hasHashedNames: hasHashedNames)
         let count = Int(min(startup.packedSize, 1 << 20))

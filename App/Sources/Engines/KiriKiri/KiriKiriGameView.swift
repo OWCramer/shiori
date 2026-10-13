@@ -226,6 +226,25 @@ final class KiriKiriGameViewController: UIViewController {
 
     private func startIfNeeded() {
         guard engine == nil, !leaving, surface.width > 0 else { return }
+        guard resumeAlert == nil else { return } // Waiting for the answer.
+        if !resumeAsked {
+            // A place kept last time: ask before the engine starts, so a Resume goes through
+            // the game's own start-up recovery (KiriKiriResume).
+            resumeAsked = true
+            if let date = KiriKiriResume.offer(gameFolder: gameFolder) {
+                KiriKiriResume.markOffered(date, gameFolder: gameFolder)
+                let answer: (Bool) -> Void = { [weak self] resume in
+                    guard let self else { return }
+                    self.resumeAlert = nil
+                    self.resumeAnswer = nil
+                    if resume { KiriKiriResume.useOnStart(gameFolder: self.gameFolder) }
+                    self.startIfNeeded()
+                }
+                resumeAnswer = answer
+                resumeAlert = KiriKiriResume.ask(date, over: self, answer: answer)
+                return
+            }
+        }
         do {
             engine = try KiriKiriRuntime.open(gameFolder: gameFolder, appID: appID, width: surface.width, height: surface.height)
         } catch {
@@ -572,9 +591,21 @@ final class KiriKiriGameViewController: UIViewController {
     private var padDownAt: [Int32: CFTimeInterval] = [:]
 
     private var leaveAlert: UIAlertController?
+    /// "Resume where you left off?" (KiriKiriResume), asked once before the engine starts.
+    private var resumeAsked = false
+    private var resumeAlert: UIAlertController?
+    private var resumeAnswer: ((Bool) -> Void)?
     private var padOptionsDown = false
 
     private func pad(_ pad: GCExtendedGamepad) {
+        if let alert = resumeAlert, presentedViewController === alert, let answer = resumeAnswer {
+            if pad.buttonA.isPressed || pad.buttonB.isPressed {
+                let resume = pad.buttonA.isPressed
+                resumeAlert = nil
+                alert.dismiss(animated: true) { answer(resume) }
+            }
+            return
+        }
         // Options asks to leave; on that question A leaves and B keeps playing.
         let options = pad.buttonOptions?.isPressed ?? false
         defer { padOptionsDown = options }
@@ -685,7 +716,7 @@ final class KiriKiriGameViewController: UIViewController {
 
     private func presentLeaveQuestion() {
         // Honest about what leaving keeps: the place, where the game can resume it.
-        let kept = evaluate(Self.canKeepPlaceTJS) == "1"
+        let kept = evaluate(KiriKiriResume.canKeepPlaceTJS) == "1"
             ? "Your place is kept."
             : "Progress since your last save is lost."
         let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
@@ -739,62 +770,13 @@ final class KiriKiriGameViewController: UIViewController {
         return String(cString: buffer)
     }
 
-    /// Whether the game can keep its place now: KAG games with NEKO WORKs' emergency resume
-    /// (NEKOPARA), in the story (not the title or a scene replay) where the game allows a
-    /// bookmark.
-    private static let canKeepPlaceTJS = """
-        (typeof global.kag == "Object" && typeof global.checkEmergencySaveData == "Object" \
-        && typeof global.inGameState == "Object" && typeof kag.getBookMarkFileNameBySystem == "Object" \
-        && inGameState(kag) && (typeof kag.canStore != "Object" || kag.canStore())) ? 1 : 0
-        """
-
-    /// Keeps the game's place in its own format as the app leaves the screen or the player
-    /// leaves the game. NEKOPARA's scripts resume from an "emergency" bookmark at start-up
-    /// (written by the game when memory runs out, then emptied once resumed); Shiori writes
-    /// that bookmark (KAG's saveBookMarkToFile: the state at the last label passed, as the
-    /// game's own saves keep it) beside it and renames it into place, so the game picks up
-    /// there next time. Outside the story the old bookmark is emptied as the game empties it,
-    /// so a later launch doesn't jump back. KAG's system data (settings, read text, the
-    /// bookmark index) is written in every KAG game.
+    /// Keeps the player's place as the app leaves the screen or the player leaves the game:
+    /// in Shiori's own resume save, offered at the next launch (KiriKiriResume), never in the
+    /// emergency bookmark the game loads at start-up by itself. KAG's system data too.
     private func savePlace(reason: String) {
-        let tjs = """
-            (function() {
-                if (typeof global.kag != "Object" || !isvalid kag) return "none";
-                var result = "system";
-                if (\(Self.canKeepPlaceTJS)) {
-                    var temp = kag.getBookMarkFileNameBySystem("emergency-shiori");
-                    var file = kag.getBookMarkFileNameBySystem("emergency");
-                    result = kag.saveBookMarkToFile(temp) ? "kept\\t" + Storages.getLocalName(temp) + "\\t" + Storages.getLocalName(file) : "failed";
-                } else if (typeof global.checkEmergencySaveData == "Object" && typeof kag.getBookMarkFileNameBySystem == "Object") {
-                    result = "outside\\t" + Storages.getLocalName(kag.getBookMarkFileNameBySystem("emergency"));
-                }
-                if (typeof kag.saveSystemVariables == "Object") kag.saveSystemVariables();
-                return result;
-            })()
-            """
-        guard let result = evaluate(tjs) else { return }
-        let parts = result.components(separatedBy: "\t")
-        switch parts.first {
-        case "kept" where parts.count == 3:
-            // Into place in one step: a save cut short never leaves a broken bookmark.
-            if Darwin.rename(parts[1], parts[2]) == 0 {
-                KiriKiriRuntime.log.notice("Kept the place (resume bookmark \((parts[2] as NSString).lastPathComponent, privacy: .public)) and system data, \(reason, privacy: .public)")
-            } else {
-                KiriKiriRuntime.log.error("Couldn't move the resume bookmark into place (\(errno)), \(reason, privacy: .public)")
-            }
-        case "outside" where parts.count == 2:
-            // Not in the story: a bookmark left from earlier would resume there next launch.
-            let size = (try? FileManager.default.attributesOfItem(atPath: parts[1]))?[.size] as? Int ?? 0
-            if size > 64 {
-                _ = evaluate(#"[].save(kag.getBookMarkFileNameBySystem("emergency"))"#)
-                KiriKiriRuntime.log.notice("Emptied the old resume bookmark (outside the story), \(reason, privacy: .public)")
-            }
-            KiriKiriRuntime.log.notice("Wrote the system data (no place outside the story), \(reason, privacy: .public)")
-        case "failed":
-            KiriKiriRuntime.log.error("The game couldn't write its resume bookmark, \(reason, privacy: .public)")
-        default:
-            KiriKiriRuntime.log.notice("Wrote the system data (\(result, privacy: .public)), \(reason, privacy: .public)")
-        }
+        guard let result = evaluate(KiriKiriResume.saveTJS) else { return }
+        let line = KiriKiriResume.saved(result, gameFolder: gameFolder)
+        KiriKiriRuntime.log.notice("\(line, privacy: .public), \(reason, privacy: .public)")
     }
 }
 
