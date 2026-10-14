@@ -567,11 +567,12 @@ final class ShioriKrkrGameViewController: UIViewController {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        sendFingers(touches, phase: 0)
+        // A tap that lets go of the skip latch is the app's, not the game's (no finger, no click).
         if skipLatched {
             releaseSkipLatch()
             return
         }
+        sendFingers(touches, phase: 0)
         guard pointerTouch == nil, event?.allTouches?.count ?? 1 == 1, let touch = touches.first else { return }
         pointerTouch = touch
         pointerButton = Int32(SHIORIKRKR_BUTTON_LEFT)
