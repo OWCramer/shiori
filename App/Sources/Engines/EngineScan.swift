@@ -111,7 +111,7 @@ final class EngineScanStore {
     private let session: SteamSession
 
     /// Bumped when detection changes, so older results are scanned again.
-    private static var url: URL { URL.shioriSupport.appendingPathComponent("engine-scan-7.json") }
+    private static var url: URL { URL.shioriSupport.appendingPathComponent("engine-scan-8.json") }
 
     init(session: SteamSession) {
         self.session = session
