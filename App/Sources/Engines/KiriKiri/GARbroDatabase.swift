@@ -18,7 +18,8 @@ enum GARbroDatabase {
         if let title = CompatibilityStore.cachedEntry(appID: appID, engine: "kirikiri")?.garbro { return title }
         return [1094930: "KARAKARA 2", 487430: "KARAKARA 2", 745850: "KARAKARA 2",
                 555640: "Japanese School Life",
-                1637370: "Tsuyuchiru Letter ~Umi to Shiori ni Amaoto o~"][appID]
+                1637370: "Tsuyuchiru Letter ~Umi to Shiori ni Amaoto o~",
+                1230140: "ATRI -My Dear Moments-", 1277930: "Riddle Joker [Steam]"][appID]
     }
 
     /// Puts the game's scheme where KiriKiriRuntime looks for it (or clears a stale one).
