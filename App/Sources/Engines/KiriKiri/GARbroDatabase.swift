@@ -14,7 +14,8 @@ import Foundation
 /// engine reads (`Engine/shiori_hx.cpp`): the CxDec part, then the index keys per archive, the
 /// filter key, the random type, and GARbro's names list for the title (`NamesFile`, beside
 /// `Formats.dat`) when GARbro publishes one. An Hx archive's index holds only hashes of its
-/// files' names, so a title plays once that list exists (`hxPlayable`).
+/// files' names; the engine hashes the names the game asks for, so the keys are all a title
+/// needs (`hxPlayable`) and a names list only adds names for listing folders.
 enum GARbroDatabase {
     static let source = URL(string: "https://raw.githubusercontent.com/crskycode/GARbro/master/ArcFormats/Resources/Formats.dat")!
 
@@ -53,7 +54,7 @@ enum GARbroDatabase {
         if let schemeDate = (try? fm.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date,
            let databaseDate = (try? fm.attributesOfItem(atPath: databaseFile.path))?[.modificationDate] as? Date,
            schemeDate >= databaseDate,
-           // An Hx scheme is built again daily: GARbro's names list can arrive on its own.
+           // An Hx scheme is built again daily: GARbro's names list (optional) can arrive on its own.
            !isHxScheme(file) || Date.now.timeIntervalSince(schemeDate) < 24 * 3600
         {
             return file
@@ -111,14 +112,14 @@ enum GARbroDatabase {
         return text
     }
 
-    /// Whether Shiori's engine has what an Hx title needs: its scheme, built, with index keys and
-    /// file names (GARbro's names list). Read from the cached scheme; false until it's built.
+    /// Whether Shiori's engine has what an Hx title needs: a GARbro title with index keys. Until
+    /// the scheme has been built (at the first launch) a mapped title is taken to have them;
+    /// after that, the built scheme decides.
     static func hxPlayable(appID: UInt32) -> Bool {
         guard let title = title(appID: appID) else { return false }
         let safe = title.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : "_" }.joined()
-        guard let data = try? Data(contentsOf: folder.appendingPathComponent("\(safe).shcx")),
-              let summary = hxSummary(of: data) else { return false }
-        return summary.keys > 0 && summary.fileNames > 0
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("\(safe).shcx")) else { return true }
+        return (hxSummary(of: data)?.keys ?? 0) > 0
     }
 
     /// The Hx section's archive-key and file-name counts in an SHCX v2 file; nil for any other.

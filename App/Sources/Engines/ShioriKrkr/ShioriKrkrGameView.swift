@@ -125,7 +125,7 @@ enum ShioriKrkrRuntime {
                                                         hasScheme: hasScheme) {
         case nil: return false
         case .hx:
-            // Hx titles whose keys and file names GARbro's database has (GARbroDatabase.hxPlayable).
+            // Hx titles whose index keys GARbro's database has (GARbroDatabase.hxPlayable).
             let id = appID.flatMap { $0 == 0 ? nil : $0 } ?? folderAppID(gameFolder)
             return !GARbroDatabase.hxPlayable(appID: id)
         case .nekoWorks:

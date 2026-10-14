@@ -9,7 +9,7 @@ enum KiriKiriArchiveCheck {
         /// CxDec: needs the title's scheme from GARbro's database (GARbroDatabase).
         case cx
         /// KiriKiri Z's Hx (an `Hxv4` index chunk): Standard isn't given Hx schemes; Shiori's
-        /// own engine opens it when GARbro has the title's keys and file names.
+        /// own engine opens it when GARbro has the title's keys.
         case hx
     }
 
