@@ -49,7 +49,8 @@ enum KiriKiriRuntime {
         // A title whose archives use CxDec has its scheme built from GARbro's database before
         // launch (GARbroDatabase.prepare); the engine decrypts its reads in memory only.
         let scheme = caches.appendingPathComponent("scheme.shcx")
-        if fileManager.fileExists(atPath: scheme.path) {
+        // An Hx scheme (SHCX v2) is for Shiori's own engine only.
+        if fileManager.fileExists(atPath: scheme.path), !GARbroDatabase.isHxScheme(scheme) {
             setenv("AETHERKIRI_CX_SCHEME", scheme.path, 1)
         } else {
             unsetenv("AETHERKIRI_CX_SCHEME")

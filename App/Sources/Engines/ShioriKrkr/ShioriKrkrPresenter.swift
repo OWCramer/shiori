@@ -19,7 +19,9 @@ import MetalFX
 /// Presentation runs on a queue of its own: the engine's tick only hands over the newest frame
 /// and returns, and the queue waits for a drawable (a frame not yet shown is replaced by a newer
 /// one). Waiting for drawables on the engine's thread tied its ticks to the display and held
-/// busy scenes at around 30.
+/// busy scenes at around 30. Every display refresh presents something: with no new frame the
+/// last picture (already enlarged) goes up again, so ProMotion stays at the display link's 60
+/// instead of slowing while the game is still and ramping up when it moves again.
 @MainActor
 final class ShioriKrkrPresenter {
     let view: UIView
@@ -76,7 +78,8 @@ final class ShioriKrkrPresenter {
             descriptor.storageMode = .shared
             frameTextures = (0 ..< 3).compactMap { _ in device.makeTexture(descriptor: descriptor) }
         } else if !changed {
-            return // Nothing new to show.
+            renderer.repeatLast() // the same picture again: the display keeps its 60
+            return
         }
         guard frameTextures.count == 3 else { return }
         frameIndex = (frameIndex + 1) % 3
@@ -94,11 +97,14 @@ final class ShioriKrkrPresenter {
         guard let renderer, width > 0, height > 0 else { return }
         let fresh = changed || lastEngineTexture !== texture
         lastEngineTexture = texture
-        guard fresh else { return }
+        guard fresh else {
+            renderer.repeatLast() // the same picture again: the display keeps its 60
+            return
+        }
         renderer.submit(.init(texture: texture, event: event, value: value, width: width, height: height))
     }
 
-    /// Frames shown since the last call, how many were new (all are), the time the presentation
+    /// Frames shown since the last call, how many were new, the time the presentation
     /// queue spent waiting for drawables, and frames replaced by a newer one before they could
     /// be shown.
     func takeStatistics() -> (shown: Int, new: Int, drawableWait: CFTimeInterval, skipped: Int) {
@@ -128,7 +134,7 @@ private final class Renderer: @unchecked Sendable {
     private var pending: Frame?
     private var draining = false
     private var redrawWanted = false
-    private var shown = 0, dropped = 0
+    private var shown = 0, fresh = 0, dropped = 0
     private var drawableWait: CFTimeInterval = 0
 
     // Queue-only state.
@@ -190,6 +196,20 @@ private final class Renderer: @unchecked Sendable {
         if start { queue.async { self.drain() } }
     }
 
+    /// The last picture presented again, unless something is already on its way (called on
+    /// refreshes with no new frame).
+    func repeatLast() {
+        lock.lock()
+        guard !draining, pending == nil else {
+            lock.unlock()
+            return
+        }
+        redrawWanted = true
+        draining = true
+        lock.unlock()
+        queue.async { self.drain() }
+    }
+
     /// The last frame drawn again (the drawable changed size).
     func redraw() {
         lock.lock()
@@ -202,8 +222,8 @@ private final class Renderer: @unchecked Sendable {
 
     func takeStatistics() -> (shown: Int, new: Int, drawableWait: CFTimeInterval, skipped: Int) {
         lock.lock()
-        defer { shown = 0; dropped = 0; drawableWait = 0; lock.unlock() }
-        return (shown, shown, drawableWait, dropped)
+        defer { shown = 0; fresh = 0; dropped = 0; drawableWait = 0; lock.unlock() }
+        return (shown, fresh, drawableWait, dropped)
     }
 
     private func drain() {
@@ -267,6 +287,7 @@ private final class Renderer: @unchecked Sendable {
         commands.commit()
         lock.lock()
         shown += 1
+        if fresh { self.fresh += 1 }
         drawableWait += waited
         lock.unlock()
     }

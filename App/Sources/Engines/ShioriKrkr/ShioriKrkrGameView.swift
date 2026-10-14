@@ -124,6 +124,10 @@ enum ShioriKrkrRuntime {
         switch KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
                                                         hasScheme: hasScheme) {
         case nil: return false
+        case .hx:
+            // Hx titles whose index keys GARbro's database has (GARbroDatabase.hxPlayable).
+            let id = appID.flatMap { $0 == 0 ? nil : $0 } ?? folderAppID(gameFolder)
+            return !GARbroDatabase.hxPlayable(appID: id)
         case .nekoWorks:
             // The library's folders are named "<app ID>-<name>".
             let id = appID.flatMap { $0 == 0 ? nil : $0 } ?? gameFolder.lastPathComponent.split(separator: "-").first.flatMap { UInt32($0) }
@@ -253,6 +257,9 @@ final class ShioriKrkrGameViewController: UIViewController {
     private var frameSize: CGSize = .zero
     private weak var pointerTouch: UITouch?
     private var pointerButton = Int32(SHIORIKRKR_BUTTON_LEFT)
+    /// Fingers on the view and the ids the game knows them by (touch events, beside the pointer).
+    private var fingerIDs: [ObjectIdentifier: Int32] = [:]
+    private var nextFingerID: Int32 = 1
     private var padReader = GamePadReader()
     /// Keys the controller holds down in the game (let go when an alert takes the controller).
     private var padKeys: Set<Int32> = []
@@ -535,7 +542,32 @@ final class ShioriKrkrGameViewController: UIViewController {
         sendKey(code, down: down)
     }
 
+    /// Each finger as a touch for games that turned touch on (as Windows sends a touchscreen's
+    /// fingers to KiriKiri, beside the mouse events): phase 0 down, 1 moved, 2 up.
+    private func sendFingers(_ touches: Set<UITouch>, phase: Int32) {
+        guard let api else { return }
+        for touch in touches {
+            #if os(iOS)
+            if touch.isPointer { continue }
+            #endif
+            let key = ObjectIdentifier(touch)
+            let id: Int32
+            if let known = fingerIDs[key] {
+                id = known
+            } else {
+                guard phase == 0 else { continue }
+                id = nextFingerID
+                nextFingerID = nextFingerID % 1000 + 1
+                fingerIDs[key] = id
+            }
+            if phase == 2 { fingerIDs[key] = nil }
+            let (x, y) = normalized(touch.location(in: view))
+            api.pointee.touch(phase, x, y, id)
+        }
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        sendFingers(touches, phase: 0)
         if skipLatched {
             releaseSkipLatch()
             return
@@ -558,6 +590,7 @@ final class ShioriKrkrGameViewController: UIViewController {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        sendFingers(touches, phase: 1)
         guard let touch = pointerTouch, touches.contains(touch) else { return }
         pointer(Int32(SHIORIKRKR_POINTER_MOVED), touch.location(in: view))
         #if os(iOS)
@@ -566,12 +599,14 @@ final class ShioriKrkrGameViewController: UIViewController {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        sendFingers(touches, phase: 2)
         guard let touch = pointerTouch, touches.contains(touch) else { return }
         pointerTouch = nil
         pointer(Int32(SHIORIKRKR_POINTER_UP), touch.location(in: view), button: pointerButton)
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        sendFingers(touches, phase: 2)
         // A gesture took the touch over: release without clicking.
         guard let touch = pointerTouch, touches.contains(touch) else { return }
         cancelPointer()
