@@ -9,6 +9,13 @@ import Foundation
 /// (MS-NRBF); each title is a dictionary entry whose value is a `CxEncryption`. A scheme is
 /// written in the engine's layout (`AETHERKIRI_CX_SCHEME`, AetherKrkr patch 0015), as
 /// `Scripts/kirikiri/garbro-cx.py` does on the Mac.
+///
+/// KiriKiri Z's Hx titles (an `HxCrypt`) are written as SHCX version 2, which only Shiori's own
+/// engine reads (`Engine/shiori_hx.cpp`): the CxDec part, then the index keys per archive, the
+/// filter key, the random type, and GARbro's names list for the title (`NamesFile`, beside
+/// `Formats.dat`) when GARbro publishes one. An Hx archive's index holds only hashes of its
+/// files' names; the engine hashes the names the game asks for, so the keys are all a title
+/// needs (`hxPlayable`) and a names list only adds names for listing folders.
 enum GARbroDatabase {
     static let source = URL(string: "https://raw.githubusercontent.com/crskycode/GARbro/master/ArcFormats/Resources/Formats.dat")!
 
@@ -19,6 +26,7 @@ enum GARbroDatabase {
         return [1094930: "KARAKARA 2", 487430: "KARAKARA 2", 745850: "KARAKARA 2",
                 555640: "Japanese School Life",
                 1637370: "Tsuyuchiru Letter ~Umi to Shiori ni Amaoto o~",
+                1829980: "Café Stella to Shinigami no Chou [Steam]",
                 1230140: "ATRI -My Dear Moments-", 1277930: "Riddle Joker [Steam]"][appID]
     }
 
@@ -46,12 +54,14 @@ enum GARbroDatabase {
         // A scheme exported from the current database is reused.
         if let schemeDate = (try? fm.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date,
            let databaseDate = (try? fm.attributesOfItem(atPath: databaseFile.path))?[.modificationDate] as? Date,
-           schemeDate >= databaseDate
+           schemeDate >= databaseDate,
+           // An Hx scheme is built again daily: GARbro's names list (optional) can arrive on its own.
+           !isHxScheme(file) || Date.now.timeIntervalSince(schemeDate) < 24 * 3600
         {
             return file
         }
         guard let data = try? Data(contentsOf: databaseFile),
-              let scheme = try? export(title: title, from: data)
+              let scheme = try? await export(title: title, from: data, names: { await namesList($0) })
         else { return nil }
         try? scheme.write(to: file, options: .atomic)
         return file
@@ -81,19 +91,92 @@ enum GARbroDatabase {
         }
     }
 
+    /// GARbro's names list for an Hx title (`hash:name` lines), downloaded from beside the
+    /// database and kept in Caches; nil when GARbro has none.
+    private static func namesList(_ name: String) async -> String? {
+        guard !name.isEmpty, !name.contains("/"), let url = URL(string: name, relativeTo: source) else { return nil }
+        let file = folder.appendingPathComponent(name)
+        let fm = FileManager.default
+        if let date = (try? fm.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date,
+           Date.now.timeIntervalSince(date) < 24 * 3600
+        {
+            return try? String(contentsOf: file, encoding: .utf8)
+        }
+        guard let (data, response) = try? await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 30)),
+              let http = response as? HTTPURLResponse
+        else { return try? String(contentsOf: file, encoding: .utf8) } // Offline: the cached copy, if any.
+        guard http.statusCode == 200, let text = String(data: data, encoding: .utf8) else {
+            if http.statusCode == 404 { try? fm.removeItem(at: file) }
+            return nil
+        }
+        try? data.write(to: file, options: .atomic)
+        return text
+    }
+
+    /// Whether Shiori's engine has what an Hx title needs: a GARbro title with index keys. Until
+    /// the scheme has been built (at the first launch) a mapped title is taken to have them;
+    /// after that, the built scheme decides.
+    static func hxPlayable(appID: UInt32) -> Bool {
+        guard let title = title(appID: appID) else { return false }
+        let safe = title.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : "_" }.joined()
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("\(safe).shcx")) else { return true }
+        return (hxSummary(of: data)?.keys ?? 0) > 0
+    }
+
+    /// The Hx section's archive-key and file-name counts in an SHCX v2 file; nil for any other.
+    static func hxSummary(of scheme: Data) -> (keys: Int, fileNames: Int)? {
+        let bytes = [UInt8](scheme)
+        let start = 16 + 20 + 4096
+        guard bytes.count >= start + 4 + 4 + 8 + 1 + 48 + 4, bytes.starts(with: Array("SHCX".utf8)), bytes[4] == 2,
+              Array(bytes[start ..< start + 4]) == Array("HXv4".utf8)
+        else { return nil }
+        var at = start + 4 + 4 + 8 + 1 + 48
+        func integer(_ size: Int) -> Int? {
+            guard at + size <= bytes.count else { return nil }
+            defer { at += size }
+            return (0 ..< size).reduce(0) { $0 | Int(bytes[at + $1]) << (8 * $1) }
+        }
+        guard let keys = integer(4) else { return nil }
+        for _ in 0 ..< keys {
+            guard let length = integer(2) else { return nil }
+            at += length + 48
+        }
+        guard let directories = integer(4) else { return nil }
+        for _ in 0 ..< directories {
+            at += 8
+            guard let length = integer(2) else { return nil }
+            at += length
+        }
+        guard let fileNames = integer(4) else { return nil }
+        return (keys, fileNames)
+    }
+
+    /// An SHCX file of version 2 (Hx), which only Shiori's own engine reads.
+    static func isHxScheme(_ file: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 8), head.count == 8 else { return false }
+        return head.starts(with: Array("SHCX".utf8)) && head[head.startIndex + 4] == 2
+    }
+
     enum ExportError: Error { case badDatabase, noScheme, noControlBlock }
 
     /// The engine's scheme file for `title` (SHCX: magic, version 1, mask, offset, the three
-    /// branch orders padded to 16 bytes, then the 1024-word control block).
-    static func export(title: String, from database: Data) throws -> Data {
+    /// branch orders padded to 16 bytes, then the 1024-word control block). An Hx title is
+    /// version 2, with the Hx section after that (layout: `HxScheme::parse` in shiori_hx.cpp);
+    /// `names` fetches GARbro's names list by its file name.
+    static func export(title: String, from database: Data,
+                       names: (String) async -> String? = { _ in nil }) async throws -> Data
+    {
         let objects = try NRBFReader.objects(in: database)
-        guard let scheme = objects.scheme(named: title) else { throw ExportError.noScheme }
+        guard let (className, scheme) = objects.scheme(named: title) else { throw ExportError.noScheme }
         guard let control = scheme["ControlBlock"]?.integers(in: objects), control.count == 1024 else {
             throw ExportError.noControlBlock
         }
+        let hx = className.hasSuffix(".HxCrypt")
         var out = Data("SHCX".utf8)
         func put(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { out.append(contentsOf: $0) } }
-        put(1)
+        put(hx ? 2 : 1)
         put(UInt32(truncatingIfNeeded: scheme["m_mask"]?.integer ?? 0))
         put(UInt32(truncatingIfNeeded: scheme["m_offset"]?.integer ?? 0))
         for order in ["PrologOrder", "OddBranchOrder", "EvenBranchOrder"] {
@@ -101,6 +184,75 @@ enum GARbroDatabase {
         }
         out.append(contentsOf: [0, 0, 0])
         for word in control { put(UInt32(truncatingIfNeeded: word)) }
+        guard hx else { return out }
+
+        func key(_ first: NRBFValue?, _ second: NRBFValue?) -> [UInt8]? {
+            guard let one = first?.integers(in: objects), one.count == 32,
+                  let two = second?.integers(in: objects), two.count == 16 else { return nil }
+            return (one + two).map { UInt8(truncatingIfNeeded: $0) }
+        }
+        func putName(_ name: String) {
+            let utf8 = Array(name.utf8.prefix(0xFFFF))
+            withUnsafeBytes(of: UInt16(utf8.count).littleEndian) { out.append(contentsOf: $0) }
+            out.append(contentsOf: utf8)
+        }
+        out.append(contentsOf: Array("HXv4".utf8))
+        put(UInt32(truncatingIfNeeded: scheme["RandomType"]?.integer ?? 0))
+        withUnsafeBytes(of: UInt64(bitPattern: scheme["FilterKey"]?.integer ?? 0).littleEndian) { out.append(contentsOf: $0) }
+        if let fallback = key(scheme["IndexKey1"], scheme["IndexKey2"]) {
+            out.append(1)
+            out.append(contentsOf: fallback)
+        } else {
+            out.append(0)
+            out.append(contentsOf: [UInt8](repeating: 0, count: 48))
+        }
+        var archives: [(String, [UInt8])] = []
+        if case let .object(_, dictionary)? = scheme["IndexKeyDict"]?.resolved(in: objects),
+           case let .list(pairs)? = dictionary["KeyValuePairs"]?.resolved(in: objects)
+        {
+            for pair in pairs {
+                guard case let .object(_, fields) = pair.resolved(in: objects),
+                      case let .string(name)? = fields["key"]?.resolved(in: objects),
+                      case let .object(_, value)? = fields["value"]?.resolved(in: objects),
+                      let archiveKey = key(value["Key1"], value["Key2"]) else { continue }
+                archives.append((name, archiveKey))
+            }
+        }
+        put(UInt32(archives.count))
+        for (name, archiveKey) in archives {
+            putName(name)
+            out.append(contentsOf: archiveKey)
+        }
+        // GARbro's names list: "hash:name", 16 hex digits for a directory, 64 for a file.
+        var directories: [([UInt8], String)] = [], files: [([UInt8], String)] = []
+        if case let .string(namesFile)? = scheme["NamesFile"]?.resolved(in: objects), let text = await names(namesFile) {
+            for line in text.split(whereSeparator: \.isNewline) {
+                let parts = line.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, let hash = hexBytes(parts[0]) else { continue }
+                if hash.count == 8 { directories.append((hash, String(parts[1]))) }
+                if hash.count == 32 { files.append((hash, String(parts[1]))) }
+            }
+        }
+        for table in [directories, files] {
+            put(UInt32(table.count))
+            for (hash, name) in table {
+                out.append(contentsOf: hash)
+                putName(name)
+            }
+        }
+        return out
+    }
+
+    private static func hexBytes(_ text: Substring) -> [UInt8]? {
+        let digits = Array(text.utf8)
+        guard digits.count % 2 == 0 else { return nil }
+        var out: [UInt8] = []
+        for index in stride(from: 0, to: digits.count, by: 2) {
+            guard let byte = UInt8(String(decoding: digits[index ..< index + 2], as: UTF8.self), radix: 16) else {
+                return nil
+            }
+            out.append(byte)
+        }
         return out
     }
 
@@ -149,20 +301,20 @@ private indirect enum NRBFValue {
 private struct NRBFObjects {
     var table: [Int32: NRBFValue] = [:]
 
-    func schemes() -> [(title: String, fields: [String: NRBFValue])] {
+    func schemes() -> [(title: String, className: String, fields: [String: NRBFValue])] {
         table.values.compactMap { value in
             guard case let .object(_, members) = value,
                   let key = members["key"], let entry = members["value"],
                   case let .string(title) = key.resolved(in: self),
                   case let .object(className, fields) = entry.resolved(in: self),
-                  className.hasSuffix("CxEncryption")
+                  className.hasSuffix("CxEncryption") || className.hasSuffix(".HxCrypt")
             else { return nil }
-            return (title, fields)
+            return (title, className, fields)
         }
     }
 
-    func scheme(named title: String) -> [String: NRBFValue]? {
-        schemes().first { $0.title == title }?.fields
+    func scheme(named title: String) -> (className: String, fields: [String: NRBFValue])? {
+        schemes().first { $0.title == title }.map { ($0.className, $0.fields) }
     }
 }
 
