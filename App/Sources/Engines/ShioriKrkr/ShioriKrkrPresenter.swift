@@ -44,14 +44,16 @@ final class ShioriKrkrPresenter {
     init(upscaling: Bool) {
         let view = LayerView()
         self.view = view
-        layer = view.layer as! CAMetalLayer
-        device = MTLCreateSystemDefaultDevice()
-        layer.device = device
-        layer.pixelFormat = .bgra8Unorm
-        layer.framebufferOnly = true
-        layer.isOpaque = true
-        layer.maximumDrawableCount = 3
-        renderer = device.flatMap { Renderer(device: $0, layer: layer, upscaling: upscaling) }
+        let metalLayer = view.layer as! CAMetalLayer
+        let metalDevice = MTLCreateSystemDefaultDevice()
+        metalLayer.device = metalDevice
+        metalLayer.pixelFormat = .bgra8Unorm
+        metalLayer.framebufferOnly = true
+        metalLayer.isOpaque = true
+        metalLayer.maximumDrawableCount = 3
+        layer = metalLayer
+        device = metalDevice
+        renderer = metalDevice.flatMap { Renderer(device: $0, layer: metalLayer, upscaling: upscaling) }
         view.onLayout = { [weak self] in self?.resize() }
     }
 
