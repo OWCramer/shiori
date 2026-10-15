@@ -1,4 +1,8 @@
 #!/usr/bin/env swift
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 // Renders Shiori's app icon, "Hanafuda": a card with the full moon and a sakura branch on
 // lacquer red, drawn from the SVG sources in Design/AppIcon (defs.svgfrag plus one *.body
 // per picture). Run from the repo root: swift Scripts/make-app-icon.swift

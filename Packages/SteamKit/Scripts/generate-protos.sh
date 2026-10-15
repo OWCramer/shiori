@@ -1,4 +1,8 @@
 #!/bin/sh
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Regenerates Sources/SteamKit/Generated from Protos/.
 # Protos are copied from https://github.com/SteamDatabase/Protobufs (steam/) at the commit in
 # Protos/SOURCE_COMMIT. enums.proto is trimmed; see the note at its top.

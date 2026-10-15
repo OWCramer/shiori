@@ -1,4 +1,8 @@
 #!/bin/sh
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Downloads Ren'Py's prebuilt iOS runtime (renios) into Vendor/renios, which the app links.
 # Pinned to the Ren'Py version Highway Blossoms ships with; see spec.md, "Ren'Py engine".
 # Vendor/ is gitignored (the static libraries are ~270 MB). Safe to re-run.

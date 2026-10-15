@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 #if os(iOS)
 import SwiftUI
 
@@ -39,7 +43,7 @@ struct SettingsAboutSection: View {
         } header: {
             Text("About Shiori")
         } footer: {
-            Text("Shiori is free software under the GPL-3.0.")
+            Text("Shiori is free software under the MPL-2.0.")
         }
     }
 }

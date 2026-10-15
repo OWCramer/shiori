@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Shiori's entry point for games that run on Ren'Py bundled with Shiori rather than their
 # own engine code: 6.10-7.x games on 7.8.7 (Python 2), and 8.0 games on 8.1.3 (Python 3).
 # Ren'Py's iOS launcher runs this as main.py from a runner folder

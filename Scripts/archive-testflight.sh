@@ -1,4 +1,8 @@
 #!/bin/bash
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Archives a Release build for TestFlight and exports the App Store Connect IPA into
 # build/export (nothing is uploaded). The build number is the commit count on this branch,
 # so each archive from a newer commit is higher than the last.

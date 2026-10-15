@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 #if os(iOS)
 /// How each engine plays, the one place the controls guide reads from (the first-launch
 /// splash, the game page's Controls…, Settings › Controls). Keep it in step with the engines'

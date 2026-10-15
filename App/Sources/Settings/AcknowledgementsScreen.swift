@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 #if os(iOS)
 import SwiftUI
 
@@ -50,7 +54,7 @@ struct AcknowledgementsScreen: View {
 
 private struct AcknowledgementText: View {
     let item: Acknowledgement
-    /// Paragraphs, so long texts (the Rust crates, the GPL) lay out lazily.
+    /// Paragraphs, so long texts (the Rust crates, the LGPL) lay out lazily.
     @State private var paragraphs: [String] = []
 
     var body: some View {

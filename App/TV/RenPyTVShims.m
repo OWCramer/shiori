@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 // Classes the renios prebuilts (built for iPhone) reference that tvOS doesn't have, linked
 // into the Apple TV Ren'Py frameworks (Scripts/tv/build-renpy-tv.sh). SDL makes a motion
 // manager for its accelerometer joystick and a pointer interaction for iPad trackpads.

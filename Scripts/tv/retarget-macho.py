@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+
 """Retags arm64 Mach-O code built for iOS as tvOS, in place: thin static libraries (every
 object in the archive), dylibs and frameworks. Apple TV runs the same arm64 code as an
 iPhone; the linker only refuses to mix platforms. Rewrites LC_BUILD_VERSION's platform

@@ -1,4 +1,8 @@
 #!/bin/sh
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Builds the Ren'Py runtimes for Apple TV (Vendor/tv/RenPy8.xcframework, RenPy7, and
 # MetalANGLE; same names as iOS, so the app's code finds them the same way) from the
 # same renios prebuilts as iOS (Scripts/build-renpy-runtimes.sh): the arm64 objects are

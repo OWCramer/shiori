@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 // Linked into each Ren'Py runtime framework (Scripts/build-renpy-runtimes.sh), not the app.
 // SDL's event-injection functions are hidden symbols inside libSDL2, callable from code in
 // the same image but not exported from a framework; these wrappers export them.

@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 /// Steam result code. Only the values SteamKit reacts to or reports are named;
 /// anything else is carried through as its raw number.
 public struct EResult: RawRepresentable, Hashable, Sendable, CustomStringConvertible {

@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 /// A collection as the library shows it: the suggestion with the user's edits laid over it, or
 /// one he made. Games are in release order; sub-groups go one level deep.
 struct LibraryCollection: Identifiable, Hashable, Sendable {

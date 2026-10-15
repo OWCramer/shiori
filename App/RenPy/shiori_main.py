@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Shiori's entry point for Ren'Py games. Ren'Py's iOS launcher runs this as main.py from a
 # runner folder (Library/Caches/RenPy/<game>/runner/base/, whose lib/ links to the game's
 # lib/), so it can set things up before handing over to the game's own launcher script.

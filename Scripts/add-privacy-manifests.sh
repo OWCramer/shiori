@@ -1,4 +1,8 @@
 #!/bin/bash
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Puts a privacy manifest (Scripts/privacy/Framework.xcprivacy) into every slice of the
 # engine frameworks Shiori embeds, as App Store Connect expects of bundled code that uses
 # required-reason APIs. The build scripts call this; it's safe to run again.

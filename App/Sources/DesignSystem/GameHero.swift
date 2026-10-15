@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 // Hero, backdrop and glass building blocks for game pages, after the user's Tana app
 // (Tana/DesignSystem: GameHeroHeader, StretchyHeader, GlassComponents, RemoteImage).
 
