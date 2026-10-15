@@ -975,14 +975,7 @@ final class GameLibrary {
         // Their game views aren't in the tvOS app: a session would open nothing.
         if Playability.iOSOnlyEngines.contains(engine.engine) { return Playability.notOnAppleTVMessage(engine.engine) }
         #endif
-        if ["artemis", "siglus", "luca", "catsystem2"].contains(engine.engine) { return nil }
-        if engine.engine == "kirikiri" {
-            #if targetEnvironment(simulator)
-            return "KiriKiri games don't run in Simulator."
-            #else
-            return nil
-            #endif
-        }
+        if ["artemis", "siglus", "luca", "catsystem2", "kirikiri"].contains(engine.engine) { return nil }
         guard engine.engine == RenPyEngine.id else {
             return "\(EngineDetection.displayName(for: engine.engine)) isn't supported."
         }
