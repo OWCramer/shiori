@@ -356,6 +356,8 @@ struct PatchListSection: View {
         case "patchmoe": "patch.moe"
         case "vndb": "VNDB"
         case "wingedcloud": "Winged Cloud's Patreon"
+        case "sakurapatcher": "sakura-patcher"
+        case "erogejapan": "Eroge Japan"
         case "denpasoft": "Denpasoft"
         default:
             source.pageURL?.host().map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? "the patch list"
