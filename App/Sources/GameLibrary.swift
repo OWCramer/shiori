@@ -300,6 +300,7 @@ final class GameLibrary {
                 Self.remember(appID: appID, name: name)
                 restoring.remove(appID)
                 #endif
+                onInstalled(appID, folder)
                 log.notice("Installed \(appID): engine \(record.engine?.engine ?? "none", privacy: .public) \(record.engine?.version ?? "?", privacy: .public), \(record.sizeBytes) bytes")
             } catch is CancellationError {
                 statuses[appID] = .paused(lastProgress(appID))
@@ -632,6 +633,10 @@ final class GameLibrary {
 
     /// The library entry for a game (with picked artwork), for the launch cover. Set by the app.
     var libraryEntry: (UInt32) -> LibraryGame? = { _ in nil }
+
+    /// Told when a game's download finishes and it's installed (app id, game folder), so the
+    /// patches chosen before the download install. Set by the app.
+    @ObservationIgnored var onInstalled: (UInt32, URL) -> Void = { _, _ in }
 
     /// The game being launched and how far along, until the game takes over the screen.
     private(set) var launching: (appID: UInt32, phase: LaunchPhase)?

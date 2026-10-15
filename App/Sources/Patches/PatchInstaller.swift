@@ -69,6 +69,18 @@ final class PatchInstaller {
     private var tasks: [UInt32: Task<Void, Never>] = [:]
     /// Installed patches by app id, read from each game's patches.json.
     private(set) var installed: [UInt32: [InstalledPatch]] = [:]
+    /// Patches chosen on the page of a game that isn't downloaded yet, by app id, in the order
+    /// chosen: installed one after another when the game's download finishes.
+    private(set) var queued: [UInt32: [PatchListStore.Patch]] = [:]
+
+    nonisolated private static let queueFile = URL.shioriSupport.appendingPathComponent("patch-queue.json")
+
+    init() {
+        if let data = try? Data(contentsOf: Self.queueFile),
+           let saved = try? JSONDecoder().decode([String: [PatchListStore.Patch]].self, from: data) {
+            queued = Dictionary(uniqueKeysWithValues: saved.compactMap { key, value in UInt32(key).map { ($0, value) } })
+        }
+    }
 
     nonisolated private static let downloads = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("patch-downloads", isDirectory: true)
@@ -115,9 +127,11 @@ final class PatchInstaller {
                 UIApplication.shared.endBackgroundTask(background)
                 #endif
             }
+            var succeeded = false
             do {
                 try await self?.run(patch, appID: appID, gameFolder: gameFolder, chosenFile: chosenFile)
                 self?.jobs[appID] = nil
+                succeeded = true
             } catch is CancellationError {
                 self?.jobs[appID] = nil
             } catch {
@@ -125,6 +139,56 @@ final class PatchInstaller {
             }
             self?.tasks[appID] = nil
             self?.load(appID: appID, gameFolder: gameFolder)
+            // The next patch chosen before the download; after a failure or Cancel the rest
+            // wait for the player, as Install buttons.
+            if succeeded { self?.installQueued(appID: appID, gameFolder: gameFolder) } else { self?.clearQueue(appID: appID) }
+        }
+    }
+
+    // MARK: - Chosen before the download
+
+    func isQueued(_ patchID: String, appID: UInt32) -> Bool {
+        queued[appID]?.contains { $0.id == patchID } ?? false
+    }
+
+    /// Installs `patch` once the game finishes downloading.
+    func enqueue(_ patch: PatchListStore.Patch, appID: UInt32) {
+        guard !isQueued(patch.id, appID: appID) else { return }
+        queued[appID, default: []].append(patch)
+        saveQueue()
+    }
+
+    func dequeue(_ patchID: String, appID: UInt32) {
+        queued[appID]?.removeAll { $0.id == patchID }
+        if queued[appID]?.isEmpty == true { queued[appID] = nil }
+        saveQueue()
+    }
+
+    /// Starts the first patch waiting for this game; each one that installs starts the next.
+    /// Called when the game's download finishes.
+    func installQueued(appID: UInt32, gameFolder: URL) {
+        guard tasks[appID] == nil, let next = queued[appID]?.first else { return }
+        dequeue(next.id, appID: appID)
+        load(appID: appID, gameFolder: gameFolder)
+        if installedPatch(next.id, appID: appID)?.fingerprint == next.fingerprint {
+            return installQueued(appID: appID, gameFolder: gameFolder)
+        }
+        install(next, appID: appID, gameFolder: gameFolder)
+    }
+
+    private func clearQueue(appID: UInt32) {
+        guard queued[appID] != nil else { return }
+        queued[appID] = nil
+        saveQueue()
+    }
+
+    private func saveQueue() {
+        let saved = Dictionary(uniqueKeysWithValues: queued.map { (String($0.key), $0.value) })
+        if saved.isEmpty {
+            try? FileManager.default.removeItem(at: Self.queueFile)
+        } else if let data = try? JSONEncoder().encode(saved) {
+            try? FileManager.default.createDirectory(at: Self.queueFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: Self.queueFile, options: .atomic)
         }
     }
 
