@@ -1,4 +1,4 @@
-Shiori uses FFmpeg's libavformat, libavcodec and libavutil, built under the LGPL 2.1 or later (no GPL or non-free parts), for NEKOPARA Vol. 3's movies and KiriKiri games' movies. FFmpeg's source and Shiori's build script (Scripts/catsystem/build-ios-ffmpeg.sh) are published with Shiori's source, so a modified FFmpeg can be relinked.
+Shiori uses FFmpeg's libavformat, libavcodec and libavutil, built under the LGPL 2.1 or later (no GPL or non-free parts), for CatSystem2, KiriKiri and Siglus games' Windows Media and MPEG movies. FFmpeg's source and Shiori's build script (Scripts/catsystem/build-ios-ffmpeg.sh) are published with Shiori's source, so a modified FFmpeg can be relinked.
 
 # License
 

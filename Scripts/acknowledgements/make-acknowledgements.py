@@ -251,14 +251,16 @@ i = max(k for k, l in enumerate(sv) if "ALTERNATIVE A - MIT License" in l)
 j = max(k for k, l in enumerate(sv) if "ALTERNATIVE B" in l)
 add("stb_vorbis", "1.22", "MIT", "stb_vorbis.txt", "Used under the MIT License (it is also in the public domain).\n\n" + "\n".join(sv[i + 1:j - 1]) + "\n")
 add("libogg", "1.3.5, 1.3.6", "BSD 3-Clause", "libogg.txt", rd(WT / "Packages/ArtemisKit/Sources/CVideo/ogg/COPYING"))
-add("libtheora", "1.2.0", "BSD 3-Clause", "libtheora.txt", rd(WT / "Packages/ArtemisKit/Sources/CVideo/theora/COPYING"))
+add("libtheora", "1.2.0", "BSD 3-Clause", "libtheora.txt",
+    "libtheora decodes Artemis games' Theora movies; siglus_rs's theora-rs, which decodes Siglus games' OMV movies, "
+    "is a Rust rewrite of libtheora 1.2.0.\n\n" + rd(WT / "Packages/ArtemisKit/Sources/CVideo/theora/COPYING"))
 add("PL_MPEG", None, "MIT", "pl_mpeg.txt", mit("Copyright (c) 2019 Dominic Szablewski"))
 
 # --- Luca, CatSystem2, KiriKiri decryption ------------------------------------
 add("libvpx", "1.15.2", "BSD 3-Clause", "libvpx.txt", rd(V / "libvpx/LICENSE") + sep("Additional IP Rights Grant (Patents)") + rd(V / "libvpx/PATENTS"))
 add("FFmpeg", "8.0.3", "LGPL 2.1 or later", "FFmpeg.txt",
     "Shiori uses FFmpeg's libavformat, libavcodec and libavutil, built under the LGPL 2.1 or later "
-    "(no GPL or non-free parts), for NEKOPARA Vol. 3's movies and KiriKiri games' movies. "
+    "(no GPL or non-free parts), for CatSystem2, KiriKiri and Siglus games' Windows Media and MPEG movies. "
     "FFmpeg's source and Shiori's build script (Scripts/catsystem/build-ios-ffmpeg.sh) are published with "
     "Shiori's source, so a modified FFmpeg can be relinked.\n\n" + rd(V / "ffmpeg/LICENSE.md") + sep("GNU Lesser General Public License 2.1") + LGPL21)
 add("GARbro", None, "MIT", "GARbro.txt",
@@ -335,11 +337,6 @@ for row in TSV.read_text().splitlines():
 txt = "The Rust crates compiled into Shiori's Siglus engine, with their licences.\n\n" + "\n".join(crates)
 for t, users in sorted(groups.values(), key=lambda g: g[1][0]):
     txt += sep(", ".join(users)) + t
-eg = REG / "epaint-0.28.1/fonts"
-txt += sep("Fonts in epaint 0.28.1: Hack") + rd(eg / "Hack-Regular.txt")
-txt += sep("Fonts in epaint 0.28.1: Noto Emoji (SIL Open Font License 1.1)") + rd(eg / "OFL.txt")
-txt += sep("Fonts in epaint 0.28.1: Ubuntu Light (Ubuntu Font Licence 1.0)") + rd(eg / "UFL.txt")
-txt += sep("Fonts in epaint 0.28.1: emoji-icon-font") + rd(eg / "emoji-icon-font-mit-license.txt")
 add("Rust crates (Siglus)", None, "MIT, Apache 2.0 and others", "Rust-crates.txt", txt)
 
 # --- Ren'Py ------------------------------------------------------------------------
