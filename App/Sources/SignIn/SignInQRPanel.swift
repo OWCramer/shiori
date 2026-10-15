@@ -1,31 +1,19 @@
 #if os(iOS)
 import SwiftUI
 
-/// The QR code, for approving this sign-in with the Steam app on another device, with the
-/// steps, and the state once it's scanned.
+/// The QR code, the main way in: approved with the Steam app on another device, with the
+/// steps, the state once it's scanned, and Use Account Name for anyone with only this device.
 struct SignInQRPanel: View {
-    let url: URL
+    /// Nil while Steam sends the code.
+    let url: URL?
     let scanned: Bool
-    @Environment(SteamModel.self) private var steam
+    let useAccountName: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label("Sign In with a QR Code", systemImage: "qrcode")
-                .font(.title2)
-                .bold()
-            QRCodeView(text: url.absoluteString)
-                .frame(maxWidth: 240, maxHeight: 240)
+            SignInQRTitle()
+            code
                 .frame(maxWidth: .infinity)
-                .opacity(scanned ? 0.35 : 1)
-                .overlay {
-                    if scanned {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.largeTitle)
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .green)
-                    }
-                }
-                .accessibilityLabel(scanned ? "QR code, scanned" : "Steam sign-in QR code")
             if scanned {
                 Label("Scanned. Approve the sign-in in the Steam app.", systemImage: "hand.tap")
                     .font(.headline)
@@ -36,18 +24,73 @@ struct SignInQRPanel: View {
                     SignInQRStep(number: 3, text: "Point it at this code and approve.")
                 }
             }
-            Text("Keep this screen open until you're signed in.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            Button(action: cancel) {
-                Label("Use Account Name and Password", systemImage: "person.text.rectangle").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.glass)
-            .controlSize(.large)
+            SignInUseAccountNameButton(action: useAccountName)
         }
     }
 
-    private func cancel() { steam.cancelSignIn() }
+    @ViewBuilder private var code: some View {
+        if let url {
+            QRCodeView(text: url.absoluteString)
+                .frame(maxWidth: 240, maxHeight: 240)
+                .opacity(scanned ? 0.35 : 1)
+                .overlay {
+                    if scanned {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.largeTitle)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .green)
+                    }
+                }
+                .accessibilityLabel(scanned ? "QR code, scanned" : "Steam sign-in QR code")
+        } else {
+            ProgressView()
+                .controlSize(.large)
+                .frame(width: 240, height: 240)
+                .background(.white.opacity(0.06), in: .rect(cornerRadius: 12))
+                .accessibilityLabel("Loading QR code")
+        }
+    }
+}
+
+/// The QR code couldn't be fetched, or expired: why, Try Again, and Use Account Name.
+struct SignInQRFailedPanel: View {
+    let message: String
+    let retry: () -> Void
+    let useAccountName: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SignInQRTitle()
+            SignInMessage(text: message, systemImage: "exclamationmark.triangle.fill")
+            Button(action: retry) {
+                Text("Try Again").bold().frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .tint(Color(red: 0.80, green: 0.18, blue: 0.22))
+            SignInUseAccountNameButton(action: useAccountName)
+        }
+    }
+}
+
+private struct SignInQRTitle: View {
+    var body: some View {
+        Label("Sign In with a QR Code", systemImage: "qrcode")
+            .font(.title2)
+            .bold()
+    }
+}
+
+private struct SignInUseAccountNameButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Use Account Name", systemImage: "person.text.rectangle").frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.glass)
+        .controlSize(.large)
+    }
 }
 
 /// A numbered step under the QR code.

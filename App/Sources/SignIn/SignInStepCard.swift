@@ -4,6 +4,10 @@ import SwiftUI
 /// The sign-in step in progress, on a plain card (content, so no Liquid Glass).
 struct SignInStepCard: View {
     let step: SignInStep
+    /// Switches to the account form.
+    let useAccountName: () -> Void
+    /// Switches to (or fetches a new) QR code.
+    let useQR: () -> Void
     @Environment(SteamModel.self) private var steam
 
     private var expired: String? { SignInPreview.expiredMessage ?? steam.resumeError }
@@ -12,14 +16,18 @@ struct SignInStepCard: View {
         VStack(alignment: .leading, spacing: 18) {
             switch step {
             case let .form(error):
-                if let expired { SignInMessage(text: expired, systemImage: "clock.badge.exclamationmark", tint: .orange) }
-                SignInCredentialsForm(error: error)
+                expiredMessage
+                SignInCredentialsForm(error: error, useQR: useQR)
             case .working:
                 SignInWorkingPanel()
             case let .steamGuard(prompt):
                 SignInSteamGuardPanel(prompt: prompt)
             case let .qr(url, scanned):
-                SignInQRPanel(url: url, scanned: scanned)
+                expiredMessage
+                SignInQRPanel(url: url, scanned: scanned, useAccountName: useAccountName)
+            case let .qrFailed(message):
+                expiredMessage
+                SignInQRFailedPanel(message: message, retry: useQR, useAccountName: useAccountName)
             }
         }
         .padding(24)
@@ -29,6 +37,10 @@ struct SignInStepCard: View {
             RoundedRectangle(cornerRadius: 28).strokeBorder(.white.opacity(0.08))
         }
         .animation(.smooth, value: step)
+    }
+
+    @ViewBuilder private var expiredMessage: some View {
+        if let expired { SignInMessage(text: expired, systemImage: "clock.badge.exclamationmark", tint: .orange) }
     }
 }
 

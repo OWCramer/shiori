@@ -1,10 +1,12 @@
 #if os(iOS)
 import SwiftUI
 
-/// The Steam account name and password, Sign In, the promise about the password, and the
-/// QR code as the other way in.
+/// The Steam account name and password (then Steam Guard), for anyone without a second
+/// device to scan the QR code with: Sign In, the promise about the password, and Use QR
+/// Code back to the main way in.
 struct SignInCredentialsForm: View {
     let error: String?
+    let useQR: () -> Void
     @Environment(SteamModel.self) private var steam
     @State private var accountName = ""
     @State private var password = ""
@@ -16,7 +18,9 @@ struct SignInCredentialsForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Sign in to Steam").font(.title2).bold()
+            Label("Sign In to Steam", systemImage: "person.text.rectangle")
+                .font(.title2)
+                .bold()
             VStack(spacing: 0) {
                 TextField("Steam account name", text: $accountName)
                     .textContentType(.username)
@@ -49,14 +53,8 @@ struct SignInCredentialsForm: View {
                   systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            HStack {
-                Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
-                Text("or").font(.footnote).foregroundStyle(.secondary)
-                Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
-            }
-            .accessibilityHidden(true)
-            Button(action: startQR) {
-                Label("Sign In with a QR Code", systemImage: "qrcode").frame(maxWidth: .infinity)
+            Button(action: useQR) {
+                Label("Use QR Code", systemImage: "qrcode").frame(maxWidth: .infinity)
             }
             .buttonStyle(.glass)
             .controlSize(.large)
@@ -68,7 +66,5 @@ struct SignInCredentialsForm: View {
         steam.signIn(accountName: accountName, password: password)
         password = ""
     }
-
-    private func startQR() { steam.startQRSignIn() }
 }
 #endif

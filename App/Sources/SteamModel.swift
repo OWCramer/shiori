@@ -115,6 +115,8 @@ final class SteamModel {
         guard !isLoggedOn, !isResuming, state == .signedOut || state == .connectedAnonymously,
               await session.storedAccountName != nil else { return }
         SteamLog.write("adopting a sign-in synced from another device")
+        // Set first, so the sign-in screen leaves rather than fetching another QR code.
+        hasStoredSession = true
         cancelSignIn()
         await resume()
     }
@@ -193,7 +195,6 @@ final class SteamModel {
 
     private func run(_ events: AsyncThrowingStream<SignInEvent, Error>) {
         signInTask?.cancel()
-        resumeError = nil
         signIn = .working
         signInTask = Task {
             // Approving means switching to the Steam app; ask iOS for time so the
@@ -202,6 +203,8 @@ final class SteamModel {
             defer { UIApplication.shared.endBackgroundTask(background) }
             do {
                 for try await event in events {
+                    // Replaced or cancelled: whoever did it has set the state.
+                    if Task.isCancelled { return }
                     switch event {
                     case let .challenge(url):
                         signIn = .qr(url, scanned: false)
@@ -210,13 +213,20 @@ final class SteamModel {
                     case let .steamGuard(prompt):
                         signIn = .steamGuard(prompt, codeError: nil, isSubmittingCode: false)
                     case .signedIn:
+                        // Before idle, so the sign-in screen leaves rather than fetching another QR code.
+                        hasStoredSession = true
+                        // Cleared only now: the sign-in screen fetches a QR code as it opens,
+                        // and the expired-sign-in note should stay above it.
+                        resumeError = nil
                         signIn = .idle
                         SteamLog.write("signed in; stored session \(await session.storedAccountName != nil ? "saved" : "MISSING")")
                     }
                 }
             } catch is CancellationError {
-                signIn = .idle
+                // A replaced sign-in's task ends after its successor has started.
+                if !Task.isCancelled { signIn = .idle }
             } catch {
+                if Task.isCancelled { return }
                 signIn = .failed(Self.message(for: error))
                 SteamLog.write("sign-in failed: \(String(describing: error))")
             }
