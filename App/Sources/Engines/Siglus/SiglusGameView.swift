@@ -200,6 +200,7 @@ final class SiglusGameViewController: UIViewController {
             fail(error.localizedDescription)
             return
         }
+        SiglusMedia.register()
         let viewPointer = Unmanaged.passUnretained(view).toOpaque()
         handle = root.path.withCString { path in
             siglus_ios_create(viewPointer, drawableSize.width, drawableSize.height, scale, path)

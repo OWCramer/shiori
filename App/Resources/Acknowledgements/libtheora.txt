@@ -1,3 +1,5 @@
+libtheora decodes Artemis games' Theora movies; siglus_rs's theora-rs, which decodes Siglus games' OMV movies, is a Rust rewrite of libtheora 1.2.0.
+
 Copyright (C) 2002-2009 Xiph.org Foundation
 
 Redistribution and use in source and binary forms, with or without
