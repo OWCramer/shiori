@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Shiori collects nothing and tracks nothing. Required-reason APIs: its own settings (CA92.1); modification times of files in its containers for save sync (C617.1) and of files the user picks to import (3B52.1); free space before downloads (E174.1) and shown in Settings (85F4.1); elapsed time for engine timers (35F9.1). -->
+<!-- Shiori collects nothing and tracks nothing. Required-reason APIs in the app itself: its own settings (CA92.1); modification times of files in its containers for save sync (C617.1) and of files the user picks to import (3B52.1); free space shown in Settings › Storage (85F4.1). The engine frameworks carry their own manifests (Scripts/privacy/Framework.xcprivacy). -->
 <plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
@@ -33,16 +33,7 @@
 			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<string>E174.1</string>
 				<string>85F4.1</string>
-			</array>
-		</dict>
-		<dict>
-			<key>NSPrivacyAccessedAPIType</key>
-			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
-			<key>NSPrivacyAccessedAPITypeReasons</key>
-			<array>
-				<string>35F9.1</string>
 			</array>
 		</dict>
 	</array>
