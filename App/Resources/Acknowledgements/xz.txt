@@ -1,0 +1,1 @@
+liblzma from XZ Utils 5.4.2 (https://tukaani.org/xz/) is in the public domain.

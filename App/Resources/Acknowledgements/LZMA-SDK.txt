@@ -1,0 +1,3 @@
+LzmaDec.c and its headers, from the LZMA SDK by Igor Pavlov (https://7-zip.org/sdk.html).
+
+The LZMA SDK is placed in the public domain.

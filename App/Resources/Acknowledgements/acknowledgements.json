@@ -1,1 +1,327 @@
-[]
+[
+ {
+  "name": "Kingfisher",
+  "version": "8.12.0",
+  "licence": "MIT",
+  "file": "Kingfisher.txt"
+ },
+ {
+  "name": "SwiftProtobuf",
+  "version": "1.38.1",
+  "licence": "Apache 2.0",
+  "file": "SwiftProtobuf.txt"
+ },
+ {
+  "name": "BIZ UDGothic",
+  "licence": "SIL Open Font License 1.1",
+  "file": "BIZ-UDGothic.txt"
+ },
+ {
+  "name": "Zstandard",
+  "version": "1.5.7",
+  "licence": "BSD 3-Clause",
+  "file": "Zstandard.txt"
+ },
+ {
+  "name": "LZMA SDK",
+  "licence": "Public Domain",
+  "file": "LZMA-SDK.txt"
+ },
+ {
+  "name": "Lua",
+  "version": "5.1.5",
+  "licence": "MIT",
+  "file": "Lua.txt"
+ },
+ {
+  "name": "stb_vorbis",
+  "version": "1.22",
+  "licence": "MIT",
+  "file": "stb_vorbis.txt"
+ },
+ {
+  "name": "libogg",
+  "version": "1.3.5, 1.3.6",
+  "licence": "BSD 3-Clause",
+  "file": "libogg.txt"
+ },
+ {
+  "name": "libtheora",
+  "version": "1.2.0",
+  "licence": "BSD 3-Clause",
+  "file": "libtheora.txt"
+ },
+ {
+  "name": "PL_MPEG",
+  "licence": "MIT",
+  "file": "pl_mpeg.txt"
+ },
+ {
+  "name": "libvpx",
+  "version": "1.15.2",
+  "licence": "BSD 3-Clause",
+  "file": "libvpx.txt"
+ },
+ {
+  "name": "FFmpeg",
+  "version": "8.0.3",
+  "licence": "LGPL 2.1 or later",
+  "file": "FFmpeg.txt"
+ },
+ {
+  "name": "GARbro",
+  "licence": "MIT",
+  "file": "GARbro.txt"
+ },
+ {
+  "name": "LuckSystem",
+  "licence": "MIT",
+  "file": "LuckSystem.txt"
+ },
+ {
+  "name": "KiriKiri (krkr2)",
+  "version": "3ac366c",
+  "licence": "KiriKiri License",
+  "file": "KiriKiri.txt"
+ },
+ {
+  "name": "KiriKiri plug-ins (wamsoft)",
+  "licence": "KiriKiri License",
+  "file": "wamsoft.txt"
+ },
+ {
+  "name": "krkrsdl3",
+  "version": "358b046",
+  "licence": "KiriKiri License",
+  "file": "krkrsdl3.txt"
+ },
+ {
+  "name": "VelocityTracker (Android)",
+  "licence": "Apache 2.0",
+  "file": "VelocityTracker.txt"
+ },
+ {
+  "name": "MD5 (L. Peter Deutsch)",
+  "licence": "zlib",
+  "file": "md5.txt"
+ },
+ {
+  "name": "FreeType",
+  "version": "2.14.3",
+  "licence": "FreeType License",
+  "file": "FreeType.txt"
+ },
+ {
+  "name": "libpng",
+  "version": "1.6.58",
+  "licence": "libpng License",
+  "file": "libpng.txt"
+ },
+ {
+  "name": "zlib",
+  "version": "1.3.2",
+  "licence": "zlib",
+  "file": "zlib.txt"
+ },
+ {
+  "name": "libjpeg-turbo",
+  "version": "3.2.0",
+  "licence": "IJG, BSD 3-Clause",
+  "file": "libjpeg-turbo.txt"
+ },
+ {
+  "name": "libwebp",
+  "version": "1.6.0",
+  "licence": "BSD 3-Clause",
+  "file": "libwebp.txt"
+ },
+ {
+  "name": "libvorbis",
+  "version": "1.3.7",
+  "licence": "BSD 3-Clause",
+  "file": "libvorbis.txt"
+ },
+ {
+  "name": "Opus",
+  "version": "1.5.2",
+  "licence": "BSD 3-Clause",
+  "file": "Opus.txt"
+ },
+ {
+  "name": "opusfile",
+  "version": "0.12",
+  "licence": "BSD 3-Clause",
+  "file": "opusfile.txt"
+ },
+ {
+  "name": "Oniguruma",
+  "version": "6.9.10",
+  "licence": "BSD 2-Clause",
+  "file": "Oniguruma.txt"
+ },
+ {
+  "name": "fmt",
+  "version": "12.2.0",
+  "licence": "MIT",
+  "file": "fmt.txt"
+ },
+ {
+  "name": "spdlog",
+  "version": "1.17.0",
+  "licence": "MIT",
+  "file": "spdlog.txt"
+ },
+ {
+  "name": "LZ4",
+  "version": "1.10.0",
+  "licence": "BSD 2-Clause",
+  "file": "LZ4.txt"
+ },
+ {
+  "name": "xxHash",
+  "version": "0.8.3",
+  "licence": "BSD 2-Clause",
+  "file": "xxHash.txt"
+ },
+ {
+  "name": "PlutoVG",
+  "version": "1.3.3",
+  "licence": "MIT",
+  "file": "PlutoVG.txt"
+ },
+ {
+  "name": "Brotli",
+  "version": "1.2.0",
+  "licence": "MIT",
+  "file": "Brotli.txt"
+ },
+ {
+  "name": "bzip2",
+  "version": "1.0.8",
+  "licence": "bzip2 License",
+  "file": "bzip2.txt"
+ },
+ {
+  "name": "uchardet",
+  "version": "0.0.8",
+  "licence": "MPL 1.1",
+  "file": "uchardet.txt"
+ },
+ {
+  "name": "siglus_rs",
+  "version": "5f358ef",
+  "licence": "MPL 2.0",
+  "file": "siglus_rs.txt"
+ },
+ {
+  "name": "Rust crates (Siglus)",
+  "licence": "MIT, Apache 2.0 and others",
+  "file": "Rust-crates.txt"
+ },
+ {
+  "name": "Ren'Py",
+  "version": "8.1.3, 7.8.7",
+  "licence": "MIT",
+  "file": "RenPy.txt"
+ },
+ {
+  "name": "pygame_sdl2",
+  "licence": "zlib, LGPL 2.1",
+  "file": "pygame_sdl2.txt"
+ },
+ {
+  "name": "Python",
+  "version": "3.9.10, 2.7.18",
+  "licence": "PSF License",
+  "file": "Python.txt"
+ },
+ {
+  "name": "SDL",
+  "version": "2.0.20",
+  "licence": "zlib",
+  "file": "SDL.txt"
+ },
+ {
+  "name": "GNU FriBidi",
+  "version": "1.0.7",
+  "licence": "LGPL 2.1 or later",
+  "file": "FriBidi.txt"
+ },
+ {
+  "name": "OpenSSL",
+  "version": "1.1.1s",
+  "licence": "OpenSSL, SSLeay",
+  "file": "OpenSSL.txt"
+ },
+ {
+  "name": "libffi",
+  "licence": "MIT",
+  "file": "libffi.txt"
+ },
+ {
+  "name": "HarfBuzz",
+  "version": "8.0.1",
+  "licence": "MIT (Old MIT)",
+  "file": "HarfBuzz.txt"
+ },
+ {
+  "name": "libavif",
+  "version": "0.11.1",
+  "licence": "BSD 2-Clause",
+  "file": "libavif.txt"
+ },
+ {
+  "name": "libaom",
+  "version": "3.5.0",
+  "licence": "BSD 2-Clause",
+  "file": "libaom.txt"
+ },
+ {
+  "name": "libyuv",
+  "licence": "BSD 3-Clause",
+  "file": "libyuv.txt"
+ },
+ {
+  "name": "xz (liblzma)",
+  "version": "5.4.2",
+  "licence": "Public Domain",
+  "file": "xz.txt"
+ },
+ {
+  "name": "MetalANGLE",
+  "licence": "BSD 3-Clause",
+  "file": "MetalANGLE.txt"
+ },
+ {
+  "name": "Python packages (Ren'Py)",
+  "licence": "MIT, Apache 2.0, BSD, MPL 2.0, LGPL 2.1",
+  "file": "Python-packages.txt"
+ },
+ {
+  "name": "DejaVu Sans",
+  "licence": "Bitstream Vera License",
+  "file": "DejaVu.txt"
+ },
+ {
+  "name": "OpenDyslexic",
+  "version": "3",
+  "licence": "SIL Open Font License 1.1",
+  "file": "OpenDyslexic.txt"
+ },
+ {
+  "name": "Quicksand",
+  "licence": "SIL Open Font License 1.1",
+  "file": "Quicksand.txt"
+ },
+ {
+  "name": "Twemoji",
+  "licence": "CC BY 4.0 (graphics), MIT (code)",
+  "file": "Twemoji.txt"
+ },
+ {
+  "name": "AetherKrkr (Standard engine)",
+  "version": "fa0f8af",
+  "licence": "GPL 3.0",
+  "file": "AetherKrkr.txt"
+ }
+]
