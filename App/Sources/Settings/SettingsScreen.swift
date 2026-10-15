@@ -2,12 +2,13 @@
 import SwiftUI
 
 /// Settings on iPhone and iPad (design A): the Steam account, storage with a bar of what
-/// each game takes, saves, engines, SteamGridDB, and about.
+/// each game takes, saves, engines, Denpasoft, SteamGridDB, and about.
 struct SettingsScreen: View {
     /// In the iPad's sidebar rather than a sheet: no Done button.
     var isTab = false
     @Environment(SteamModel.self) private var steam
     @Environment(\.dismiss) private var dismiss
+    @State private var signingInToDenpasoft = false
     @State private var uploads = SteamCloudSync.uploadsEnabled
     @State private var metalFX = KiriKiriGameViewController.upscalingEnabled
 
@@ -42,6 +43,8 @@ struct SettingsScreen: View {
                 } footer: {
                     Text("Sharpens KiriKiri games drawn at 720p. Applies the next time a game starts.")
                 }
+                // Denpasoft sells and gives away 18+ patches: shown only when the account allows adult content.
+                if steam.allowsAdultContent { DenpasoftSection(signingIn: $signingInToDenpasoft) }
                 SteamGridDBKeySection()
                 SettingsAboutSection()
             }
@@ -53,11 +56,20 @@ struct SettingsScreen: View {
                     }
                 }
             }
+            // On the Form, not its row: a sheet attached to a Form row is dismissed as it appears.
+            // Checked again when it closes, as well as live while it's open.
+            .sheet(isPresented: $signingInToDenpasoft, onDismiss: checkDenpasoft) {
+                DenpasoftWebSheet(url: DenpasoftAccount.account, title: "Sign In to Denpasoft")
+            }
             .onChange(of: uploads) { _, on in SteamCloudSync.uploadsEnabled = on }
             .onChange(of: metalFX) { _, on in KiriKiriGameViewController.upscalingEnabled = on }
         }
     }
 
     private func close() { dismiss() }
+
+    private func checkDenpasoft() {
+        Task { await DenpasoftAccount.shared.checkSession() }
+    }
 }
 #endif

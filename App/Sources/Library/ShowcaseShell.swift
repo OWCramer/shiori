@@ -210,7 +210,10 @@ struct ShowcaseShell: View {
     private func restoreTab() {
         shell.tab = savedTab
         #if DEBUG
-        if let name = UserDefaults.standard.string(forKey: "ShioriTab"), let start = ShellTab(rawValue: name) { shell.tab = start }
+        if let name = UserDefaults.standard.string(forKey: "ShioriTab"), let start = ShellTab(rawValue: name) {
+            // Settings is a sheet on iPhone.
+            if start == .settings { shell.showSettings() } else { shell.tab = start }
+        }
         // `-ShioriEditCollection <id>` opens a collection's editor.
         if let id = UserDefaults.standard.string(forKey: "ShioriEditCollection") { shell.collectionSheet = .edit(id) }
         // `-ShioriOrientation landscape|portrait` turns the window (simulators only turn from

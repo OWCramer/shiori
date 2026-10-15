@@ -73,7 +73,8 @@ final class PatchInstaller {
     /// chosen: installed one after another when the game's download finishes.
     private(set) var queued: [UInt32: [PatchListStore.Patch]] = [:]
 
-    /// Whether the account's Steam store preferences allow adult content (18+ patches). Set by the app.
+    /// Whether the account's Steam store preferences allow adult content (18+ patches,
+    /// Denpasoft). Set by the app.
     @ObservationIgnored var allowsAdultContent: () -> Bool = { false }
 
     nonisolated private static let queueFile = URL.shioriSupport.appendingPathComponent("patch-queue.json")
@@ -116,8 +117,10 @@ final class PatchInstaller {
         installed[appID]?.first { $0.id == id }
     }
 
-    /// Downloads and installs a listed patch. An 18+ patch only while the account allows adult content.
-    func install(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL) {
+    /// Downloads and installs a listed patch; an 18+ one only while the account allows adult
+    /// content. `chosenFile` names which of a product's files to install, when a shop account
+    /// has several.
+    func install(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL, chosenFile: String? = nil) {
         guard tasks[appID] == nil, !patch.adult || allowsAdultContent() else { return }
         jobs[appID] = Job(patchID: patch.id, name: patch.name,
                           phase: .downloading(written: 0, total: patch.totalSize ?? 0, part: 1, parts: patch.files.count))
@@ -132,7 +135,7 @@ final class PatchInstaller {
             }
             var succeeded = false
             do {
-                try await self?.run(patch, appID: appID, gameFolder: gameFolder)
+                try await self?.run(patch, appID: appID, gameFolder: gameFolder, chosenFile: chosenFile)
                 self?.jobs[appID] = nil
                 succeeded = true
             } catch is CancellationError {
@@ -258,13 +261,13 @@ final class PatchInstaller {
         }
     }
 
-    private func run(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL) async throws {
+    private func run(_ patch: PatchListStore.Patch, appID: UInt32, gameFolder: URL, chosenFile: String?) async throws {
         let fm = FileManager.default
         try fm.createDirectory(at: Self.downloads, withIntermediateDirectories: true)
         var downloaded: [(url: URL, name: String)] = []
         for (n, file) in patch.files.enumerated() {
             let partial = Self.downloads.appendingPathComponent("\(appID)-\(patch.id)-\(n).part")
-            let result = try await downloadFile(file, to: partial, appID: appID, part: n + 1, parts: patch.files.count)
+            let result = try await downloadFile(file, to: partial, appID: appID, part: n + 1, parts: patch.files.count, chosenFile: chosenFile)
             try Task.checkCancellation()
             jobs[appID]?.update(.checking)
             if let expected = file.sha256, expected != result.sha256 {
@@ -274,6 +277,7 @@ final class PatchInstaller {
             downloaded.append((result.file, file.name ?? result.name))
         }
 
+        let shopFile = chosenFile.flatMap { $0.isEmpty ? nil : $0 } ?? (patch.files.first?.host == "store" ? downloaded.first?.name : nil)
         jobs[appID]?.update(.installing(fraction: 0))
         let install = patch.install
         let progress: @Sendable (Double) -> Void = { fraction in
@@ -289,14 +293,34 @@ final class PatchInstaller {
         // A file now belongs to this patch; earlier patches no longer remove it.
         for i in records.indices { records[i].files.removeAll { mine.contains($0) } }
         records.removeAll { $0.id == patch.id }
-        records.append(InstalledPatch(id: patch.id, name: patch.name, version: patch.version,
+        records.append(InstalledPatch(id: patch.id, name: patch.name, version: shopFile ?? patch.version,
                                       fingerprint: patch.fingerprint, installedAt: Date(), files: written.sorted()))
         try Self.write(records, to: gameFolder)
         for item in downloaded { try? fm.removeItem(at: item.url) }
     }
 
-    private func downloadFile(_ file: PatchListStore.Patch.File, to partial: URL, appID: UInt32, part: Int, parts: Int)
-        async throws -> PatchDownloader.Result {
+    private func downloadFile(_ file: PatchListStore.Patch.File, to partial: URL, appID: UInt32, part: Int, parts: Int,
+                              chosenFile: String? = nil) async throws -> PatchDownloader.Result {
+        #if os(iOS)
+        // A Denpasoft product: downloaded through the player's signed-in Denpasoft session.
+        if file.host == "store", file.url.contains("denpasoft.com") {
+            guard allowsAdultContent() else { throw DenpasoftAccount.Failure.notInAccount }
+            let account = DenpasoftAccount.shared
+            await account.refresh()
+            let items = account.downloads(forProductURL: file.url)
+            guard let item = items.first(where: { $0.fileName == chosenFile }) ?? items.first else {
+                throw DenpasoftAccount.Failure.notInAccount
+            }
+            let saved = try await account.fetch(item, to: partial) { [weak self] written, total in
+                self?.jobs[appID]?.update(.downloading(written: written, total: total, part: part, parts: parts))
+            }
+            let size = ((try? FileManager.default.attributesOfItem(atPath: saved.path)[.size]) as? Int64) ?? 0
+            let hash = try await Task.detached { try PatchDownloader.sha256(of: saved) }.value
+            // Saved as "<partial>-<server's file name>": the label is the server's name.
+            let served = saved.lastPathComponent.components(separatedBy: ".part-").last ?? saved.lastPathComponent
+            return PatchDownloader.Result(file: saved, name: served, size: size, sha256: hash)
+        }
+        #endif
         let sources = [(file.host, file.url)] + (file.mirrors ?? []).map { ($0.host, $0.url) }
         var lastError: Error = PatchDownloader.Failure.unsupportedLink
         for (host, link) in sources where ["direct", "gdrive", "mega", "wetransfer"].contains(host) {
