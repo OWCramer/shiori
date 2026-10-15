@@ -274,12 +274,24 @@ public actor SteamSession {
         }
     }
 
-    /// Logs off, closes the connection and forgets the refresh token.
+    /// Ends the session on Steam's side (revokes the refresh token), logs off, closes the
+    /// connection and forgets the token. Revoking needs a logged-on connection; offline, or if
+    /// Steam doesn't answer, the local sign-out goes ahead regardless.
     public func signOut() async {
         staysLoggedOn = false
         reconnectTask?.cancel()
         reconnectTask = nil
         if let connection, case .loggedOn = state {
+            if let stored = try? store.load() {
+                do {
+                    let _: CAuthentication_Token_Revoke_Response = try await connection.callService(
+                        Self.revokeTokenMethod, Self.revokeTokenRequest(refreshToken: stored.refreshToken),
+                        authenticated: true, timeout: .seconds(5)
+                    )
+                } catch {
+                    // Not worth holding up the sign-out: the token is deleted below either way.
+                }
+            }
             try? await connection.send(Packet(emsg: .kEmsgClientLogOff))
         }
         await disconnect()
@@ -287,6 +299,19 @@ public actor SteamSession {
         licenseList = nil
         ownedPackages = nil
         state = .signedOut
+    }
+
+    /// The unified method that revokes a token its holder presents. (`RevokeRefreshToken` is
+    /// for revoking another device's token by id, and needs a signature.)
+    static let revokeTokenMethod = "Authentication.RevokeToken#1"
+
+    /// Revokes this sign-in's refresh token for good, so it can't log on again anywhere,
+    /// including on devices it reached through iCloud Keychain.
+    static func revokeTokenRequest(refreshToken: String) -> CAuthentication_Token_Revoke_Request {
+        var request = CAuthentication_Token_Revoke_Request()
+        request.token = refreshToken
+        request.revokeAction = .kEauthTokenRevokePermanent
+        return request
     }
 
     /// Logs on with no account. Public app info is readable this way; used by the

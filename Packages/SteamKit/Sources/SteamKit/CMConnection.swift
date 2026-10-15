@@ -113,15 +113,22 @@ actor CMConnection {
         _ method: String,
         _ request: some SwiftProtobuf.Message,
         authenticated: Bool,
+        timeout: Duration = .seconds(30),
         as _: Response.Type = Response.self
     ) async throws -> Response {
-        var header = CMsgProtoBufHeader()
-        header.targetJobName = method
-        let emsg: EMsg = authenticated ? .kEmsgServiceMethodCallFromClient : .kEmsgServiceMethodCallFromClientNonAuthed
-        let replies = try await call(Packet(emsg: emsg, header: header, message: request))
+        let packet = try Self.servicePacket(method, request, authenticated: authenticated)
+        let replies = try await call(packet, timeout: timeout)
         let reply = replies[0]
         guard reply.eresult == .ok else { throw SteamError.serviceCallFailed(method: method, result: reply.eresult) }
         return try reply.decode()
+    }
+
+    /// A unified-service call as it goes on the wire, before the job id is stamped on.
+    static func servicePacket(_ method: String, _ request: some SwiftProtobuf.Message, authenticated: Bool) throws -> Packet {
+        var header = CMsgProtoBufHeader()
+        header.targetJobName = method
+        let emsg: EMsg = authenticated ? .kEmsgServiceMethodCallFromClient : .kEmsgServiceMethodCallFromClientNonAuthed
+        return try Packet(emsg: emsg, header: header, message: request)
     }
 
     /// Sends a unified-service notification, which has no reply.
