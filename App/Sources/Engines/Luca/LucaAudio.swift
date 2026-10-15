@@ -6,7 +6,7 @@ import LucaKit
 /// Everything is Ogg Vorbis inside the game's PAKs, decoded with ArtemisKit's stb_vorbis.
 @MainActor
 final class LucaAudio {
-    private let engine = AVAudioEngine()
+    private let output = GameAudioEngine(name: "Luca")
     private var music: AVAudioPlayerNode?
     private var musicID: Int?
     private var voice: AVAudioPlayerNode?
@@ -33,11 +33,6 @@ final class LucaAudio {
         }
     }
     var systemVolume: Float = 0.9
-
-    init() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
-    }
 
     /// When the voice on now ends (a player node still reports playing after its buffer ends).
     private var voiceEnds: CFTimeInterval = 0
@@ -102,7 +97,7 @@ final class LucaAudio {
     var movieTime: Double? {
         guard let node = movieNode, let nodeTime = node.lastRenderTime, let playerTime = node.playerTime(forNodeTime: nodeTime)
         else { return movieStart.map { CACurrentMediaTime() - $0 } }
-        return Double(playerTime.sampleTime) / playerTime.sampleRate
+        return output.offset(of: node) + Double(playerTime.sampleTime) / playerTime.sampleRate
     }
 
     nonisolated static func movieBuffer(_ ogg: Data) -> AVAudioPCMBuffer? { buffer(ogg) }
@@ -145,14 +140,12 @@ final class LucaAudio {
         voice = nil
         effects.removeAll()
         fades.removeAll()
-        engine.stop()
+        output.engine.stop()
     }
 
     private func play(_ buffer: AVAudioPCMBuffer, loop: Bool, volume: Float, fadeFrames: Int) -> AVAudioPlayerNode? {
         let node = AVAudioPlayerNode()
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
-        if !engine.isRunning { try? engine.start() }
+        output.attach(node, format: buffer.format, resume: loop ? .loop(buffer) : .once(buffer))
         node.scheduleBuffer(buffer, at: nil, options: loop ? .loops : [])
         if fadeFrames > 0 {
             node.volume = 0
@@ -175,8 +168,7 @@ final class LucaAudio {
     }
 
     private func detach(_ node: AVAudioPlayerNode) {
-        node.stop()
-        if node.engine != nil { engine.detach(node) }
+        output.detach(node)
     }
 
     nonisolated private static func buffer(_ data: Data) -> AVAudioPCMBuffer? {

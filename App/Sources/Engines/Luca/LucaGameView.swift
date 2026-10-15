@@ -276,10 +276,12 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
             alert.addAction(UIAlertAction(title: "Leave", style: .default) { [weak self] _ in self?.leave() })
             DispatchQueue.main.async { self.present(alert, animated: true) }
         }
-        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+        // While still in front (the thumbnail needs the GPU), the place is kept in a slot the
+        // game's Load screen lists.
+        NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.autosave()
-                NSLog("Luca: autosaved for the background")
+                guard let self, !self.leaving else { return }
+                self.savePlace(reason: "leaving the screen")
             }
         }
         let link = CADisplayLink(target: self, selector: #selector(frame))
@@ -1284,9 +1286,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     private func presentLeaveQuestion() {
         guard presentedViewController == nil else { return }
-        let message = GCController.current?.extendedGamepad != nil
-            ? "Your place is kept for Continue. Ⓐ Leave, Ⓑ Keep Playing."
-            : "Your place is kept for Continue."
+        let kept = player.map { !$0.finished } == true ? "Your place is saved to the Load screen." : "Progress since your last save is lost."
+        let message = GCController.current?.extendedGamepad != nil ? kept + " Ⓐ Leave, Ⓑ Keep Playing." : kept
         let alert = UIAlertController(title: "Leave the game?", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
@@ -1298,8 +1299,8 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
 
     private func leave() {
         guard !leaving else { return }
+        savePlace(reason: "leaving the game")
         leaving = true
-        autosave()
         displayLink?.invalidate()
         displayLink = nil
         audio.stopAll()
@@ -1583,6 +1584,25 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         readLog?.save()
         guard let player, !player.finished else { return }
         try? LucaSaves.write(player.saveState(), slot: 0, thumbnail: thumbnail(), in: saves)
+    }
+
+    /// On leaving the game or the screen: the place into a numbered slot of the game's Load
+    /// screen (`LucaSaves.savePlace`), never loaded by itself (spec Saves, Keeping the place).
+    private func savePlace(reason: String) {
+        readLog?.save()
+        guard let player, !player.finished else {
+            NSLog("Luca: no place to keep, %@", reason)
+            return
+        }
+        do {
+            if let slot = try LucaSaves.savePlace(player.saveState(), thumbnail: thumbnail(), in: saves) {
+                NSLog("Luca: kept the place in slot %d, %@", slot, reason)
+            } else {
+                NSLog("Luca: the place is already in Shiori's slot, %@", reason)
+            }
+        } catch {
+            NSLog("Luca: couldn't keep the place: %@", String(describing: error))
+        }
     }
 
     private func thumbnail() -> Data? {

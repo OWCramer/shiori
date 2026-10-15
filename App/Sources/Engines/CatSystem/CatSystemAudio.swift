@@ -8,7 +8,7 @@ import CatSystemKit
 /// main thread (ambient loops run to 17 MB), then played in memory.
 @MainActor
 final class CatSystemAudio {
-    private let engine = AVAudioEngine()
+    private let output = GameAudioEngine(name: "CatSystem")
     private let decoder = DispatchQueue(label: "catsystem.audio", qos: .userInitiated)
     private var music: AVAudioPlayerNode?
     private var musicName: String?
@@ -37,7 +37,7 @@ final class CatSystemAudio {
     /// Takes new volumes (the CONFIG screen) for what is playing now too; `master` scales
     /// everything.
     func setVolumes(master: Float = 1, music: Float, voice: Float, effects: Float, system: Float) {
-        engine.mainMixerNode.outputVolume = master
+        output.mainMixerNode.outputVolume = master
         musicVolume = music
         voiceVolume = voice
         effectVolume = effects
@@ -48,11 +48,6 @@ final class CatSystemAudio {
         for (channel, node) in self.effects {
             node.volume = volume(forEffect: channel) * (effectLevels[channel]?.to ?? 1)
         }
-    }
-
-    init() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
     }
 
     var isVoicePlaying: Bool { voice != nil && CACurrentMediaTime() < voiceEnds }
@@ -202,7 +197,7 @@ final class CatSystemAudio {
         effects.removeAll()
         effectLevels.removeAll()
         fades.removeAll()
-        engine.stop()
+        output.engine.stop()
     }
 
     private func request(_ channel: String) -> Int {
@@ -223,9 +218,7 @@ final class CatSystemAudio {
 
     private func play(_ buffer: AVAudioPCMBuffer, loop: Bool, volume: Float, fadeFrames: Int) -> AVAudioPlayerNode? {
         let node = AVAudioPlayerNode()
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
-        if !engine.isRunning { try? engine.start() }
+        output.attach(node, format: buffer.format, resume: loop ? .loop(buffer) : .once(buffer))
         node.scheduleBuffer(buffer, at: nil, options: loop ? .loops : [])
         if fadeFrames > 0 {
             node.volume = 0
@@ -248,8 +241,7 @@ final class CatSystemAudio {
     }
 
     private func detach(_ node: AVAudioPlayerNode) {
-        node.stop()
-        if node.engine != nil { engine.detach(node) }
+        output.detach(node)
     }
 
     nonisolated private static func buffer(_ data: Data) -> AVAudioPCMBuffer? {

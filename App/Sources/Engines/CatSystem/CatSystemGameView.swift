@@ -259,14 +259,14 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         applySettings()
         open()
 
-        // While still in front (the thumbnail needs the GPU), the place is kept as the autosave.
+        // While still in front (the thumbnail needs the GPU), the place is kept in a slot the
+        // game's Load screen lists.
         NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.autosave()
+                guard let self, !self.leaving else { return }
+                self.savePlace(reason: "leaving the screen")
                 self.readLines.save(to: self.saves)
                 self.settings.save(to: self.saves)
-                NSLog("CatSystem: autosaved on leaving the screen")
             }
         }
         let link = CADisplayLink(target: self, selector: #selector(frame))
@@ -1683,7 +1683,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     private func confirmLeave() {
         guard presentedViewController == nil else { return }
-        let alert = UIAlertController(title: "Leave the game?", message: story != nil ? "Your place is kept as the autosave." : nil,
+        let alert = UIAlertController(title: "Leave the game?", message: currentSave() != nil ? "Your place is saved to the Load screen." : "Progress since your last save is lost.",
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in self?.leave() })
         alert.addAction(UIAlertAction(title: "Keep Playing", style: .cancel))
@@ -1693,9 +1693,9 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
 
     private func leave() {
         guard !leaving else { return }
+        savePlace(reason: "leaving the game")
         leaving = true
         stopMovie()
-        autosave()
         readLines.save(to: saves)
         settings.save(to: saves)
         displayLink?.invalidate()
@@ -1960,7 +1960,8 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     #if DEBUG
     /// `-ShioriCatSystemInput "4:down;4.5:return;9:pad-a"`: keys (`up`, `down`, `left`,
     /// `right`, `return`, `escape`) and pad buttons (`pad-a`, `pad-b`, `pad-y`, `pad-menu`,
-    /// `pad-down` …) at seconds from launch, to check the keys and the pad in the simulator.
+    /// `pad-down` …), `skip`, `auto`, `leave` and `load-screen` at seconds from launch, to
+    /// check them in the simulator.
     private func scheduleDebugInput() {
         let script = UserDefaults.standard.string(forKey: "ShioriCatSystemInput") ?? ""
         let keys: [String: UIKeyboardHIDUsage] = [
@@ -1978,7 +1979,12 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self else { return }
                 NSLog("CatSystem: debug input %@", name)
-                if name == "skip" || name == "auto" {
+                if name == "leave" {
+                    // The leave question's Leave.
+                    self.leave()
+                } else if name == "load-screen" {
+                    self.openScreen(.saveLoad, save: false)
+                } else if name == "skip" || name == "auto" {
                     if name == "skip" { self.swipedSkip() } else { self.swipedAuto() }
                 } else if let key = keys[name] {
                     self.keyDown(key)
@@ -2311,6 +2317,25 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
     private func autosave() {
         guard let save = currentSave() else { return }
         try? slots.write(save, slot: CatSystemSlots.autoSlot, thumbnail: stageRenderer.flatMap { _ in takeThumbnail() })
+    }
+
+    /// On leaving the game or the screen: the place into a normal slot of the game's Load
+    /// screen (Shiori's slot from last time while the player hasn't saved over it, else the
+    /// first free one), never loaded by itself (spec Saves, Keeping the place).
+    private func savePlace(reason: String) {
+        guard !leaving, let save = currentSave() else {
+            NSLog("CatSystem: no place to keep, %@", reason)
+            return
+        }
+        do {
+            if let slot = try slots.savePlace(save, thumbnail: stageRenderer.flatMap { _ in takeThumbnail() }) {
+                NSLog("CatSystem: kept the place in slot %d (scene %@, line %d), %@", slot, save.scene, save.messageIndex, reason)
+            } else {
+                NSLog("CatSystem: the place is already in Shiori's slot, %@", reason)
+            }
+        } catch {
+            NSLog("CatSystem: couldn't keep the place: %@", String(describing: error))
+        }
     }
 
     /// Picks the story up at a save (or a backlog line: `keeping` the lines before it).

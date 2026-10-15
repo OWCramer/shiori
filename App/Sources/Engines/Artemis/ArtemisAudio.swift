@@ -7,7 +7,7 @@ import AVFoundation
 /// `s.segain.<id>`). Ogg Vorbis is decoded with ArtemisKit; other formats through AVAudioFile.
 @MainActor
 final class ArtemisAudio {
-    private let engine = AVAudioEngine()
+    private let output = GameAudioEngine(name: "Artemis")
 
     /// A playing sound: its tag gain (faded) and pan; the node's volume is gain x master.
     private final class Channel {
@@ -52,11 +52,6 @@ final class ArtemisAudio {
 
     /// Running gain and pan fades, advanced by `tick()` every frame.
     private var fades: [String: Fade] = [:]
-
-    init() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
-    }
 
     func handle(_ tag: ArtemisTag, data: (String) -> Data?) {
         let gain = tag["gain"].map { _ in tag.number("gain", default: 1000) }
@@ -105,9 +100,7 @@ final class ArtemisAudio {
         stopStream()
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 2, interleaved: false) else { return }
         let node = AVAudioPlayerNode()
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
-        if !engine.isRunning { try? engine.start() }
+        output.attach(node, format: format, resume: .stream)
         node.play()
         stream = node
         streamFormat = format
@@ -127,10 +120,7 @@ final class ArtemisAudio {
     }
 
     func stopStream() {
-        if let stream {
-            stream.stop()
-            if stream.engine != nil { engine.detach(stream) }
-        }
+        if let stream { output.detach(stream) }
         stream = nil
         streamFormat = nil
     }
@@ -141,7 +131,7 @@ final class ArtemisAudio {
         music = nil
         for channel in effects.values { stop(channel, fadeMs: 0) }
         effects.removeAll()
-        engine.stop()
+        output.engine.stop()
     }
 
     // MARK: -
@@ -181,22 +171,28 @@ final class ArtemisAudio {
     private func play(_ file: String?, loop: Bool, fadeIn: Double, gain: Double, pan: Double, data: (String) -> Data?) -> Channel? {
         guard let file, !file.isEmpty, let buffer = buffer(file, data: data) else { return nil }
         let node = AVAudioPlayerNode()
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
-        if !engine.isRunning { try? engine.start() }
         let channel = Channel(node: node, gain: fadeIn > 0 ? 0 : Float(gain / 1000), pan: Float(pan / 1000))
         node.pan = channel.pan
         // A-B repeat: "<name>_a" plays once, then "<name>_b" loops (when it exists).
         if loop, file.hasSuffix("_a"), let loopPart = self.buffer(String(file.dropLast(2)) + "_b", data: data),
            loopPart.format == buffer.format {
+            output.attach(node, format: buffer.format, resume: .loop(loopPart))
             node.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
             node.scheduleBuffer(loopPart, at: nil, options: [.loops], completionHandler: nil)
         } else if loop {
+            output.attach(node, format: buffer.format, resume: .loop(buffer))
             node.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
         } else {
             let key = ObjectIdentifier(channel)
+            // After an audio restart the rest plays on and ends the sound (stopping the node
+            // for the restart calls this handler early, so it is ignored then).
+            output.attach(node, format: buffer.format, resume: .once(buffer) { [weak self] in self?.markFinished(key) })
+            let restart = output.restarts
             node.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
-                Task { @MainActor in self?.markFinished(key) }
+                Task { @MainActor in
+                    guard let self, self.output.restarts == restart else { return }
+                    self.markFinished(key)
+                }
             }
         }
         node.play()
@@ -224,8 +220,7 @@ final class ArtemisAudio {
 
     private func remove(_ channel: Channel) {
         fades = fades.filter { $0.value.channel !== channel }
-        channel.node.stop()
-        if channel.node.engine != nil { engine.detach(channel.node) }
+        output.detach(channel.node)
     }
 
     private func fade(_ channel: Channel?, to target: Float, ms: Double, key: String, pan: Bool = false, completion: (() -> Void)? = nil) {

@@ -1,4 +1,5 @@
 import CatSystemKit
+import CryptoKit
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -130,6 +131,57 @@ struct CatSystemSlots {
         guard let file = files()[slot] else { return }
         try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))
         try? FileManager.default.removeItem(at: thumbnailURL(file))
+    }
+
+    // MARK: The place kept on leaving
+
+    /// Which slot holds the place Shiori saved last on leaving, and that file's SHA-256:
+    /// the slot is reused only while it still holds that save, so a save the player made
+    /// over it is never overwritten. In `saves/`, so it travels with the saves through iCloud.
+    private struct PlaceRecord: Codable {
+        var slot: Int
+        var sha256: String
+        var saved: Date
+    }
+
+    static let placeRecordName = "shiori-place.json"
+
+    /// The slot Shiori kept the place in last, if that save is still there unchanged.
+    var ownedPlaceSlot: Int? {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent(Self.placeRecordName)),
+              let record = try? JSONDecoder().decode(PlaceRecord.self, from: data),
+              files()[record.slot] == Self.slotName(record.slot),
+              let file = try? Data(contentsOf: folder.appendingPathComponent(Self.slotName(record.slot))),
+              Self.sha256(file) == record.sha256 else { return nil }
+        return record.slot
+    }
+
+    /// Where the place goes on leaving: Shiori's slot from last time while unchanged, else
+    /// the first free numbered slot (the one the Load screen shows first; its page opens on
+    /// the newest save). With every slot taken, the autosave.
+    func placeSlot() -> Int {
+        if let owned = ownedPlaceSlot { return owned }
+        let map = files()
+        return (0..<80).first { map[$0] == nil } ?? Self.autoSlot
+    }
+
+    /// Keeps the place in a normal slot the game's Load screen lists (`placeSlot`). Skipped
+    /// when Shiori's slot already holds this line. Returns the slot, nil when skipped.
+    @discardableResult
+    func savePlace(_ save: CatSystemSave, thumbnail: CGImage?) throws -> Int? {
+        if let owned = ownedPlaceSlot, let kept = self.save(in: owned),
+           kept.scene == save.scene, kept.messageIndex == save.messageIndex, kept.text == save.text { return nil }
+        let slot = placeSlot()
+        try write(save, slot: slot, thumbnail: thumbnail)
+        if slot != Self.autoSlot, let file = try? Data(contentsOf: folder.appendingPathComponent(Self.slotName(slot))) {
+            let record = PlaceRecord(slot: slot, sha256: Self.sha256(file), saved: .now)
+            try? JSONEncoder().encode(record).write(to: folder.appendingPathComponent(Self.placeRecordName), options: .atomic)
+        }
+        return slot
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

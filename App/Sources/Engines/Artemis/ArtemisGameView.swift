@@ -41,6 +41,9 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
     private var videoFinished: (() -> Void)?
     private var videoObserver: NSObjectProtocol?
     private var videoStatusObserver: NSKeyValueObservation?
+    /// AVPlayer pauses when its output goes away (a controller's speaker, headphones) or a
+    /// call interrupts; the game can't pause a movie, so it plays on.
+    private var videoAudioObservers: [NSObjectProtocol] = []
     /// A movie AVFoundation can't play (MPEG-1, Theora), decoded by ArtemisKit.
     private var softwareVideo: ArtemisVideo?
     private var softwareVideoLayer: CALayer?
@@ -938,6 +941,21 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
                 }
             }
         }
+        let session = AVAudioSession.sharedInstance()
+        for name in [AVAudioSession.routeChangeNotification, AVAudioSession.interruptionNotification,
+                     AVAudioSession.mediaServicesWereResetNotification, UIApplication.didBecomeActiveNotification] {
+            videoAudioObservers.append(NotificationCenter.default.addObserver(forName: name, object: name == UIApplication.didBecomeActiveNotification ? nil : session, queue: .main) { [weak self] note in
+                let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue
+                let reason = note.name.rawValue
+                MainActor.assumeIsolated {
+                    guard !began, let self, self.videoFinished != nil, let player = self.videoLayer?.player, player.rate == 0,
+                          UIApplication.shared.applicationState == .active else { return }
+                    NSLog("[Artemis] movie plays on after %@", reason)
+                    try? AVAudioSession.sharedInstance().setActive(true)
+                    player.play()
+                }
+            })
+        }
         avPlayer.play()
         return true
     }
@@ -991,6 +1009,8 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         if let videoObserver { NotificationCenter.default.removeObserver(videoObserver) }
         videoObserver = nil
         videoStatusObserver = nil
+        for observer in videoAudioObservers { NotificationCenter.default.removeObserver(observer) }
+        videoAudioObservers.removeAll()
         softwareVideoLayer?.removeFromSuperlayer()
         softwareVideoLayer = nil
         if softwareVideo?.hasAudio == true { audio.stopStream() }

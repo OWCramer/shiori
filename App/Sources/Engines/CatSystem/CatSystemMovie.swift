@@ -142,9 +142,16 @@ final class CatSystemMovieDecoder: @unchecked Sendable {
     private var poolIndex = 0
     private let ahead = 10
 
-    // Sound: its own engine, so the movie's clock is the samples played.
-    private let engine = AVAudioEngine()
+    // Sound: its own engine, so the movie's clock is the samples played. Kept sounding when
+    // the output changes (GameAudioEngine); the player's own time starts again then, so the
+    // clock carries on from where it was.
+    private var output: GameAudioEngine?
     private let player = AVAudioPlayerNode()
+    private var clockBase = 0.0
+    private var lastPlayerSeconds = 0.0
+    /// When the clock last moved (a sound that stopped for good ends the movie at its end).
+    private var clockMoved = CACurrentMediaTime()
+    private var lastClock = -1.0
     private var audioFormat: AVAudioFormat?
     private var scheduledSeconds = 0.0
     private var playedSeconds = 0.0
@@ -276,10 +283,10 @@ final class CatSystemMovieDecoder: @unchecked Sendable {
 
     func start() {
         if let audioFormat {
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: audioFormat)
+            let output = MainActor.assumeIsolated { GameAudioEngine(name: "CatSystem movie") }
+            MainActor.assumeIsolated { output.attach(player, format: audioFormat, resume: .stream) }
             player.volume = volume
-            try? engine.start()
+            self.output = output
         }
         lock.withLock { running = true }
         let thread = Thread { [self] in run() }
@@ -292,7 +299,7 @@ final class CatSystemMovieDecoder: @unchecked Sendable {
     func stop() {
         lock.withLock { running = false }
         player.stop()
-        engine.stop()
+        if let output { MainActor.assumeIsolated { output.close() } }
     }
 
     /// Seconds of the movie played: the sound's samples played, or the wall clock without
@@ -300,8 +307,15 @@ final class CatSystemMovieDecoder: @unchecked Sendable {
     var clock: Double {
         if audioFormat != nil, let time = player.lastRenderTime, time.isSampleTimeValid,
            let played = player.playerTime(forNodeTime: time), played.sampleTime >= 0 {
-            return Double(played.sampleTime) / played.sampleRate
+            let seconds = Double(played.sampleTime) / played.sampleRate
+            // Started again after an output change: on from where it was.
+            if seconds + 0.25 < lastPlayerSeconds { clockBase += lastPlayerSeconds }
+            lastPlayerSeconds = seconds
+            let now = clockBase + seconds
+            if now != lastClock { lastClock = now; clockMoved = CACurrentMediaTime() }
+            return now
         }
+        if audioFormat != nil, lastClock >= 0 { return lastClock }
         guard let wallStart else { return 0 }
         return CACurrentMediaTime() - wallStart
     }
@@ -336,6 +350,7 @@ final class CatSystemMovieDecoder: @unchecked Sendable {
         defer { lock.unlock() }
         guard endOfFile, decoded.isEmpty else { return !running && thread != nil }
         return audioFormat == nil || clock >= scheduledSeconds - 0.05 || buffersPlaying == 0
+            || CACurrentMediaTime() - clockMoved > 1.5
     }
 
     // MARK: Decoding thread
