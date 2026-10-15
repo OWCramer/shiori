@@ -12,7 +12,9 @@ struct ArtworkPickerView: View {
     @State private var assets: [SteamGridDB.Asset] = []
     @State private var gameID: Int?
     @State private var phase: Phase = .loading
-    @AppStorage("steamGridDBAdult") private var includeAdult = false
+    @Environment(SteamModel.self) private var steam
+    /// Adult artwork follows the account's Steam store preferences.
+    private var includeAdult: Bool { steam.allowsAdultContent }
 
     private enum Phase: Equatable {
         case loading, loaded, empty, notConfigured, unknownGame
@@ -39,16 +41,15 @@ struct ArtworkPickerView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Toggle("Include Adult Artwork", isOn: $includeAdult)
-                        if artwork.pick(kind, for: appID) != nil {
+                if artwork.pick(kind, for: appID) != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
                             Button("Use Steam's \(kind.displayName)", systemImage: "arrow.uturn.backward") {
                                 withAnimation(.smooth) { artwork.set(nil, kind: kind, for: appID) }
                             }
+                        } label: {
+                            Image(systemName: "ellipsis")
                         }
-                    } label: {
-                        Image(systemName: "ellipsis")
                     }
                 }
             }
@@ -67,8 +68,7 @@ struct ArtworkPickerView: View {
             ContentUnavailableView("Not on SteamGridDB", systemImage: "questionmark.square.dashed",
                                    description: Text("SteamGridDB doesn't have this game."))
         case .empty:
-            ContentUnavailableView("No \(kind.displayName) Art", systemImage: "photo.on.rectangle",
-                                   description: includeAdult ? nil : Text("Adult artwork is hidden."))
+            ContentUnavailableView("No \(kind.displayName) Art", systemImage: "photo.on.rectangle")
         case let .failed(message):
             ContentUnavailableView {
                 Label("Couldn't Load Artwork", systemImage: "exclamationmark.triangle")

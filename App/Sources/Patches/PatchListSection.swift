@@ -19,11 +19,7 @@ struct PatchListSection: View {
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
     @Environment(\.openURL) private var openURL
-    @State private var dlcs: [DLCInfo]?
-    #if os(iOS)
-    @State private var denpasoftPage: URL?
-    private var denpasoft: DenpasoftAccount { .shared }
-    #endif
+    @State private var allDLCs: [DLCInfo]?
     /// The question being asked: install (or update) a patch, or remove it. One dialog, since
     /// SwiftUI drops a second confirmationDialog on the same view.
     @State private var prompt: Prompt?
@@ -32,21 +28,21 @@ struct PatchListSection: View {
         case install(PatchListStore.Patch)
         /// Install once the game is downloaded.
         case queue(PatchListStore.Patch)
-        /// A file from a shop account (Denpasoft), by its file name.
-        case installFile(PatchListStore.Patch, String)
         case remove(PatchListStore.Patch)
-        var patch: PatchListStore.Patch { switch self { case let .install(p), let .queue(p), let .installFile(p, _), let .remove(p): p } }
+        var patch: PatchListStore.Patch { switch self { case let .install(p), let .queue(p), let .remove(p): p } }
         var id: String {
             switch self {
             case let .install(p): "i-\(p.id)"
             case let .queue(p): "q-\(p.id)"
-            case let .installFile(p, f): "f-\(p.id)-\(f)"
             case let .remove(p): "r-\(p.id)"
             }
         }
     }
 
-    private var patches: [PatchListStore.Patch] { patchList.patches(for: appID) }
+    /// The listed patches the account's store preferences allow (18+ ones only with adult content on).
+    private var patches: [PatchListStore.Patch] { patchList.patches(for: appID, allowingAdult: steam.allowsAdultContent) }
+    /// The game's DLC the account's store preferences allow, by Steam's content descriptors.
+    private var dlcs: [DLCInfo]? { allDLCs?.filter { steam.allows(contentDescriptors: $0.contentDescriptors) } }
     private var hasContent: Bool { !(dlcs ?? []).isEmpty || !patches.isEmpty }
     private var record: GameRecord? { games.record(for: appID) }
     /// Patches install into a downloaded game; before that they're queued.
@@ -75,19 +71,11 @@ struct PatchListSection: View {
             if gameInstalled, installer.queued[appID] != nil { installer.installQueued(appID: appID, gameFolder: gameFolder) }
         }
         .task(id: steam.isLoggedOn) {
-            guard steam.isLoggedOn, dlcs == nil else { return }
-            dlcs = try? await steam.session.dlcs(appID: appID)
+            guard steam.isLoggedOn, allDLCs == nil else { return }
+            allDLCs = try? await steam.session.dlcs(appID: appID)
         }
         .onChange(of: installer.installed[appID]) { onChange() }
         .onChange(of: hasContent, initial: true) { _, has in onContentChange(has) }
-        #if os(iOS)
-        .task(id: patches.contains { denpasoftProduct($0) != nil }) {
-            if patches.contains(where: { denpasoftProduct($0) != nil }) { await denpasoft.refresh() }
-        }
-        .sheet(isPresented: Binding(get: { denpasoftPage != nil }, set: { if !$0 { denpasoftPage = nil } })) {
-            if let url = denpasoftPage { DenpasoftWebSheet(url: url, title: "Denpasoft") }
-        }
-        #endif
         .alert(promptTitle, isPresented: Binding(
             get: { prompt != nil }, set: { if !$0 { prompt = nil } }
         ), presenting: prompt) { prompt in
@@ -105,10 +93,6 @@ struct PatchListSection: View {
                         games.download(game)
                     }
                 }
-            case let .installFile(patch, file):
-                Button(installedVersion(patch) == nil ? "Download and Install" : "Replace") {
-                    installer.install(patch, appID: appID, gameFolder: gameFolder, chosenFile: file)
-                }
             case let .remove(patch):
                 Button("Remove", role: .destructive) {
                     try? installer.remove(patch.id, appID: appID, gameFolder: gameFolder)
@@ -119,7 +103,6 @@ struct PatchListSection: View {
             switch prompt {
             case let .install(patch): Text(confirmationMessage(patch))
             case let .queue(patch): Text("Installs after the game downloads. " + confirmationMessage(patch))
-            case let .installFile(patch, file): Text("Installs \(file.isEmpty ? "the file" : file) from your Denpasoft downloads. " + confirmationMessage(patch))
             case .remove: Text("Saves and other patches stay.")
             }
         }
@@ -127,7 +110,7 @@ struct PatchListSection: View {
 
     private var promptTitle: String {
         switch prompt {
-        case let .install(patch), let .queue(patch), let .installFile(patch, _): "Install \(patch.name)?"
+        case let .install(patch), let .queue(patch): "Install \(patch.name)?"
         case let .remove(patch): "Remove \(patch.name)?"
         case nil: ""
         }
@@ -150,13 +133,7 @@ struct PatchListSection: View {
                     }
                     .patchButtonStyle()
                     .font(.caption)
-                } else if !dlc.owned {
-                    Button("Steam", systemImage: "arrow.up.right") {
-                        openURL(URL(string: "https://store.steampowered.com/app/\(dlc.appID)")!)
-                    }
-                    .patchButtonStyle()
-                    .font(.caption)
-                } else {
+                } else if dlc.owned {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.teal)
                 }
             }
@@ -191,17 +168,6 @@ struct PatchListSection: View {
                 action(patch)
             }
             badges(patch)
-            #if os(iOS)
-            if let url = denpasoftProduct(patch), denpasoft.isSignedIn {
-                let files = denpasoft.downloads(forProductURL: url)
-                if let installed = installedVersion(patch)?.version, files.count > 1 {
-                    Text("Installed: \(DenpasoftAccount.cleanFileName(installed))").font(.caption).foregroundStyle(.secondary)
-                } else if !files.isEmpty {
-                    Text("In your Denpasoft downloads: " + files.enumerated().map { fileLabel($1, index: $0) }.joined(separator: ", "))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            #endif
             if let job = installer.jobs[appID], job.patchID == patch.id { PatchJobLine(job: job, appID: appID) }
             if let notes = patch.notes, !notes.isEmpty {
                 #if os(tvOS)
@@ -251,45 +217,11 @@ struct PatchListSection: View {
             Button("Install", systemImage: "arrow.down.circle") { prompt = .install(patch) }
                 .patchButtonStyle().font(.caption)
                 .disabled(busy)
-        } else if let denpasoftURL = denpasoftProduct(patch) {
-            #if os(iOS)
-            let files = denpasoft.isSignedIn ? denpasoft.downloads(forProductURL: denpasoftURL) : []
-            if !gameInstalled, !files.isEmpty {
-                // Claimed already: it installs from here once the game is downloaded.
-                EmptyView()
-            } else if files.count > 1 {
-                // Denpasoft can carry more than one file for a product: the player picks.
-                Menu {
-                    Section("Your Denpasoft downloads") {
-                        ForEach(Array(files.enumerated()), id: \.element.url) { index, file in
-                            Button(fileLabel(file, index: index)) {
-                                prompt = .installFile(patch, file.fileName)
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Install", systemImage: "arrow.down.circle")
-                }
-                .patchButtonStyle().font(.caption)
-                .disabled(busy)
-            } else if let file = files.first {
-                Button("Install", systemImage: "arrow.down.circle") { prompt = .installFile(patch, file.fileName) }
-                    .patchButtonStyle().font(.caption)
-                    .disabled(busy)
-            } else {
-                Button(patch.files.first?.price?.lowercased() == "free" ? "Free" : "Buy", systemImage: "arrow.up.right") {
-                    denpasoftPage = URL(string: denpasoftURL)
-                }
-                .patchButtonStyle().font(.caption)
-            }
-            #else
-            EmptyView()
-            #endif
         } else if let dlc = patch.files.first?.dlc, dlcs?.first(where: { $0.appID == dlc })?.owned == true {
             Label("Owned", systemImage: "checkmark.circle.fill")
                 .font(.caption).foregroundStyle(.teal)
         } else if let link = externalLink(patch) {
-            Button(link.title, systemImage: "arrow.up.right") { openURL(link.url) }
+            Button("Open", systemImage: "arrow.up.right") { openURL(link) }
                 .patchButtonStyle().font(.caption)
         }
     }
@@ -298,9 +230,6 @@ struct PatchListSection: View {
         HStack(spacing: 6) {
             badge(patch.official ? "Official" : "Community", tint: patch.official ? .teal : .purple)
             if patch.adult { badge("18+", tint: .pink) }
-            if patch.files.first?.host == "store", let price = patch.files.first?.price {
-                badge(price.lowercased() == "free" ? "Free" : price, tint: .blue)
-            }
             if patch.verified != nil {
                 badge("Works", tint: .green)
             } else {
@@ -368,31 +297,14 @@ struct PatchListSection: View {
         }
     }
 
-    #if os(iOS)
-    private func fileLabel(_ file: DenpasoftAccount.Download, index: Int) -> String {
-        if !file.fileName.isEmpty { return file.fileName }
-        if !file.productName.isEmpty { return "\(file.productName) (file \(index + 1))" }
-        return "File \(index + 1)"
-    }
-    #endif
-
-    /// The Denpasoft product page of a patch Denpasoft sells or gives away.
-    private func denpasoftProduct(_ patch: PatchListStore.Patch) -> String? {
-        guard let file = patch.files.first, file.host == "store", file.url.contains("denpasoft.com/product") else { return nil }
-        return file.url
-    }
-
-    private func externalLink(_ patch: PatchListStore.Patch) -> (title: String, url: URL)? {
-        guard let file = patch.files.first, let url = URL(string: file.url) else { return nil }
-        switch file.host {
-        case "steam":
-            if let dlc = file.dlc, dlcs?.first(where: { $0.appID == dlc })?.owned == true { return nil }
-            return ("Steam", url)
-        case "store": return (file.price?.lowercased() == "free" ? "Free" : "Buy", url)
-        default:
-            if patch.status == "unsupported" || file.installer == true { return ("Page", URL(string: patch.source.page) ?? url) }
-            return ("Open", url)
-        }
+    /// A patch Shiori can't download itself (a shop's or Steam's product page, a page that needs
+    /// a browser, a Windows installer): Open takes the link to Safari, out of the app.
+    private func externalLink(_ patch: PatchListStore.Patch) -> URL? {
+        guard let file = patch.files.first, let url = URL(string: file.url),
+              let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return nil }
+        if file.host == "steam", let dlc = file.dlc, dlcs?.first(where: { $0.appID == dlc })?.owned == true { return nil }
+        if patch.status == "unsupported" || file.installer == true { return patch.source.pageURL ?? url }
+        return url
     }
 
     private func confirmationMessage(_ patch: PatchListStore.Patch) -> String {
@@ -401,9 +313,7 @@ struct PatchListSection: View {
         else { parts.append("Downloads into the game's patch folder.") }
         if !patch.official { parts.append("Community patch, not from the publisher.") }
         if patch.verified == nil { parts.append("Not tested in Shiori.") }
-        if denpasoftProduct(patch) != nil {
-            // The installFile message already says where it comes from.
-        } else if patch.files.contains(where: { $0.sha256 == nil }) {
+        if patch.files.contains(where: { $0.sha256 == nil }) {
             parts.append("The download can't be verified: the list has no checksum for it.")
         }
         if !(installer.installed[appID] ?? []).isEmpty, installedVersion(patch) == nil {

@@ -151,6 +151,16 @@ final class PatchListStore {
 
     func patches(for appID: UInt32) -> [Patch] { games[appID]?.patches ?? [] }
 
+    /// The game's patches to show: 18+ ones only when the account's Steam store preferences
+    /// allow adult content.
+    func patches(for appID: UInt32, allowingAdult: Bool) -> [Patch] {
+        Self.visible(patches(for: appID), allowingAdult: allowingAdult)
+    }
+
+    nonisolated static func visible(_ patches: [Patch], allowingAdult: Bool) -> [Patch] {
+        allowingAdult ? patches : patches.filter { !$0.adult }
+    }
+
     /// Fetches index.json again when the cached copy is older than six hours (or `force`).
     func refresh(force: Bool = false) async {
         guard !refreshing else { return }

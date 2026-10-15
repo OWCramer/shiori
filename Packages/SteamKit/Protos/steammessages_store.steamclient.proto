@@ -1,0 +1,38 @@
+// Trimmed from SteamDatabase/Protobufs steam/steammessages_store.steamclient.proto at the commit in
+// SOURCE_COMMIT: only Store.GetStorePreferences, for the account's content preferences (which
+// content descriptors the account excludes on the store). Fields that need enums the trimmed
+// enums.proto doesn't carry are left out; protobuf keeps them as unknown fields.
+import "steammessages_base.proto";
+
+option optimize_for = SPEED;
+
+message CStore_GetStorePreferences_Request {
+	optional string country_code = 1;
+}
+
+message CStore_UserPreferences {
+	optional int32 primary_language = 1;
+	optional uint64 secondary_languages = 2;
+	optional bool platform_windows = 3;
+	optional bool platform_mac = 4;
+	optional bool platform_linux = 5;
+	optional uint32 timestamp_updated = 8;
+	optional bool hide_store_broadcast = 9;
+	optional int32 timestamp_content_descriptor_preferences_updated = 11;
+}
+
+message CStore_UserTagPreferences {
+	message Tag {
+		optional uint32 tagid = 1;
+		optional string name = 2;
+		optional uint32 timestamp_added = 3;
+	}
+
+	repeated .CStore_UserTagPreferences.Tag tags_to_exclude = 1;
+}
+
+message CStore_GetStorePreferences_Response {
+	optional .CStore_UserPreferences preferences = 1;
+	optional .CStore_UserTagPreferences tag_preferences = 2;
+	optional .UserContentDescriptorPreferences content_descriptor_preferences = 3;
+}

@@ -7,6 +7,7 @@ struct GamePagePlaySections: View {
     let game: LibraryGame
     let record: GameRecord?
     let model: GamePageModel
+    @Environment(PatchListStore.self) private var patchList
 
     var body: some View {
         GamePageNotices(game: game, model: model)
@@ -17,6 +18,8 @@ struct GamePagePlaySections: View {
             PatchesSection(game: game, model: model, installed: false)
         }
         CompatibilitySection(appID: game.appID)
+            // The game's patch list, read here so a game not yet downloaded shows its section.
+            .task(id: game.appID) { await patchList.load(appID: game.appID) }
     }
 }
 #endif

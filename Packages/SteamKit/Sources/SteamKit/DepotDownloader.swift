@@ -251,6 +251,9 @@ public struct DLCInfo: Hashable, Sendable, Identifiable {
     /// The game's depots that carry this DLC's files; empty when the DLC only unlocks
     /// content the game already has (it asks Steam whether you own it).
     public var depotIDs: [UInt32]
+    /// Steam's content descriptors for the DLC (3 is adult only sexual content); see
+    /// `StoreContentPreferences`.
+    public var contentDescriptors: [UInt32] = []
     public var id: UInt32 { appID }
 }
 
@@ -272,9 +275,16 @@ extension SteamSession {
         let names = Dictionary((try await appInfo(ids)).map { ($0.appID, $0) }, uniquingKeysWith: { a, _ in a })
         return ids.map { id in
             DLCInfo(appID: id, name: names[id]?.name ?? "DLC \(id)", owned: owned.contains(id),
-                    depotIDs: (depotsByDLC[id] ?? []).sorted())
+                    depotIDs: (depotsByDLC[id] ?? []).sorted(),
+                    contentDescriptors: names[id].map { Self.contentDescriptors(of: $0.keyValues) } ?? [])
         }
         // Steam lists hidden and unreleased DLC too; drop the ones with no name and no store page.
         .filter { names[$0.appID] != nil }
+    }
+
+    /// An app's content descriptors from its PICS `common` section (`content_descriptors`, a
+    /// list of ids keyed "0", "1", …).
+    public static func contentDescriptors(of appInfo: KeyValue) -> [UInt32] {
+        (appInfo[path: "common", "content_descriptors"]?.children ?? []).compactMap(\.uint32).sorted()
     }
 }

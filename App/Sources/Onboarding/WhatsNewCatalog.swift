@@ -14,7 +14,7 @@ enum WhatsNewCatalog {
                 WhatsNewFeature(
                     systemImage: "bandage",
                     title: "Patches on Every Game Page",
-                    detail: "Official and community patches install in a tap, Denpasoft's included."
+                    detail: "Official and community patches install in a tap."
                 ),
                 WhatsNewFeature(
                     systemImage: "pawprint",

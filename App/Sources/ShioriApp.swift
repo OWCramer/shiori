@@ -40,6 +40,7 @@ struct ShioriApp: App {
         let games = GameLibrary(session: steam.session)
         games.libraryEntry = { [weak steam] appID in steam?.library.first { $0.appID == appID } }
         let patchInstaller = PatchInstaller()
+        patchInstaller.allowsAdultContent = { [weak steam] in steam?.allowsAdultContent ?? false }
         games.onInstalled = { [weak patchInstaller] appID, folder in patchInstaller?.installQueued(appID: appID, gameFolder: folder) }
         _patchInstaller = State(initialValue: patchInstaller)
         _games = State(initialValue: games)

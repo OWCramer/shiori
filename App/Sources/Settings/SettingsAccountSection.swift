@@ -32,6 +32,8 @@ struct SettingsAccountSection: View {
             Button("Sign Out of Steam", role: .destructive, action: askToSignOut)
         } header: {
             Text("Account")
+        } footer: {
+            Text("Adult content follows your Steam store preferences.")
         }
         .confirmationDialog("Sign out of Steam?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive, action: signOut)

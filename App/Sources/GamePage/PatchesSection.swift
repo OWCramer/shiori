@@ -2,7 +2,7 @@
 import SwiftUI
 
 /// Patches and DLC: the game's Steam DLC and the patch list's patches (install, update,
-/// remove, Denpasoft), then what's in its `patch/` folder, Import Patch and Remove All.
+/// remove), then what's in its `patch/` folder, Import Patch and Remove All.
 /// Before the game is downloaded, only the list, when it has patches for the game: they can
 /// be queued to install with the download.
 struct PatchesSection: View {
@@ -12,6 +12,7 @@ struct PatchesSection: View {
     var installed = true
     @Environment(GameLibrary.self) private var games
     @Environment(PatchListStore.self) private var patchList
+    @Environment(SteamModel.self) private var steam
 
     /// Whether the patch list or Steam has anything for this game; its row collapses if not.
     @State private var listHasContent = false
@@ -25,8 +26,8 @@ struct PatchesSection: View {
                 list
                 installedRows
             }
-        } else if patchList.index[game.appID] != nil || !patchList.patches(for: game.appID).isEmpty {
-            // The index (read at launch) says which games have patches.
+        } else if !patchList.patches(for: game.appID, allowingAdult: steam.allowsAdultContent).isEmpty {
+            // The game's list is read by the page (GamePagePlaySections).
             GamePageSection(title: "Patches & DLC") { list }
         }
     }

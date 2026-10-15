@@ -32,6 +32,24 @@ final class SteamModel {
     /// (offline, Steam unreachable, the Keychain); SteamSession may still be retrying.
     private(set) var connectionError: String?
 
+    /// The account's store content preferences (Store › Preferences on Steam's website), read
+    /// at each logon and kept for offline launches. Adult content (18+ patches, adult Steam DLC
+    /// and artwork) shows only when they allow it; unknown hides it.
+    private(set) var contentPreferences = ContentPreferencesCache.load()
+    var allowsAdultContent: Bool {
+        #if DEBUG
+        // `-ShioriAdultContent YES|NO` (debug): as if the account allowed it or not.
+        if UserDefaults.standard.object(forKey: "ShioriAdultContent") != nil { return UserDefaults.standard.bool(forKey: "ShioriAdultContent") }
+        #endif
+        return contentPreferences.allowsAdultContent
+    }
+
+    /// Whether something with these Steam content descriptors may show.
+    func allows(contentDescriptors: [UInt32]) -> Bool {
+        contentDescriptors.contains(StoreContentPreferences.adultOnlySexualContent)
+            ? allowsAdultContent : contentPreferences.allows(contentDescriptors)
+    }
+
     let session: SteamSession
     private var signInTask: Task<Void, Never>?
 
@@ -81,6 +99,7 @@ final class SteamModel {
             hasStoredSession = await session.storedAccountName != nil
             if case let .loggedOn(_, steamID) = state, !wasLoggedOn {
                 Task { await profile.load(steamID: steamID.rawValue) }
+                Task { await loadContentPreferences() }
                 await loadLibrary()
             }
         }
@@ -243,8 +262,21 @@ final class SteamModel {
         (error as? SteamError)?.description ?? error.localizedDescription
     }
 
+    /// Reads the account's store content preferences; a failure keeps the last ones read.
+    func loadContentPreferences() async {
+        do {
+            let preferences = try await session.storeContentPreferences()
+            contentPreferences = preferences
+            ContentPreferencesCache.save(preferences)
+        } catch {
+            SteamLog.write("store preferences failed: \(String(describing: error))")
+        }
+    }
+
     func signOut() async {
         await session.signOut()
+        contentPreferences = StoreContentPreferences(excludedDescriptors: nil)
+        ContentPreferencesCache.save(contentPreferences)
         steamLibrary = []
         LibraryCache.clear()
         profile.forget()
