@@ -68,7 +68,8 @@ final class PatchDownloader: NSObject, URLSessionDataDelegate, @unchecked Sendab
     func download(host: String, url: URL) async throws -> Result {
         switch host {
         case "direct":
-            return try await fetch(url, name: url.lastPathComponent)
+            let link = PatchLinks.directURL(url)
+            return try await fetch(link, name: link.lastPathComponent)
         case "gdrive":
             return try await drive(url)
         case "mega":

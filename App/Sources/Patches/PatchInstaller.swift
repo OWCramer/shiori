@@ -325,9 +325,10 @@ final class PatchInstaller {
             return PatchDownloader.Result(file: saved, name: served, size: size, sha256: hash)
         }
         #endif
-        let sources = [(file.host, file.url)] + (file.mirrors ?? []).map { ($0.host, $0.url) }
+        // The link, then each mirror in the list's order, whatever the list says of the link
+        // (a link marked dead may answer again; a mirror may be up when it isn't).
         var lastError: Error = PatchDownloader.Failure.unsupportedLink
-        for (host, link) in sources where ["direct", "gdrive", "mega", "wetransfer"].contains(host) {
+        for (host, link) in file.downloadSources {
             guard let url = URL(string: link) else { continue }
             let downloader = PatchDownloader(destination: partial) { written, total in
                 Task { @MainActor [weak self] in

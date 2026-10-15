@@ -71,6 +71,13 @@ final class PatchListStore {
             /// For a shop link: what it charges ("Free" when nothing, though it may need an account).
             var price: String?
             var mirrors: [Mirror]?
+
+            /// Where Shiori can download the file, in the order to try: the link, then its mirrors.
+            var downloadSources: [(host: String, url: String)] {
+                ([(host, url)] + (mirrors ?? []).map { ($0.host, $0.url) })
+                    .map { (PatchLinks.host($0.0, url: $0.1), $0.1) }
+                    .filter { PatchLinks.downloadableHosts.contains($0.host) }
+            }
         }
 
         struct Mirror: Codable, Sendable, Hashable {
@@ -113,9 +120,10 @@ final class PatchListStore {
             files = try c.decode([File].self, forKey: .files)
         }
 
-        /// Every part downloads inside Shiori (plain links, Google Drive, MEGA).
+        /// Every part downloads inside Shiori (plain links, Google Drive, MEGA, WeTransfer), from
+        /// its link or one of its mirrors.
         var isDownloadable: Bool {
-            status != "unsupported" && files.allSatisfy { ["direct", "gdrive", "mega", "wetransfer"].contains($0.host) && $0.installer != true }
+            status != "unsupported" && files.allSatisfy { !$0.downloadSources.isEmpty && $0.installer != true }
         }
 
         var totalSize: Int64? {
@@ -223,5 +231,36 @@ final class PatchListStore {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return data
+    }
+}
+
+/// How Shiori fetches a patch list link.
+enum PatchLinks {
+    /// The hosts Shiori downloads from itself.
+    static let downloadableHosts: Set<String> = ["direct", "gdrive", "mega", "wetransfer"]
+
+    /// The host a link downloads through: the list's own, except that a Dropbox share link
+    /// (which older lists call a page) is a plain download once it asks for the file.
+    static func host(_ host: String, url: String) -> String {
+        if host == "page", let link = URL(string: url), dropboxFile(link) != nil { return "direct" }
+        return host
+    }
+
+    /// The link to fetch for a plain download: a Dropbox share page (www.dropbox.com/s/… or
+    /// /scl/fi/…, `?dl=0`) asks for the file with `dl=1`; others are fetched as they are.
+    static func directURL(_ url: URL) -> URL { dropboxFile(url) ?? url }
+
+    /// A Dropbox link as the link that answers with the file, or nil for any other link (and
+    /// for a shared folder). dl.dropboxusercontent.com links already are the file.
+    static func dropboxFile(_ url: URL) -> URL? {
+        guard let host = url.host?.lowercased() else { return nil }
+        if host.hasSuffix("dropboxusercontent.com") { return url }
+        guard host == "dropbox.com" || host.hasSuffix(".dropbox.com"),
+              url.path.hasPrefix("/s/") || url.path.hasPrefix("/scl/fi/"),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        var items = (components.queryItems ?? []).filter { $0.name != "dl" && $0.name != "raw" }
+        items.append(URLQueryItem(name: "dl", value: "1"))
+        components.queryItems = items
+        return components.url
     }
 }
