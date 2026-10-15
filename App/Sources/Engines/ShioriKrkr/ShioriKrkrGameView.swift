@@ -352,6 +352,22 @@ final class ShioriKrkrGameViewController: UIViewController {
                     self.press(0x0D, down: true)
                     self.press(0x0D, down: false)
                 case "tap": self.releaseSkipLatch()
+                // The audio session's notifications, as a route change (a controller taking the
+                // sound and giving it back), a call or Siri, and a media-services reset post them.
+                case "route":
+                    NotificationCenter.default.post(name: AVAudioSession.routeChangeNotification, object: nil, userInfo: [
+                        AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.newDeviceAvailable.rawValue])
+                case "routeback":
+                    NotificationCenter.default.post(name: AVAudioSession.routeChangeNotification, object: nil, userInfo: [
+                        AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue])
+                case "interrupt":
+                    NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [
+                        AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+                case "resume":
+                    NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [
+                        AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue])
+                case "mediareset":
+                    NotificationCenter.default.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
                 default: break
                 }
             }
