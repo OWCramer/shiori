@@ -12,9 +12,8 @@ struct VersionSection: View {
     @Environment(CompatibilityStore.self) private var compatibility
     @State private var branch = "public"
     @State private var phoneLayout = false
-    @State private var kirikiriEngine = KiriKiriEngineChoice.aether
-    /// Whether Shiori's own KiriKiri engine can open this game yet (its archives' encryption).
-    @State private var shioriEngineAvailable = true
+    /// Whether Shiori's KiriKiri engine can open this game (its archives' encryption).
+    @State private var kirikiriOpens = true
 
     private var appID: UInt32 { game.appID }
     private var record: GameRecord? {
@@ -62,40 +61,13 @@ struct VersionSection: View {
             }
             if record?.engine?.engine == "artemis" {
                 // Artemis reads keyboard, mouse and touch only. (KiriKiri games take a
-                // controller as their keyboard: see KiriKiriGameViewController.pad.)
+                // controller as their keyboard: see ShioriKrkrGameViewController.)
                 GamePageValueRow(title: "Controls", value: "Touch, keyboard and mouse")
             }
-            #if !SHIORI_APP_STORE
-            // While both KiriKiri engines exist (Phase 23): the full edition's Standard
-            // (AetherKrkr) or Shiori's own. The App Store edition has only Shiori's.
-            if record?.engine?.engine == "kirikiri" {
-                GamePageRow {
-                    VStack(alignment: .leading, spacing: 2) {
-                        LabeledContent("KiriKiri Engine") {
-                            Picker("KiriKiri Engine", selection: $kirikiriEngine) {
-                                ForEach(KiriKiriEngineChoice.allCases) { choice in
-                                    Text(choice.title).tag(choice)
-                                        .selectionDisabled(choice == .shiori && !shioriEngineAvailable)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                        }
-                        if !shioriEngineAvailable {
-                            Text("Shiori (Beta) doesn't run this game yet.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .task(id: record?.name) {
-                    guard let name = record?.name else { return }
-                    shioriEngineAvailable = ShioriKrkrRuntime.canOpen(gameFolder: games.folder(appID: appID, name: name), appID: appID)
-                    // A game Shiori's engine can't open plays on Standard, so the picker says so.
-                    if !shioriEngineAvailable { kirikiriEngine = .aether }
-                }
+            if record?.engine?.engine == "kirikiri", !kirikiriOpens {
+                GamePageValueRow(title: "Plays", value: "Not yet", detail: ShioriKrkrRuntime.unsupportedMessage,
+                                 valueStyle: .orange)
             }
-            #endif
             if record?.engine?.engine == RenPyEngine.id {
                 GamePageRow {
                     VStack(alignment: .leading, spacing: 2) {
@@ -115,6 +87,10 @@ struct VersionSection: View {
             GamePageValueRow(title: "Store", value: "Steam")
         }
         .onAppear(perform: load)
+        .task(id: record?.name) {
+            guard record?.engine?.engine == "kirikiri", let name = record?.name else { return }
+            kirikiriOpens = ShioriKrkrRuntime.canOpen(gameFolder: games.folder(appID: appID, name: name), appID: appID)
+        }
         .onChange(of: games.branch(for: appID)) { _, current in branch = current }
         .onChange(of: branch) { _, picked in model.chooseBranch(picked, game: game, games: games) }
         .onChange(of: model.pendingBranch) { _, pending in
@@ -122,15 +98,11 @@ struct VersionSection: View {
             if pending == nil { branch = games.branch(for: appID) }
         }
         .onChange(of: phoneLayout) { _, on in if on != model.phoneLayout { model.setPhoneLayout(on) } }
-        .onChange(of: kirikiriEngine) { _, picked in
-            if shioriEngineAvailable, picked != KiriKiriEngineChoice.engine(for: appID) { KiriKiriEngineChoice.set(picked, for: appID) }
-        }
     }
 
     private func load() {
         branch = games.branch(for: appID)
         phoneLayout = model.phoneLayout
-        kirikiriEngine = KiriKiriEngineChoice.engine(for: appID)
     }
 
     private func checkEngine() { engineScans.scan([appID], force: true) }

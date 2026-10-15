@@ -12,7 +12,7 @@ private let log = Logger(subsystem: "com.owencramer.vnhub", category: "steamclou
 /// build keeps saves in `game/saves` (and mirrors them to `%APPDATA%/RenPy/<game>`), and
 /// Shiori runs the game with `--savedir <game>/saves`, so both map onto `saves/`. KiriKiri PC
 /// builds keep saves in `savedata/` beside the exe, which Shiori points at `saves/`
-/// (AETHERKIRI_DATA_PATH). Siglus keeps them in `savedata/` too.
+/// (the engine's `savedata/` is linked to it). Siglus keeps them in `savedata/` too.
 ///
 /// A folder is often listed once per pattern (Harmonia: `savedata` with `*.sav`, `*.bmp`,
 /// `*.ini`), so rules are grouped by folder (`UFSConfig.saveFolders`) and a file belongs to

@@ -19,8 +19,6 @@ packages:
     path: Packages/SteamKit
   ArtemisKit:
     path: Packages/ArtemisKit
-  KiriKiriKit:
-    path: Packages/KiriKiriKit
   SiglusKit:
     path: Packages/SiglusKit
   ShioriKrkrKit:
@@ -106,18 +104,9 @@ targets:
       - package: ArtemisKit
         product: ArtemisKit
       - package: Kingfisher
-      - package: KiriKiriKit
-        product: CKiriKiri
-      - package: KiriKiriKit
-        product: CKiriKiriMetal
-      # AetherKrkr, the KiriKiri runtime (GPL-3.0), with its dependencies inside one image
-      # (Scripts/kirikiri/build-ios-framework.sh). Exports only the engine API.
-      - framework: Vendor/ShioriKiriKiri.xcframework
-        embed: true
-      # Shiori's own KiriKiri engine (krkr2's core with Shiori's environment and Metal
-      # compositor; Phase 23), as one dynamic framework (Scripts/krkr2/build-framework.sh)
-      # exporting only shiorikrkr.h. Embedded but not linked: it's opened with dlopen when a
-      # game starts, so its TVP/TJS symbols never meet the Standard engine's.
+      # Shiori's KiriKiri engine (krkr2's core with Shiori's environment and Metal compositor;
+      # Phase 23), as one dynamic framework (Scripts/krkr2/build-framework.sh) exporting only
+      # shiorikrkr.h. Embedded but not linked: it is opened with dlopen when a game starts.
       - package: ShioriKrkrKit
         product: CShioriKrkr
       - package: ShioriKrkrKit
@@ -188,7 +177,7 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: App/Sources
-        excludes: ["Engines/KiriKiri/**", "Engines/ShioriKrkr/**", "Engines/Siglus/**", "Engines/CatSystem/**"]
+        excludes: ["Engines/ShioriKrkr/**", "Engines/Siglus/**", "Engines/CatSystem/**"]
       - path: App/Resources
         excludes: ["SiglusFonts/**", "Assets.xcassets/**", "Acknowledgements/**"]
       - path: App/TV

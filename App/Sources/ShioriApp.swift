@@ -194,22 +194,12 @@ struct RootView: View {
             }
             .fullScreenCover(item: $games.kirikiriSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in
-                    // Shiori's own KiriKiri engine by default where it can open the game; AetherKrkr
-                    // when the game is set to Standard or Shiori's engine can't open it yet (Phase 23).
-                    if KiriKiriEngineChoice.engine(for: session.appID) == .shiori,
-                       ShioriKrkrRuntime.canOpen(gameFolder: session.folder, appID: session.appID != 0 ? session.appID
-                                                     : ShioriKrkrRuntime.folderAppID(session.folder)) {
-                        ShioriKrkrGameView(gameFolder: session.folder, onFirstFrame: firstFrame) {
-                            games.kirikiriSession = nil
-                            DebugKiriKiriQueue.openNextLater(games)
-                        }
-                        .ignoresSafeArea()
-                    } else {
-                        KiriKiriGameView(gameFolder: session.folder, appID: session.appID, onFirstFrame: firstFrame) {
-                            games.kirikiriSession = nil
-                        }
-                        .ignoresSafeArea()
+                    // A game the engine can't open says so (ShioriKrkrRuntime.unsupportedMessage).
+                    ShioriKrkrGameView(gameFolder: session.folder, onFirstFrame: firstFrame) {
+                        games.kirikiriSession = nil
+                        DebugKiriKiriQueue.openNextLater(games)
                     }
+                    .ignoresSafeArea()
                 }
             }
             #endif

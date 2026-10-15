@@ -1003,7 +1003,7 @@ final class GameLibrary {
         }
     }
 
-    /// A KiriKiri game being played (AetherKrkr runs in-process; leaving returns here).
+    /// A KiriKiri game being played (ShioriKrkr runs in-process; leaving returns here).
     var kirikiriSession: ArtemisSession? {
         didSet {
             // Leaving: send its saves up.

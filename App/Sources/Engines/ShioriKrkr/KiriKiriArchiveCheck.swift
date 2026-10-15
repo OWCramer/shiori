@@ -8,8 +8,8 @@ enum KiriKiriArchiveCheck {
     enum Encryption {
         /// CxDec: needs the title's scheme from GARbro's database (GARbroDatabase).
         case cx
-        /// KiriKiri Z's Hx (an `Hxv4` index chunk): Standard isn't given Hx schemes; Shiori's
-        /// own engine opens it when GARbro has the title's keys.
+        /// KiriKiri Z's Hx (an `Hxv4` index chunk): the engine opens it when GARbro has the
+        /// title's keys.
         case hx
     }
 
@@ -23,7 +23,7 @@ enum KiriKiriArchiveCheck {
         return entry.isProtected && !entry.hasNekoNames && !looksPlain(entry.head) ? .cx : nil
     }
 
-    /// Why Shiori's own KiriKiri engine (Phase 23) can't open the game yet, if it can't.
+    /// Why Shiori's KiriKiri engine can't open the game yet, if it can't.
     enum ShioriEngineBlocker {
         /// NEKO WORKs archives (`neko` or `eliF` index chunks): NEKOPARA and its family.
         case nekoWorks

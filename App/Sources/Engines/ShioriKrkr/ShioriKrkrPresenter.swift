@@ -13,8 +13,7 @@ import MetalFX
 /// Shows ShioriKrkr's composed frames: the engine's own texture when it composes on the GPU
 /// (waiting on its event), otherwise each new frame copied into a texture; then drawn
 /// aspect-fitted into a CAMetalLayer, enlarged with MetalFX's spatial scaler where it's on
-/// (Settings › Engines; devices only) and with a bilinear sampler otherwise. Written for
-/// ShioriKrkr; nothing here comes from the Standard engine's presenter or its shaders.
+/// (Settings › Engines; devices only) and with a bilinear sampler otherwise.
 ///
 /// Presentation runs on a queue of its own: the engine's tick only hands over the newest frame
 /// and returns, and the queue waits for a drawable (a frame not yet shown is replaced by a newer

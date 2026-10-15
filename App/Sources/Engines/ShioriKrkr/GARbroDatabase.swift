@@ -7,11 +7,11 @@ import Foundation
 ///
 /// `Formats.dat` is a 12-byte header and a zlib stream of .NET BinaryFormatter records
 /// (MS-NRBF); each title is a dictionary entry whose value is a `CxEncryption`. A scheme is
-/// written in the engine's layout (`AETHERKIRI_CX_SCHEME`, AetherKrkr patch 0015), as
-/// `Scripts/kirikiri/garbro-cx.py` does on the Mac.
+/// written as an SHCX file (`Engine/cx_decrypt.cpp` reads it), as `Scripts/kirikiri/garbro-cx.py`
+/// does on the Mac.
 ///
-/// KiriKiri Z's Hx titles (an `HxCrypt`) are written as SHCX version 2, which only Shiori's own
-/// engine reads (`Engine/shiori_hx.cpp`): the CxDec part, then the index keys per archive, the
+/// KiriKiri Z's Hx titles (an `HxCrypt`) are written as SHCX version 2, which the engine reads
+/// in `Engine/shiori_hx.cpp`: the CxDec part, then the index keys per archive, the
 /// filter key, the random type, and GARbro's names list for the title (`NamesFile`, beside
 /// `Formats.dat`) when GARbro publishes one. An Hx archive's index holds only hashes of its
 /// files' names; the engine hashes the names the game asks for, so the keys are all a title
@@ -30,7 +30,7 @@ enum GARbroDatabase {
                 1230140: "ATRI -My Dear Moments-", 1277930: "Riddle Joker [Steam]"][appID]
     }
 
-    /// Puts the game's scheme where KiriKiriRuntime looks for it (or clears a stale one).
+    /// Puts the game's scheme where ShioriKrkrRuntime looks for it (or clears a stale one).
     static func prepare(appID: UInt32, runtimeCache: URL) async {
         let target = runtimeCache.appendingPathComponent("scheme.shcx")
         try? FileManager.default.removeItem(at: target)

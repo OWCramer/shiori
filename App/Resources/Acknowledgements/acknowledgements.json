@@ -317,11 +317,5 @@
   "name": "Twemoji",
   "licence": "CC BY 4.0 (graphics), MIT (code)",
   "file": "Twemoji.txt"
- },
- {
-  "name": "AetherKrkr (Standard engine)",
-  "version": "fa0f8af",
-  "licence": "GPL 3.0",
-  "file": "AetherKrkr.txt"
  }
 ]

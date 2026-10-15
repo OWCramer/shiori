@@ -10,7 +10,7 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var signingInToDenpasoft = false
     @State private var uploads = SteamCloudSync.uploadsEnabled
-    @State private var metalFX = KiriKiriGameViewController.upscalingEnabled
+    @State private var metalFX = ShioriKrkrGameViewController.upscalingEnabled
 
     var body: some View {
         NavigationStack {
@@ -62,7 +62,7 @@ struct SettingsScreen: View {
                 DenpasoftWebSheet(url: DenpasoftAccount.account, title: "Sign In to Denpasoft")
             }
             .onChange(of: uploads) { _, on in SteamCloudSync.uploadsEnabled = on }
-            .onChange(of: metalFX) { _, on in KiriKiriGameViewController.upscalingEnabled = on }
+            .onChange(of: metalFX) { _, on in ShioriKrkrGameViewController.upscalingEnabled = on }
         }
     }
 

@@ -401,12 +401,8 @@ add("Quicksand", None, "SIL Open Font License 1.1", "Quicksand.txt", rd(V / "Ren
 add("Twemoji", None, "CC BY 4.0 (graphics), MIT (code)", "Twemoji.txt",
     rd(V / "RenPy7Base/renpy/common/TwemojiCOLRv0.txt"))
 
-# Standard KiriKiri engine: ships until ShioriKrkr reaches parity (spec, App Store release). Remove with it.
-add("AetherKrkr (Standard engine)", "fa0f8af", "GPL 3.0", "AetherKrkr.txt",
-    "The Standard KiriKiri engine is AetherKrkr from the AetherKiri project (https://github.com/AetherKiri/AetherKrkr), "
-    "with its own bundled libraries. It leaves Shiori when Shiori's own KiriKiri engine reaches parity. "
-    "Its source and Shiori's changes to it (Scripts/kirikiri/patches) are published with Shiori's source.\n\n"
-    + rd(V / "Aether/LICENSE"))
+# Nothing from Aether ships (the Standard engine, AetherKrkr, left the app on 2026-10-15); its
+# Mac reference harness (Scripts/kirikiri) is never built into the app, so it has no entry here.
 
 # --- write -----------------------------------------------------------------------
 for f in OUT.glob("*.txt"): f.unlink()

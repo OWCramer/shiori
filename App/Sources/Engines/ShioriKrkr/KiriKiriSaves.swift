@@ -1,7 +1,7 @@
 import Foundation
 
-/// What Shiori does with a KiriKiri game's saves, for both KiriKiri engines (Standard and
-/// Shiori's own). The game's own bookmarks are the player's; Shiori writes none of them.
+/// What Shiori does with a KiriKiri game's saves. The game's own bookmarks are the player's;
+/// Shiori writes none of them.
 ///
 /// NEKO WORKs' KAG games (NEKOPARA, KARAKARA…) load an "emergency" bookmark by themselves at
 /// start-up (`checkEmergencySaveData`, from the `first.init` hook: whenever

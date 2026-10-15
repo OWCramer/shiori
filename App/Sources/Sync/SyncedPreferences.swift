@@ -1,20 +1,16 @@
 import Foundation
 
 /// Per-game choices that follow the user between devices (iCloud Keychain): the Steam version
-/// (beta) a game downloads from, Ren'Py's Phone Layout, and which KiriKiri engine plays it.
-/// Mirrored into the UserDefaults keys code off the main actor reads (`steamBranch.<appid>`,
-/// `renpyPhoneLayout.<appid>`, `kirikiriEngine.<appid>`).
+/// (beta) a game downloads from and Ren'Py's Phone Layout. Mirrored into the UserDefaults keys
+/// code off the main actor reads (`steamBranch.<appid>`, `renpyPhoneLayout.<appid>`).
+///
+/// Builds before 2026-10-15 also kept a KiriKiri engine choice per game (`shioriKrkr`,
+/// `standardKrkr`); there is one engine now, and those keys are ignored when decoding.
 @MainActor
 enum SyncedPreferences {
     private struct Saved: Codable, Equatable {
         var branches: [String: String] = [:]
         var phoneLayout: [UInt32] = []
-        /// KiriKiri games played on Shiori's own engine (Phase 23); optional, so choices saved
-        /// before it existed still decode.
-        var shioriKrkr: [UInt32]?
-        /// KiriKiri games set back to Standard (AetherKrkr) by hand; Shiori's engine is the
-        /// default where it can open the game (2026-10-12, the user: so testing doesn't get missed).
-        var standardKrkr: [UInt32]?
     }
 
     private static let account = "gamePreferences"
@@ -36,21 +32,6 @@ enum SyncedPreferences {
         reload()
         saved.phoneLayout.removeAll { $0 == appID }
         if enabled { saved.phoneLayout.append(appID) }
-        save()
-    }
-
-    static func usesShioriKrkr(appID: UInt32) -> Bool { !(saved.standardKrkr?.contains(appID) ?? false) }
-
-    static func setShioriKrkr(_ enabled: Bool, appID: UInt32) {
-        reload()
-        var standard = saved.standardKrkr ?? []
-        standard.removeAll { $0 == appID }
-        if !enabled { standard.append(appID) }
-        saved.standardKrkr = standard.isEmpty ? nil : standard
-        var shiori = saved.shioriKrkr ?? []
-        shiori.removeAll { $0 == appID }
-        if enabled { shiori.append(appID) }
-        saved.shioriKrkr = shiori.isEmpty ? nil : shiori
         save()
     }
 
@@ -90,12 +71,12 @@ enum SyncedPreferences {
 
     private static func mirror(_ saved: Saved) {
         let defaults = UserDefaults.standard
+        // `kirikiriEngine.<appid>` went with the engine choice; cleared here too.
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("steamBranch.") || key.hasPrefix("renpyPhoneLayout.")
             || key.hasPrefix("kirikiriEngine.") {
             defaults.removeObject(forKey: key)
         }
         for (appID, branch) in saved.branches { defaults.set(branch, forKey: "steamBranch.\(appID)") }
         for appID in saved.phoneLayout { defaults.set(true, forKey: "renpyPhoneLayout.\(appID)") }
-        for appID in saved.standardKrkr ?? [] { defaults.set("aether", forKey: "kirikiriEngine.\(appID)") }
     }
 }

@@ -11,37 +11,6 @@ import ShioriKrkrEmote
 import SwiftUI
 import UIKit
 
-/// Which KiriKiri engine plays a game while both exist (Phase 23): AetherKrkr ("Standard",
-/// the full edition's default) or Shiori's own, krkr2-based one ("Shiori (Beta)"). Per game,
-/// chosen on the game page and kept in iCloud Keychain with the other per-game choices; the
-/// launch flag `-ShioriKrkrEngine shiori` (or `aether`) overrides every game.
-enum KiriKiriEngineChoice: String, CaseIterable, Identifiable {
-    case aether
-    case shiori
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .aether: "Standard"
-        case .shiori: "Shiori (Beta)"
-        }
-    }
-
-    @MainActor
-    static func engine(for appID: UInt32) -> KiriKiriEngineChoice {
-        if let forced = UserDefaults.standard.string(forKey: "ShioriKrkrEngine").flatMap(KiriKiriEngineChoice.init(rawValue:)) {
-            return forced
-        }
-        return SyncedPreferences.usesShioriKrkr(appID: appID) ? .shiori : .aether
-    }
-
-    @MainActor
-    static func set(_ engine: KiriKiriEngineChoice, for appID: UInt32) {
-        SyncedPreferences.setShioriKrkr(engine == .shiori, appID: appID)
-    }
-}
-
 /// ShioriKrkr's side in the app: loads the framework, prepares the game folder and starts it.
 @MainActor
 enum ShioriKrkrRuntime {
@@ -98,27 +67,17 @@ enum ShioriKrkrRuntime {
         folder.lastPathComponent.split(separator: "-").first.flatMap { UInt32($0) } ?? 0
     }
 
-    /// What the game page says when the Shiori engine can't open a game yet.
-    static let unsupportedTitle = "This Game Doesn't Run on Shiori (Beta) Yet"
-    static let unsupportedMessage = "Switch to Standard in Version & Engine."
+    /// What Shiori says when the engine can't open a game yet.
+    static let unsupportedTitle = "This Game Doesn't Run on Shiori Yet"
+    static let unsupportedMessage = "Its archives are encrypted in a way Shiori can't open."
 
-    /// Whether the Shiori engine can open the game (its archives' encryption); checked before
+    /// Whether the engine can open the game (its archives' encryption); checked before
     /// starting so the player sees Shiori's message rather than the game's decoy error.
     static func canOpen(gameFolder: URL, appID: UInt32) -> Bool {
         let scheme = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(gameFolder.lastPathComponent)/scheme.shcx")
         let hasScheme = FileManager.default.fileExists(atPath: scheme.path) || GARbroDatabase.title(appID: appID) != nil
         return blocked(gameFolder: gameFolder, appID: appID, hasScheme: hasScheme) == false
     }
-
-    /// NEKO WORKs titles whose characters Shiori's E-mote player draws (checked game by game
-    /// against the Standard engine); the rest stay on Standard until they are.
-    static let nekoWorksReady: Set<UInt32> = [
-        385800, // NEKOPARA Vol. 0
-        333600, // NEKOPARA Vol. 1
-        420110, // NEKOPARA Vol. 2
-        899970, // NEKOPARA Extra
-        1406990, // NEKOPARA Vol. 4
-    ]
 
     private static func blocked(gameFolder: URL, appID: UInt32?, hasScheme: Bool) -> Bool {
         switch KiriKiriArchiveCheck.shioriEngineBlocker(base: gameFolder.appendingPathComponent("base", isDirectory: true),
@@ -128,11 +87,9 @@ enum ShioriKrkrRuntime {
             // Hx titles whose index keys GARbro's database has (GARbroDatabase.hxPlayable).
             let id = appID.flatMap { $0 == 0 ? nil : $0 } ?? folderAppID(gameFolder)
             return !GARbroDatabase.hxPlayable(appID: id)
-        case .nekoWorks:
-            // The library's folders are named "<app ID>-<name>".
-            let id = appID.flatMap { $0 == 0 ? nil : $0 } ?? gameFolder.lastPathComponent.split(separator: "-").first.flatMap { UInt32($0) }
-            return !(id.map(nekoWorksReady.contains) ?? false)
-        default: return true
+        // NEKO WORKs archives (neko, eliF) open with the key read from the archives themselves.
+        case .nekoWorks: return false
+        case .cxWithoutScheme: return true
         }
     }
 
@@ -228,11 +185,17 @@ enum ShioriKrkrRuntime {
 }
 
 /// Plays a KiriKiri game on ShioriKrkr. The engine composes each frame on the GPU with
-/// Metal and hands over the texture; Shiori presents it (ShioriKrkrPresenter), MetalFX-upscaled where the setting is
-/// on. Touch, trackpad, keyboard and controller follow the Standard engine's view: a tap is a
-/// click, two fingers tap for the right button, hold to leave, swipe down for the backlog,
-/// right to skip and up for auto.
+/// Metal and hands over the texture; Shiori presents it (ShioriKrkrPresenter), MetalFX-upscaled
+/// where the setting is on. A tap is a click, two fingers tap for the right button, hold to
+/// leave, swipe down for the backlog, right to skip and up for auto.
 final class ShioriKrkrGameViewController: UIViewController {
+    /// Settings › Engines: KiriKiri frames (1280×720 in most games) are enlarged to the screen
+    /// with MetalFX instead of the Catmull-Rom shader. Read when a game starts.
+    static var upscalingEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: "kirikiriMetalFXUpscaling") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "kirikiriMetalFXUpscaling") }
+    }
+
     private let gameFolder: URL
     private var onFirstFrame: (() -> Void)?
     private let onExit: () -> Void
@@ -293,7 +256,7 @@ final class ShioriKrkrGameViewController: UIViewController {
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
     override func loadView() {
-        let presenter = ShioriKrkrPresenter(upscaling: KiriKiriGameViewController.upscalingEnabled)
+        let presenter = ShioriKrkrPresenter(upscaling: Self.upscalingEnabled)
         self.presenter = presenter
         view = presenter.view
         view.backgroundColor = .black
@@ -333,7 +296,7 @@ final class ShioriKrkrGameViewController: UIViewController {
             MainActor.assumeIsolated { self?.saveSystemData(reason: "leaving the screen") }
         }
         #if DEBUG
-        // `-ShioriKiriKiriInput "20:skip;30:auto;40:pageup"`, as on the Standard engine: the
+        // `-ShioriKiriKiriInput "20:skip;30:auto;40:pageup"`: the
         // shared gestures (`skip`, `auto`, `backlog`, `menu`, `tap`) and keys (`pageup`,
         // `enter`) at seconds from launch.
         for step in (UserDefaults.standard.string(forKey: "ShioriKiriKiriInput") ?? "").split(separator: ";") {
@@ -674,7 +637,7 @@ final class ShioriKrkrGameViewController: UIViewController {
         toggleAuto()
     }
 
-    /// Auto as the Standard engine turns it on: the main window's Auto menu item (KAG's
+    /// Auto as the PC game's menu turns it on: the main window's Auto menu item (KAG's
     /// autoModeMenuItem, or the first item whose caption says "自動", "オート" or "auto"), which
     /// works whether the game shows its menu bar or not and runs the game's own handler. Games
     /// without one fall back to KAG's enterAutoMode / cancelAutoMode.
@@ -743,7 +706,7 @@ final class ShioriKrkrGameViewController: UIViewController {
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let (keys, rest) = presses.splitKeys { $0.windowsVirtualKey != nil || $0 == .keyboardPageUp }
         for key in keys {
-            // As on the Standard engine, a key ends a touch's press without a click.
+            // A key ends a touch's press without a click.
             cancelPointer()
             if key == .keyboardPageUp { wheelUp() }
             if let code = key.windowsVirtualKey { press(code, down: true) }
@@ -870,7 +833,7 @@ final class ShioriKrkrGameViewController: UIViewController {
             return
         }
         for (button, down) in padReader.read(pad) {
-            // As on the Standard engine, a button ends a touch's press without a click.
+            // A button ends a touch's press without a click.
             if down { cancelPointer() }
             switch button {
             case .up: padKey(0x26, down: down) // VK_UP
