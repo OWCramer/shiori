@@ -291,3 +291,67 @@ final class GameAudioEngine {
     }
     #endif
 }
+
+/// For an engine that plays through its own output (Siglus: kira over a RemoteIO unit): says
+/// when the output may need starting again (an interruption ended, the route changed, media
+/// services were reset), after making the session active again.
+@MainActor
+final class AudioOutputWatcher {
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+    init(name: String, restart: @escaping @MainActor (String) -> Void) {
+        GameAudioEngine.activateSession()
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+        let handle: @MainActor (String) -> Void = { reason in
+            GameAudioEngine.activateSession()
+            NSLog("%@", "\(name): \(reason), restarting the audio output")
+            restart(reason)
+        }
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            // Only an output that came or went (or was overridden); category changes are the
+            // session's own.
+            guard let reason, [.newDeviceAvailable, .oldDeviceUnavailable, .override, .routeConfigurationChange].contains(reason) else { return }
+            MainActor.assumeIsolated { handle("route change (\(reason.rawValue))") }
+        })
+        observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: .main) { note in
+            let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+            guard type == .ended else { return }
+            MainActor.assumeIsolated { handle("interruption ended") }
+        })
+        observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: session, queue: .main) { _ in
+            MainActor.assumeIsolated { handle("media services reset") }
+        })
+        #if DEBUG
+        // `-ShioriAudioDrill "8:route;14:interrupt;20:reset"`: the notifications iOS sends.
+        for step in (UserDefaults.standard.string(forKey: "ShioriAudioDrill") ?? "").split(separator: ";") {
+            let parts = step.split(separator: ":")
+            guard parts.count == 2, let delay = Double(parts[0]) else { continue }
+            let kind = String(parts[1])
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard self != nil else { return }
+                NSLog("%@", "\(name): drill \(kind)")
+                switch kind {
+                case "route", "config":
+                    center.post(name: AVAudioSession.routeChangeNotification, object: session,
+                                userInfo: [AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue])
+                case "interrupt":
+                    center.post(name: AVAudioSession.interruptionNotification, object: session,
+                                userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+                    center.post(name: AVAudioSession.interruptionNotification, object: session,
+                                userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue])
+                case "reset":
+                    center.post(name: AVAudioSession.mediaServicesWereResetNotification, object: session)
+                default:
+                    break
+                }
+            }
+        }
+        #endif
+    }
+
+    deinit {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    }
+}

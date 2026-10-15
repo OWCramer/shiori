@@ -116,9 +116,12 @@ final class SiglusGameViewController: UIViewController {
         NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.savePlace(reason: "leaving the screen") }
         }
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // iOS stops the engine's output unit on an interruption or a media services reset and
+        // it never starts again by itself; kira rebuilds it (siglus_rs patch 0012).
+        audioWatcher = AudioOutputWatcher(name: "Siglus") { _ in siglus_ios_restart_audio() }
     }
+
+    private var audioWatcher: AudioOutputWatcher?
 
     #if os(iOS)
     override var canBecomeFirstResponder: Bool { true }

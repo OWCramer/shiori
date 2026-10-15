@@ -1656,7 +1656,8 @@ extension LucaGameViewController {
     /// `-ShioriLucaInput "8:pad-down;9:key-enter;20:pad-rb"`: keys (`key-up`, `key-down`,
     /// `key-left`, `key-right`, `key-enter`, `key-escape`, `key-ctrl`, `key-pageup`) and pad
     /// buttons (`pad-a`, `pad-b`, `pad-x`, `pad-y`, `pad-menu`, `pad-options`, `pad-rb` held
-    /// for two seconds, `pad-up` …) at seconds from launch, to check them in the simulator.
+    /// for two seconds, `pad-up` …), `leave` and `load-screen` at seconds from launch, to
+    /// check them in the simulator.
     fileprivate func scheduleDebugInput() {
         let keys: [String: UIKeyboardHIDUsage] = [
             "key-up": .keyboardUpArrow, "key-down": .keyboardDownArrow, "key-left": .keyboardLeftArrow,
@@ -1674,7 +1675,12 @@ extension LucaGameViewController {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self else { return }
                 NSLog("Luca: debug input %@", name)
-                if let key = keys[name] {
+                if name == "leave" {
+                    // The leave question's Leave.
+                    self.leave()
+                } else if name == "load-screen" {
+                    self.presentSlots(saving: false)
+                } else if let key = keys[name] {
                     self.keyDown(key)
                     if key == .keyboardLeftControl {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.holdSkip(false) }
