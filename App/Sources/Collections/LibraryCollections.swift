@@ -63,6 +63,9 @@ final class LibraryCollections {
     /// Looks the Visual Novels tab's games up on VNDB (cached; only what's missing or stale),
     /// then suggests again with what it said.
     func refreshVNDB(appIDs: [UInt32]) async {
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return recompute() }
+        #endif
         await vndb.refresh(appIDs: appIDs)
         recompute()
     }

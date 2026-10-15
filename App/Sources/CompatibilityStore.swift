@@ -41,8 +41,15 @@ final class CompatibilityStore {
     private(set) var entries: [UInt32: (entry: Entry, engine: String)] = [:]
     private var refreshing = false
 
-    private let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("compatibility", isDirectory: true)
+    private let folder = CompatibilityStore.cachesDirectory.appendingPathComponent("compatibility", isDirectory: true)
+
+    nonisolated private static var cachesDirectory: URL {
+        #if DEBUG
+        ScreenshotLibrary.cachesDirectory()
+        #else
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        #endif
+    }
 
     init() {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -55,8 +62,7 @@ final class CompatibilityStore {
 
     /// An engine's entry for a game from the cached copy on disk, for callers off the main actor.
     nonisolated static func cachedEntry(appID: UInt32, engine: String) -> Entry? {
-        let file = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("compatibility/\(engine).json")
+        let file = cachesDirectory.appendingPathComponent("compatibility/\(engine).json")
         guard let data = try? Data(contentsOf: file),
               let list = try? JSONDecoder().decode(EngineFile.self, from: data) else { return nil }
         return list.games.first { $0.appID == appID }
@@ -65,6 +71,9 @@ final class CompatibilityStore {
     /// Fetches the list again when the cached copy is older than six hours (or `force`).
     func refresh(force: Bool = false) async {
         guard !refreshing else { return }
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return }
+        #endif
         let stamp = (try? file("renpy").resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         if !force, let stamp, Date().timeIntervalSince(stamp) < Self.refreshInterval { return }
         refreshing = true

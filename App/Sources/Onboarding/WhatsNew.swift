@@ -30,6 +30,7 @@ final class WhatsNew {
             pending = latest
         }
         #if DEBUG
+        if ScreenshotLibrary.isOn { pending = nil }
         // `-ShioriShowWhatsNew YES` (debug): show the newest entry whatever was seen.
         if defaults.bool(forKey: "ShioriShowWhatsNew") { pending = latest }
         #endif

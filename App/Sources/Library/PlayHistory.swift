@@ -131,6 +131,9 @@ final class PlayHistory {
     private static let savesKey = "playHistory.saveSlots"
 
     private static func loadSaveInventories() -> [UInt32: SaveInventory] {
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return [:] }
+        #endif
         UserDefaults.standard.removeObject(forKey: "playHistory.latestSave") // Any file, before save slots.
         guard let data = UserDefaults.standard.data(forKey: savesKey),
               let stored = try? JSONDecoder().decode([String: SaveInventory].self, from: data) else { return [:] }
@@ -138,6 +141,9 @@ final class PlayHistory {
     }
 
     private static func storeSaveInventories(_ saves: [UInt32: SaveInventory]) {
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return } // Leaves the device's own record alone.
+        #endif
         let stored = Dictionary(uniqueKeysWithValues: saves.map { (String($0.key), $0.value) })
         UserDefaults.standard.set(try? JSONEncoder().encode(stored), forKey: savesKey)
     }

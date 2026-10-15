@@ -10,6 +10,9 @@ enum SyncedKeychain {
 
     /// The value, whether it's already synced or still a this-device item from before.
     static func data(account: String, service: String = service) -> Data? {
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return ScreenshotLibrary.keychainData(account: memoryKey(account, service)) }
+        #endif
         var query = baseQuery(account: account, service: service)
         query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
         query[kSecReturnData as String] = true
@@ -21,6 +24,9 @@ enum SyncedKeychain {
 
     /// Replaces the value everywhere (nil removes it), as a synced item.
     static func set(_ data: Data?, account: String, service: String = service) {
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return ScreenshotLibrary.setKeychainData(data, account: memoryKey(account, service)) }
+        #endif
         var existing = baseQuery(account: account, service: service)
         existing[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
         SecItemDelete(existing as CFDictionary)
@@ -40,6 +46,13 @@ enum SyncedKeychain {
     static func setValue<T: Encodable>(_ value: T, account: String) {
         set(try? JSONEncoder().encode(value), account: account)
     }
+
+    #if DEBUG
+    /// The screenshot library's in-memory stand-in for an item.
+    private static func memoryKey(_ account: String, _ service: String) -> String {
+        service == Self.service ? account : "\(service)/\(account)"
+    }
+    #endif
 
     private static func baseQuery(account: String, service: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

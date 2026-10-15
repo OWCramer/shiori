@@ -141,8 +141,12 @@ final class PatchListStore {
     private var refreshing = false
     private var loading: Set<UInt32> = []
 
+    #if DEBUG
+    private let folder = ScreenshotLibrary.cachesDirectory().appendingPathComponent("patch-list", isDirectory: true)
+    #else
     private let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("patch-list", isDirectory: true)
+    #endif
 
     init() {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -206,6 +210,9 @@ final class PatchListStore {
     }
 
     private static func get(_ url: URL) async -> Data? {
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return nil }
+        #endif
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 20

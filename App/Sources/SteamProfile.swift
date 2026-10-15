@@ -19,6 +19,13 @@ final class SteamProfile {
     private static let key = "steamProfile"
 
     init() {
+        #if DEBUG
+        // The screenshot library's placeholder: a name and its initial, no Steam avatar.
+        if ScreenshotLibrary.isOn {
+            info = Info(steamID: 0, personaName: ScreenshotLibrary.accountName, avatar: nil)
+            return
+        }
+        #endif
         if let data = UserDefaults.standard.data(forKey: Self.key) {
             info = try? JSONDecoder().decode(Info.self, from: data)
         }

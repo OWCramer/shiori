@@ -64,6 +64,21 @@ final class SteamModel {
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     init() {
+        #if DEBUG
+        // The screenshot library: shown as signed in, with a session that has no sign-in to
+        // use and never connects (ScreenshotLibrary).
+        if ScreenshotLibrary.isOn {
+            session = SteamSession(
+                configuration: SteamConfiguration(deviceName: Self.deviceName, deviceSeed: "screenshots"),
+                store: InMemorySessionStore()
+            )
+            state = ScreenshotLibrary.loggedOnState
+            hasStoredSession = true
+            // Steam's defaults for a new account: no adult content.
+            contentPreferences = StoreContentPreferences(excludedDescriptors: [3, 4])
+            return
+        }
+        #endif
         // In iCloud Keychain: signing in on one device signs in the user's others (spec: Sign-in).
         let store = KeychainSessionStore(service: "com.owencramer.vnhub.steam", synchronizable: true)
         store.migrateToSynchronizable()
@@ -274,6 +289,9 @@ final class SteamModel {
     }
 
     func signOut() async {
+        #if DEBUG
+        if ScreenshotLibrary.isOn { return }
+        #endif
         await session.signOut()
         contentPreferences = StoreContentPreferences(excludedDescriptors: nil)
         ContentPreferencesCache.save(contentPreferences)

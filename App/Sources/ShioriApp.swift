@@ -18,6 +18,9 @@ struct ShioriApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if DEBUG
+        ScreenshotLibrary.prepare() // First: it moves Shiori's folders and synced settings aside.
+        #endif
         #if os(tvOS)
         PressFilter.install()
         #endif
@@ -45,6 +48,9 @@ struct ShioriApp: App {
         _patchInstaller = State(initialValue: patchInstaller)
         _games = State(initialValue: games)
         _engineScans = State(initialValue: EngineScanStore(session: steam.session))
+        #if DEBUG
+        if ScreenshotLibrary.isOn { games.showScreenshotSync() }
+        #endif
     }
 
     var body: some Scene {
@@ -60,10 +66,10 @@ struct ShioriApp: App {
                 .environment(patchList)
                 .environment(patchInstaller)
                 .environment(steam.artwork)
-                .task { await games.syncAllSaves() }
+                .task { if !Self.screenshotLibrary { await games.syncAllSaves() } }
                 // Saves a game was left with (force quit, crash, background time ran out) go up
                 // to Steam Cloud first thing once signed in.
-                .task(id: steam.isLoggedOn) { if steam.isLoggedOn { await games.catchUpSteamCloudAll() } }
+                .task(id: steam.isLoggedOn) { if steam.isLoggedOn, !Self.screenshotLibrary { await games.catchUpSteamCloudAll() } }
                 .task { await compatibility.refresh() }
                 .task { await patchList.refresh() }
                 // Learn each visual novel's engine from its manifests, so the library and the
@@ -124,6 +130,15 @@ struct ShioriApp: App {
 }
 
 extension ShioriApp {
+    /// `-ShioriScreenshotLibrary` (debug): nothing syncs with iCloud or Steam.
+    private static var screenshotLibrary: Bool {
+        #if DEBUG
+        ScreenshotLibrary.isOn
+        #else
+        false
+        #endif
+    }
+
     /// What Collections' suggestions are drawn from: the library as Steam describes it, the
     /// Visual Novels tab's choices and which games are downloaded.
     private var collectionInputs: CollectionInputs {
@@ -226,8 +241,18 @@ struct RootView: View {
         #endif
     }
 
+    /// `-ShioriSignInPreview` with the screenshot library: the sign-in screen over its
+    /// signed-in look, so every shot comes from the one offline mode.
+    private static var screenshotSignIn: Bool {
+        #if DEBUG
+        ScreenshotLibrary.isOn && SignInPreview.step != nil
+        #else
+        false
+        #endif
+    }
+
     @ViewBuilder private var content: some View {
-        if steam.isLoggedOn || steam.hasStoredSession || Self.previewLibrary {
+        if (steam.isLoggedOn || steam.hasStoredSession || Self.previewLibrary) && !Self.screenshotSignIn {
             #if os(tvOS)
             // Apple TV has its own library (design A, Phase 15), the same for remote and pad.
             TVHomeView()

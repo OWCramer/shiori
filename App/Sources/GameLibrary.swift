@@ -747,6 +747,19 @@ final class GameLibrary {
     }
 
     /// Once signed in to Steam: every installed game's Steam Cloud catch-up.
+    #if DEBUG
+    /// The screenshot library: saves shown as synced a few minutes ago, as on a device that
+    /// has been syncing.
+    func showScreenshotSync() {
+        let when = Date.now.addingTimeInterval(-540)
+        for appID in installedAppIDs {
+            saveSync[appID] = .synced(when, "Up to date")
+            steamCloud[appID] = .synced(when, "Up to date")
+            steamCloudSupport[appID] = true
+        }
+    }
+    #endif
+
     func catchUpSteamCloudAll() async {
         for appID in installedAppIDs { await catchUpSteamCloud(appID: appID) }
     }

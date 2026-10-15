@@ -108,7 +108,12 @@ enum SteamCloudSync {
     static var uploadsEnabled: Bool {
         get {
             #if targetEnvironment(simulator)
+            #if DEBUG
+            // Shown as on a device for screenshots; that library has no Steam session to upload with.
+            ScreenshotLibrary.isOn
+            #else
             false
+            #endif
             #else
             UserDefaults.standard.object(forKey: "steamCloudUploads") as? Bool ?? true
             #endif
