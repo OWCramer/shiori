@@ -25,6 +25,11 @@ struct SettingsAboutSection: View {
             } label: {
                 Label("Controls", systemImage: "hand.tap")
             }
+            NavigationLink {
+                AcknowledgementsScreen()
+            } label: {
+                Label("Acknowledgements", systemImage: "doc.text")
+            }
             Link(destination: CompatibilityStore.repository) {
                 Label("Compatibility List", systemImage: "checklist")
             }

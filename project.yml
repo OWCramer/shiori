@@ -36,7 +36,12 @@ targets:
     sources:
       - App/Sources
       - path: App/Resources
-        excludes: ["SiglusFonts/**"]
+        excludes: ["SiglusFonts/**", "Acknowledgements/**"]
+      # Settings › About › Acknowledgements: each bundled component's licence text and the
+      # list of them (docs/licences.md), kept as a folder so the names don't collide.
+      - path: App/Resources/Acknowledgements
+        type: folder
+        buildPhase: resources
       # BIZ UDGothic (SIL OFL), metric-compatible with MS Gothic, for Siglus games that ask
       # for the Windows font (SiglusRuntime links it in as the game's font/ folder).
       - path: App/Resources/SiglusFonts
@@ -185,7 +190,7 @@ targets:
       - path: App/Sources
         excludes: ["Engines/KiriKiri/**", "Engines/ShioriKrkr/**", "Engines/Siglus/**", "Engines/CatSystem/**"]
       - path: App/Resources
-        excludes: ["SiglusFonts/**", "Assets.xcassets/**"]
+        excludes: ["SiglusFonts/**", "Assets.xcassets/**", "Acknowledgements/**"]
       - path: App/TV
         # Linked into the tvOS Ren'Py frameworks (Scripts/tv/build-renpy-tv.sh).
         excludes: ["RenPyTVShims.m"]
