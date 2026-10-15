@@ -270,8 +270,8 @@ extension DenpasoftAccount: WKNavigationDelegate, WKDownloadDelegate {
     }
 }
 
-/// Denpasoft's own pages in the app, sharing the account's session: signing in, and claiming
-/// a free patch (a $0 checkout).
+/// Denpasoft's sign-in page in the app, the one web view Shiori has, sharing the account's
+/// session with the hidden reader. Only its sign-in and account pages load here.
 struct DenpasoftWebSheet: View {
     let url: URL
     let title: String
@@ -313,25 +313,46 @@ private struct DenpasoftWebView: UIViewRepresentable {
     /// Notices the sign-in happening in the page: WordPress's logged-in cookie appearing, or
     /// a page under /account/ other than the login form.
     final class SignInWatcher: NSObject, WKNavigationDelegate, WKHTTPCookieStoreObserver {
-        /// The sheet is for signing in only: Denpasoft's shop pages (products, cart, checkout)
-        /// open in Safari instead, so nothing is bought in the app.
+        enum Decision: Equatable {
+            case allow
+            case openInSafari
+            case block
+        }
+
+        /// The sheet is for signing in only. The page itself stays on Denpasoft's sign-in and
+        /// account pages; anything else it would open (its shop's products, cart and checkout,
+        /// or any other site) goes to Safari, so nothing is bought or browsed in the app.
         @MainActor func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-            guard let url = action.request.url, action.targetFrame?.isMainFrame != false,
-                  url.host()?.hasSuffix("denpasoft.com") == true, !Self.isAccountPage(url) else {
-                decisionHandler(.allow)
-                return
+            // A nil target frame is a new window (target=_blank): it would open as a page.
+            let decision = action.request.url.map { Self.decision(for: $0, isMainFrame: action.targetFrame?.isMainFrame ?? true) } ?? .block
+            decisionHandler(decision == .allow ? .allow : .cancel)
+            if decision == .openInSafari, let url = action.request.url { UIApplication.shared.open(url) }
+        }
+
+        /// Checked 2026-10-15: the sign-in form (denpasoft.com/account/login) posts to
+        /// denpasoft.com/api/account/login and returns to /account; its bot check is Cloudflare
+        /// Turnstile, an iframe from challenges.cloudflare.com. No outside sign-in providers.
+        nonisolated static func decision(for url: URL, isMainFrame: Bool) -> Decision {
+            let scheme = url.scheme?.lowercased() ?? ""
+            let host = url.host()?.lowercased() ?? ""
+            let isDenpasoft = host == "denpasoft.com" || host == "www.denpasoft.com"
+            if isMainFrame {
+                if scheme == "https", isDenpasoft, isAccountPage(url) { return .allow }
+                return scheme == "https" || scheme == "http" ? .openInSafari : .block
             }
-            decisionHandler(.cancel)
-            UIApplication.shared.open(url)
+            // Frames inside the page: Denpasoft's own, Cloudflare's check, and blank frames the
+            // check starts from. Other sites' frames (social embeds, ads) don't load.
+            if scheme == "about" { return .allow }
+            guard scheme == "https" else { return .block }
+            return isDenpasoft || host == "challenges.cloudflare.com" ? .allow : .block
         }
 
         nonisolated static func isAccountPage(_ url: URL) -> Bool {
             let path = url.path().lowercased()
             // The home page too: where a sign-in can land.
             if path.isEmpty || path == "/" { return true }
-            return ["/account", "/my-account", "/login", "/wp-login", "/register", "/lost-password", "/cdn-cgi"]
-                .contains { path.hasPrefix($0) }
+            return ["/account", "/api/account", "/cdn-cgi"].contains { path == $0 || path.hasPrefix($0 + "/") }
         }
 
         nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
