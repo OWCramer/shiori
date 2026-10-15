@@ -13,6 +13,8 @@ struct GamePagePlaySections: View {
         if let record {
             SavesSection(game: game, record: record)
             PatchesSection(game: game, model: model)
+        } else {
+            PatchesSection(game: game, model: model, installed: false)
         }
         CompatibilitySection(appID: game.appID)
     }

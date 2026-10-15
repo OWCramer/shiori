@@ -10,6 +10,7 @@ struct TVGamePage: View {
     @Environment(LibraryCuration.self) private var curation
     @Environment(EngineScanStore.self) private var engineScans
     @Environment(CompatibilityStore.self) private var compatibility
+    @Environment(PatchListStore.self) private var patchList
     @State private var showingMore = false
     @State private var confirmingDelete = false
     @State private var showingPatches = false
@@ -109,9 +110,12 @@ struct TVGamePage: View {
     }
 
     @ViewBuilder private var moreActions: some View {
-        if record != nil {
-            // Apple TV has no Files app: the patch list is how patches get here.
+        // Apple TV has no Files app: the patch list is how patches get here. Before the
+        // download, its patches can be queued to install with the game.
+        if record != nil || patchList.index[appID] != nil {
             Button("Patches") { showingPatches = true }
+        }
+        if record != nil {
             Button("Verify Files") { games.verify(appID: appID) }
         }
         switch status {

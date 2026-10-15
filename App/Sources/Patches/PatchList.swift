@@ -33,8 +33,21 @@ final class PatchListStore {
 
         struct Source: Codable, Sendable, Hashable {
             var site: String
+            /// The page the list read the patch from (the publisher's patch page, the VNDB
+            /// release, the uncensorpat.ch page).
             var page: String
             var key: String?
+            /// Where that page got the patch, when it says: the publisher's post, the translator's site.
+            var origin: String?
+
+            var pageURL: URL? { Self.webURL(page) }
+            var originURL: URL? { origin.flatMap(Self.webURL) }
+
+            private static func webURL(_ string: String) -> URL? {
+                guard let url = URL(string: string), let scheme = url.scheme?.lowercased(),
+                      scheme == "https" || scheme == "http" else { return nil }
+                return url
+            }
         }
 
         struct Install: Codable, Sendable, Hashable {

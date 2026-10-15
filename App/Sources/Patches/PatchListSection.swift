@@ -2,7 +2,9 @@ import SteamKit
 import SwiftUI
 
 /// The top of a game's Patches card: its Steam DLC, and the patches the public patch list
-/// knows for it, each with what it is, who made it, and Install, Update or Remove.
+/// knows for it, each with what it is, who made it and where it's from (linked), and Install,
+/// Update or Remove. Before the game is downloaded the list is shown too, and Install queues a
+/// patch to install when the download finishes.
 struct PatchListSection: View {
     let appID: UInt32
     let gameFolder: URL
@@ -28,13 +30,16 @@ struct PatchListSection: View {
 
     private enum Prompt: Identifiable {
         case install(PatchListStore.Patch)
+        /// Install once the game is downloaded.
+        case queue(PatchListStore.Patch)
         /// A file from a shop account (Denpasoft), by its file name.
         case installFile(PatchListStore.Patch, String)
         case remove(PatchListStore.Patch)
-        var patch: PatchListStore.Patch { switch self { case let .install(p), let .installFile(p, _), let .remove(p): p } }
+        var patch: PatchListStore.Patch { switch self { case let .install(p), let .queue(p), let .installFile(p, _), let .remove(p): p } }
         var id: String {
             switch self {
             case let .install(p): "i-\(p.id)"
+            case let .queue(p): "q-\(p.id)"
             case let .installFile(p, f): "f-\(p.id)-\(f)"
             case let .remove(p): "r-\(p.id)"
             }
@@ -44,6 +49,9 @@ struct PatchListSection: View {
     private var patches: [PatchListStore.Patch] { patchList.patches(for: appID) }
     private var hasContent: Bool { !(dlcs ?? []).isEmpty || !patches.isEmpty }
     private var record: GameRecord? { games.record(for: appID) }
+    /// Patches install into a downloaded game; before that they're queued.
+    private var gameInstalled: Bool { record != nil }
+    private var libraryGame: LibraryGame? { steam.library.first { $0.appID == appID } }
 
     var body: some View {
         let _ = RenderProbe.hit("PatchListSection")
@@ -61,6 +69,10 @@ struct PatchListSection: View {
         .task(id: appID) {
             installer.load(appID: appID, gameFolder: gameFolder)
             await patchList.load(appID: appID)
+        }
+        .task(id: gameInstalled) {
+            // Patches queued for a download that finished while their hook couldn't run.
+            if gameInstalled, installer.queued[appID] != nil { installer.installQueued(appID: appID, gameFolder: gameFolder) }
         }
         .task(id: steam.isLoggedOn) {
             guard steam.isLoggedOn, dlcs == nil else { return }
@@ -84,6 +96,15 @@ struct PatchListSection: View {
                 Button(installedVersion(patch) == nil ? "Download and Install" : "Update") {
                     installer.install(patch, appID: appID, gameFolder: gameFolder)
                 }
+            case let .queue(patch):
+                if games.isOnDevice(appID) {
+                    Button("Install After Download") { installer.enqueue(patch, appID: appID) }
+                } else if let game = libraryGame {
+                    Button("Download Game and Install") {
+                        installer.enqueue(patch, appID: appID)
+                        games.download(game)
+                    }
+                }
             case let .installFile(patch, file):
                 Button(installedVersion(patch) == nil ? "Download and Install" : "Replace") {
                     installer.install(patch, appID: appID, gameFolder: gameFolder, chosenFile: file)
@@ -97,6 +118,7 @@ struct PatchListSection: View {
         } message: { prompt in
             switch prompt {
             case let .install(patch): Text(confirmationMessage(patch))
+            case let .queue(patch): Text("Installs after the game downloads. " + confirmationMessage(patch))
             case let .installFile(patch, file): Text("Installs \(file.isEmpty ? "the file" : file) from your Denpasoft downloads. " + confirmationMessage(patch))
             case .remove: Text("Saves and other patches stay.")
             }
@@ -105,7 +127,7 @@ struct PatchListSection: View {
 
     private var promptTitle: String {
         switch prompt {
-        case let .install(patch), let .installFile(patch, _): "Install \(patch.name)?"
+        case let .install(patch), let .queue(patch), let .installFile(patch, _): "Install \(patch.name)?"
         case let .remove(patch): "Remove \(patch.name)?"
         case nil: ""
         }
@@ -163,7 +185,7 @@ struct PatchListSection: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(patch.name).font(.subheadline.weight(.medium))
-                    Text(byline(patch)).font(.caption).foregroundStyle(.secondary)
+                    byline(patch).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
                 action(patch)
@@ -200,6 +222,20 @@ struct PatchListSection: View {
         if let job = installer.jobs[appID], job.patchID == patch.id, !job.isFailure {
             Button("Cancel") { installer.cancel(appID: appID) }
                 .patchButtonStyle().font(.caption)
+        } else if !gameInstalled, patch.isDownloadable {
+            if installer.isQueued(patch.id, appID: appID) {
+                Menu {
+                    Button("Remove from Queue", systemImage: "xmark", role: .destructive) {
+                        installer.dequeue(patch.id, appID: appID)
+                    }
+                } label: {
+                    Label("Queued", systemImage: "clock")
+                }
+                .patchButtonStyle().font(.caption)
+            } else if games.isOnDevice(appID) || libraryGame != nil {
+                Button("Install", systemImage: "arrow.down.circle") { prompt = .queue(patch) }
+                    .patchButtonStyle().font(.caption)
+            }
         } else if let installed = installedVersion(patch) {
             Menu {
                 if installed.fingerprint != patch.fingerprint, patch.isDownloadable {
@@ -218,7 +254,10 @@ struct PatchListSection: View {
         } else if let denpasoftURL = denpasoftProduct(patch) {
             #if os(iOS)
             let files = denpasoft.isSignedIn ? denpasoft.downloads(forProductURL: denpasoftURL) : []
-            if files.count > 1 {
+            if !gameInstalled, !files.isEmpty {
+                // Claimed already: it installs from here once the game is downloaded.
+                EmptyView()
+            } else if files.count > 1 {
                 // Denpasoft can carry more than one file for a product: the player picks.
                 Menu {
                     Section("Your Denpasoft downloads") {
@@ -290,20 +329,43 @@ struct PatchListSection: View {
         Locale.current.localizedString(forIdentifier: code) ?? code
     }
 
-    private func byline(_ patch: PatchListStore.Patch) -> String {
-        let site = switch patch.source.site {
+    /// Who made the patch and where the list found it ("Winged Cloud · via uncensorpat.ch"): the
+    /// maker linked to its own page when the list knows it, the site to the patch's page there.
+    private func byline(_ patch: PatchListStore.Patch) -> Text {
+        let site = siteName(patch.source)
+        let showsMaker = !patch.by.isEmpty && !site.localizedCaseInsensitiveContains(patch.by)
+            && !patch.by.localizedCaseInsensitiveContains(site)
+        var line = AttributedString()
+        if showsMaker {
+            var maker = AttributedString(patch.by)
+            #if !os(tvOS)
+            maker.link = patch.source.originURL
+            #endif
+            line += maker
+            line += AttributedString(" · ")
+        }
+        var from = AttributedString(site)
+        #if !os(tvOS)
+        from.link = patch.source.pageURL
+        #endif
+        line += AttributedString("via ")
+        line += from
+        return Text(line)
+    }
+
+    private func siteName(_ source: PatchListStore.Patch.Source) -> String {
+        switch source.site {
         case "nekonyan": "NekoNyan's patch page"
         case "saikey": "Saikey Studios"
+        case "kagami": "Kagami Games' patch page"
         case "uncensorpatch": "uncensorpat.ch"
         case "patchmoe": "patch.moe"
         case "vndb": "VNDB"
         case "wingedcloud": "Winged Cloud's Patreon"
-        default: "the patch list"
+        case "denpasoft": "Denpasoft"
+        default:
+            source.pageURL?.host().map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? "the patch list"
         }
-        if patch.by.isEmpty || site.localizedCaseInsensitiveContains(patch.by) || patch.by.localizedCaseInsensitiveContains(site) {
-            return "via \(site)"
-        }
-        return "\(patch.by) · via \(site)"
     }
 
     #if os(iOS)

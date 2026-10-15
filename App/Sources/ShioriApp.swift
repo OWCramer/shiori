@@ -14,7 +14,7 @@ struct ShioriApp: App {
     @State private var engineScans: EngineScanStore
     @State private var compatibility = CompatibilityStore()
     @State private var patchList = PatchListStore()
-    @State private var patchInstaller = PatchInstaller()
+    @State private var patchInstaller: PatchInstaller
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -39,6 +39,9 @@ struct ShioriApp: App {
         _steam = State(initialValue: steam)
         let games = GameLibrary(session: steam.session)
         games.libraryEntry = { [weak steam] appID in steam?.library.first { $0.appID == appID } }
+        let patchInstaller = PatchInstaller()
+        games.onInstalled = { [weak patchInstaller] appID, folder in patchInstaller?.installQueued(appID: appID, gameFolder: folder) }
+        _patchInstaller = State(initialValue: patchInstaller)
         _games = State(initialValue: games)
         _engineScans = State(initialValue: EngineScanStore(session: steam.session))
     }
