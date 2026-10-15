@@ -16,6 +16,8 @@ rm -rf build/Shiori.xcarchive build/export
 xcodebuild -project Shiori.xcodeproj -scheme Shiori -configuration Release -destination 'generic/platform=iOS' \
     -archivePath build/Shiori.xcarchive CURRENT_PROJECT_VERSION="$BUILD" -allowProvisioningUpdates archive \
     | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)"
+# Nothing of the Standard KiriKiri engine (AetherKrkr, GPL-3.0): it left the app on 2026-10-15.
+./Scripts/check-no-aether.sh build/Shiori.xcarchive/Products/Applications/Shiori.app
 # The engine frameworks are prebuilt (Scripts/*/build-*.sh), so the archive has no dSYMs for
 # them and App Store Connect's symbol upload warns ("Upload completed with warnings"). Make
 # one per framework from its binary, so the UUIDs match (symbolicated as far as the binary's
