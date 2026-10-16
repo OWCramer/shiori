@@ -4,10 +4,10 @@
 # https://mozilla.org/MPL/2.0/.
 #
 # The ShioriKrkr Mac harness's FFmpeg: the same minimal LGPL-2.1+ configuration as the app's
-# Vendor/ShioriFFmpeg.xcframework (Scripts/catsystem/build-ios-ffmpeg.sh) - the ASF demuxer
+# Vendor/ShioriFFmpeg.xcframework (Scripts/ffmpeg/build-ios-ffmpeg.sh) - the ASF demuxer
 # and the Windows Media video and audio decoders, the MPEG program-stream demuxer and the
 # MPEG-1/2 video and MPEG audio decoders - built for macOS into build/ffmpeg-macos/install.
-# Run Scripts/catsystem/fetch-ffmpeg.sh first.
+# Run Scripts/ffmpeg/fetch-ffmpeg.sh first.
 set -eu
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 cd "$(dirname "$0")/../.."

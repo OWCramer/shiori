@@ -13,8 +13,8 @@
 # AVIOContext), ShioriKrkr (links this library; WORLD END ECONOMiCA's .mpg movies) and Siglus
 # (siglus_rs's WMV/WMA and MPEG-1/2 video, decoded by the app through siglus_set_host_media,
 # App/Sources/Engines/Siglus/SiglusMedia.swift).
-# Scripts/krkr2/build-ffmpeg-macos.sh builds the same configuration for the ShioriKrkr harness.
-# Run Scripts/catsystem/fetch-ffmpeg.sh first.
+# Scripts/ffmpeg/build-ffmpeg-macos.sh builds the same configuration for the ShioriKrkr harness.
+# Run Scripts/ffmpeg/fetch-ffmpeg.sh first.
 set -eu
 cd "$(dirname "$0")/../.."
 ROOT=$PWD
