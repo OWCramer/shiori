@@ -1,0 +1,6 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Your Apple Developer team goes in Signing.local.xcconfig (not committed):
+//   DEVELOPMENT_TEAM = ABCDE12345
+#include? "Signing.local.xcconfig"

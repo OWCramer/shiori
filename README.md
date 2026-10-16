@@ -55,7 +55,7 @@ xcodegen generate
 open Shiori.xcodeproj
 ```
 
-Set your own team (`DEVELOPMENT_TEAM` in `project.yml`); the bundle and iCloud container IDs are Shiori's, so change them too for a build of your own.
+Set your own team in `Signing.local.xcconfig` (`DEVELOPMENT_TEAM = …`, not committed); the bundle and iCloud container IDs are Shiori's, so change them too for a build of your own.
 
 The engine packages resolve from GitHub by version. To work on an engine and the app together, point the project at your checkouts with a `project.local.yml` (git-ignored) and generate from it:
 

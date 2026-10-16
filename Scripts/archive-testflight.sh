@@ -35,6 +35,11 @@ for fw in build/Shiori.xcarchive/Products/Applications/Shiori.app/Frameworks/*.f
     fi
     [ -d "$dsym" ] || dsymutil "$fw/$name" -o "$dsym" 2>/dev/null || true
 done
-xcodebuild -exportArchive -archivePath build/Shiori.xcarchive -exportOptionsPlist Scripts/ExportOptions.plist \
+# The team comes from Signing.local.xcconfig (not committed).
+TEAM=$(sed -n 's/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*\([A-Z0-9]*\).*/\1/p' Signing.local.xcconfig 2>/dev/null | head -1)
+[ -n "$TEAM" ] || { echo "Set DEVELOPMENT_TEAM in Signing.local.xcconfig" >&2; exit 1; }
+OPTIONS=$(mktemp -t ExportOptions).plist
+sed "s/YOUR_TEAM_ID/$TEAM/" Scripts/ExportOptions.plist > "$OPTIONS"
+xcodebuild -exportArchive -archivePath build/Shiori.xcarchive -exportOptionsPlist "$OPTIONS" \
     -exportPath build/export -allowProvisioningUpdates | grep -E "error:|EXPORT (SUCCEEDED|FAILED)"
 echo "Shiori $VERSION ($BUILD): build/Shiori.xcarchive, build/export/Shiori.ipa"
