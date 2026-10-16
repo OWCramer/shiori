@@ -3,11 +3,11 @@
 // https://mozilla.org/MPL/2.0/.
 
 import AVFoundation
-import CShioriKrkr
+import CKiriKit
 import GameController
 import Metal
 import os
-import ShioriKrkrEmote
+import KiriKit
 import SwiftUI
 import UIKit
 

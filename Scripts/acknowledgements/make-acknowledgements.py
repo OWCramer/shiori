@@ -249,15 +249,15 @@ add("LZMA SDK", None, "Public Domain", "LZMA-SDK.txt",
     "LzmaDec.c and its headers, from the LZMA SDK by Igor Pavlov (https://7-zip.org/sdk.html).\n\nThe LZMA SDK is placed in the public domain.\n")
 
 # --- Artemis -------------------------------------------------------------------
-add("Lua", "5.1.5", "MIT", "Lua.txt", rd(WT / "Packages/ArtemisKit/Sources/CLua/COPYRIGHT"))
-sv = rd(WT / "Packages/ArtemisKit/Sources/CVorbis/stb_vorbis.c").splitlines()
+add("Lua", "5.1.5", "MIT", "Lua.txt", rd(SPM / "ArtemisKit/Sources/CLua/COPYRIGHT"))
+sv = rd(SPM / "ArtemisKit/Sources/CVorbis/stb_vorbis.c").splitlines()
 i = max(k for k, l in enumerate(sv) if "ALTERNATIVE A - MIT License" in l)
 j = max(k for k, l in enumerate(sv) if "ALTERNATIVE B" in l)
 add("stb_vorbis", "1.22", "MIT", "stb_vorbis.txt", "Used under the MIT License (it is also in the public domain).\n\n" + "\n".join(sv[i + 1:j - 1]) + "\n")
-add("libogg", "1.3.5, 1.3.6", "BSD 3-Clause", "libogg.txt", rd(WT / "Packages/ArtemisKit/Sources/CVideo/ogg/COPYING"))
+add("libogg", "1.3.5, 1.3.6", "BSD 3-Clause", "libogg.txt", rd(SPM / "ArtemisKit/Sources/CVideo/ogg/COPYING"))
 add("libtheora", "1.2.0", "BSD 3-Clause", "libtheora.txt",
     "libtheora decodes Artemis games' Theora movies; siglus_rs's theora-rs, which decodes Siglus games' OMV movies, "
-    "is a Rust rewrite of libtheora 1.2.0.\n\n" + rd(WT / "Packages/ArtemisKit/Sources/CVideo/theora/COPYING"))
+    "is a Rust rewrite of libtheora 1.2.0.\n\n" + rd(SPM / "ArtemisKit/Sources/CVideo/theora/COPYING"))
 add("PL_MPEG", None, "MIT", "pl_mpeg.txt", mit("Copyright (c) 2019 Dominic Szablewski"))
 
 # --- Luca, CatSystem2, KiriKiri decryption ------------------------------------

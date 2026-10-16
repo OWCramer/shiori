@@ -18,15 +18,20 @@ packages:
   SteamKit:
     path: Packages/SteamKit
   ArtemisKit:
-    path: Packages/ArtemisKit
+    url: https://github.com/OWCramer/ArtemisKit.git
+    from: "0.1.0"
   SiglusKit:
-    path: Packages/SiglusKit
-  ShioriKrkrKit:
-    path: Packages/ShioriKrkrKit
+    url: https://github.com/OWCramer/SiglusKit.git
+    from: "0.1.0"
+  KiriKit:
+    url: https://github.com/OWCramer/KiriKit.git
+    from: "0.1.0"
   LucaKit:
-    path: Packages/LucaKit
+    url: https://github.com/OWCramer/LucaKit.git
+    from: "0.1.0"
   CatSystemKit:
-    path: Packages/CatSystemKit
+    url: https://github.com/OWCramer/CatSystemKit.git
+    from: "0.1.0"
 targets:
   Shiori:
     type: application
@@ -107,10 +112,10 @@ targets:
       # Shiori's KiriKiri engine (krkr2's core with Shiori's environment and Metal compositor;
       # Phase 23), as one dynamic framework (Scripts/krkr2/build-framework.sh) exporting only
       # shiorikrkr.h. Embedded but not linked: it is opened with dlopen when a game starts.
-      - package: ShioriKrkrKit
-        product: CShioriKrkr
-      - package: ShioriKrkrKit
-        product: ShioriKrkrEmote
+      - package: KiriKit
+        product: CKiriKit
+      - package: KiriKit
+        product: KiriKit
       - framework: Vendor/ShioriKrkr.xcframework
         embed: true
         link: false
