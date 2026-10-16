@@ -8,8 +8,8 @@ import Foundation
 /// The movies Shiori decodes for siglus_rs (`siglus_set_host_media`, siglus.h): Windows Media
 /// (ASF with WMV 7/8/9 or VC-1 pictures and WMA 1/2, Pro or Lossless sound, planetarian HD's
 /// movie) and MPEG-1/2 video. siglus_rs's own decoders for these are ports of FFmpeg's, which
-/// Shiori builds without (docs/licences.md); the app's LGPL FFmpeg
-/// (`Scripts/catsystem/build-ios-ffmpeg.sh`) does the decoding instead. The engine reads the
+/// Shiori builds without; the app's LGPL FFmpeg
+/// (`Scripts/ffmpeg/build-ios-ffmpeg.sh`) does the decoding instead. The engine reads the
 /// file through callbacks and turns the pictures into its own frames; OMV movies stay with the
 /// engine (Theora).
 enum SiglusMedia {

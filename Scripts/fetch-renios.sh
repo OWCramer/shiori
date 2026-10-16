@@ -4,7 +4,7 @@
 # https://mozilla.org/MPL/2.0/.
 #
 # Downloads Ren'Py's prebuilt iOS runtime (renios) into Vendor/renios, which the app links.
-# Pinned to the Ren'Py version Highway Blossoms ships with; see spec.md, "Ren'Py engine".
+# Pinned to the Ren'Py version Highway Blossoms ships with.
 # Vendor/ is gitignored (the static libraries are ~270 MB). Safe to re-run.
 set -eu
 cd "$(dirname "$0")/.."

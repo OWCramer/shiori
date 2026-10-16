@@ -4,7 +4,7 @@
 # https://mozilla.org/MPL/2.0/.
 
 """Builds App/Resources/Acknowledgements (Settings › About › Acknowledgements) from the licence
-files of every component Shiori ships. See docs/licences.md; rerun when a component changes:
+files of every component Shiori ships. Rerun when a component changes:
 
     python3 -I Scripts/acknowledgements/make-acknowledgements.py
 """
@@ -265,7 +265,7 @@ add("libvpx", "1.15.2", "BSD 3-Clause", "libvpx.txt", rd(V / "libvpx/LICENSE") +
 add("FFmpeg", "8.0.3", "LGPL 2.1 or later", "FFmpeg.txt",
     "Shiori uses FFmpeg's libavformat, libavcodec and libavutil, built under the LGPL 2.1 or later "
     "(no GPL or non-free parts), for CatSystem2, KiriKiri and Siglus games' Windows Media and MPEG movies. "
-    "FFmpeg's source and Shiori's build script (Scripts/catsystem/build-ios-ffmpeg.sh) are published with "
+    "FFmpeg's source and Shiori's build script (Scripts/ffmpeg/build-ios-ffmpeg.sh) are published with "
     "Shiori's source, so a modified FFmpeg can be relinked.\n\n" + rd(V / "ffmpeg/LICENSE.md") + sep("GNU Lesser General Public License 2.1") + LGPL21)
 add("GARbro", None, "MIT", "GARbro.txt",
     "Shiori's CxDec and Hx decryption (ShioriKrkr) are ported from GARbro, and its KIF and HG-3 readers follow GARbro's format code.\n\n" + rd(V / "garbro/LICENSE"))

@@ -6,7 +6,7 @@ import Foundation
 
 /// A Windows Unity player build, recognised by its real layout rather than by any name
 /// ending in `_data`: `UnityPlayer.dll`, or a `<Name>_Data/` folder holding the player's own
-/// files. Shiori can't play Unity games (docs/unity-survey.md); it records which Unity and
+/// files. Shiori can't play Unity games; it records which Unity and
 /// which scripting backend so the game page can say so.
 enum UnityLayout {
     /// Files and folders only a Unity player's `<Name>_Data/` has.

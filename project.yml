@@ -43,7 +43,7 @@ targets:
       - path: App/Resources
         excludes: ["SiglusFonts/**", "Acknowledgements/**"]
       # Settings › About › Acknowledgements: each bundled component's licence text and the
-      # list of them (docs/licences.md), kept as a folder so the names don't collide.
+      # list of them, kept as a folder so the names don't collide.
       - path: App/Resources/Acknowledgements
         type: folder
         buildPhase: resources
@@ -137,7 +137,7 @@ targets:
       - framework: Vendor/ShioriVPX.xcframework
         embed: false
       # FFmpeg's ASF demuxer and WMV 9 / WMA 2 decoders only, static, LGPL-2.1+
-      # (Scripts/catsystem/build-ios-ffmpeg.sh): NEKOPARA Vol. 3's movies are WMV.
+      # (Scripts/ffmpeg/build-ios-ffmpeg.sh): NEKOPARA Vol. 3's movies are WMV.
       - framework: Vendor/ShioriFFmpeg.xcframework
         embed: false
       # Ren'Py runtimes from Scripts/build-renpy-runtimes.sh, loaded with dlopen when a game

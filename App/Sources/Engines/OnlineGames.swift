@@ -7,7 +7,7 @@ import Foundation
 /// Games that live on their publisher's servers (gacha games with accounts, anti-cheat and
 /// live updates). Their engine doesn't matter: Shiori can't play them, and each has its own
 /// official iOS app. The library marks them as online games rather than "Unity".
-/// Steam app id → name, for reading this list; docs/unity-survey.md has the background.
+/// Steam app id → name, for reading this list.
 enum OnlineGames {
     static let all: [UInt32: String] = [
         1976440: "CounterSide",

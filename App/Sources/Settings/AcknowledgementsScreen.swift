@@ -5,8 +5,7 @@
 #if os(iOS)
 import SwiftUI
 
-/// One bundled component and its licence, read from `Acknowledgements/acknowledgements.json`
-/// (kept in step with docs/licences.md).
+/// One bundled component and its licence, read from `Acknowledgements/acknowledgements.json`.
 struct Acknowledgement: Decodable, Identifiable, Hashable {
     let name: String
     let version: String?

@@ -9,7 +9,7 @@ import QuartzCore
 
 /// A CatSystem2 movie (`movie nekopara3op`): WMV 9 video with WMA 2 sound in ASF, inside
 /// `movie.int`. iOS plays neither, so a minimal FFmpeg (the ASF demuxer and the two decoders,
-/// LGPL, `Scripts/catsystem/build-ios-ffmpeg.sh`) decodes them. The file is read from the
+/// LGPL, `Scripts/ffmpeg/build-ios-ffmpeg.sh`) decodes them. The file is read from the
 /// archive a piece at a time and deciphered in memory (nothing is written to disk). A thread
 /// decodes a few frames ahead into Y, U and V textures and schedules the sound on its own
 /// audio engine; the sound is the clock, and the frame for its time is drawn with Metal.

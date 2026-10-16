@@ -5,7 +5,7 @@
 #if os(iOS)
 /// How each engine plays, the one place the controls guide reads from (the first-launch
 /// splash, the game page's Controls…, Settings › Controls). Keep it in step with the engines'
-/// input code and spec.md's Touch decision and engine sections when gestures change.
+/// input code when gestures change.
 enum ControlsTable {
     /// The engines with a guide, in the order Settings lists them.
     static let engines = ["renpy", "artemis", "kirikiri", "siglus", "luca", "catsystem2"]

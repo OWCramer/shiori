@@ -16,3 +16,10 @@ project.local.yml
 
 Signing.local.xcconfig
 Vendor
+
+# Local planning notes, not published
+docs/
+spec.md
+phases.md
+HANDOFF.md
+CLAUDE.md
