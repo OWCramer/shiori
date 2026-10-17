@@ -4,7 +4,7 @@ A player for the visual novels you own, on iPhone, iPad and Apple TV. Sign in wi
 
 Shiori doesn't include or sell any games, and this repository holds no game content. It plays the games your account owns.
 
-[Support](https://owcramer.github.io/shiori/support/) · [Privacy Policy](https://owcramer.github.io/shiori/privacy/) · [Compatibility](https://github.com/OWCramer/shiori-compatibility) · [Patches](https://github.com/OWCramer/shiori-patches)
+[Join the TestFlight beta](https://testflight.apple.com/join/p6CHjMne) · [Support](https://owcramer.github.io/shiori/support/) · [Privacy Policy](https://owcramer.github.io/shiori/privacy/) · [Compatibility](https://github.com/OWCramer/shiori-compatibility) · [Patches](https://github.com/OWCramer/shiori-patches)
 
 ## Engines
 
