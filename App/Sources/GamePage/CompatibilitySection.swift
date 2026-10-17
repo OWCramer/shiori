@@ -8,6 +8,8 @@ import SwiftUI
 /// The game's entry in the public compatibility list, or an invitation to add one.
 struct CompatibilitySection: View {
     let appID: UInt32
+    let name: String
+    let engine: String?
     @Environment(CompatibilityStore.self) private var compatibility
 
     var body: some View {
@@ -40,8 +42,8 @@ struct CompatibilitySection: View {
                 }
             }
             GamePageRow {
-                Link(destination: CompatibilityStore.repository) {
-                    Label("Report on GitHub", systemImage: "square.and.pencil")
+                Link(destination: CompatibilityStore.reportURL(appID: appID, name: name, engine: engine)) {
+                    Label("Report How It Plays", systemImage: "square.and.pencil")
                 }
             }
         }

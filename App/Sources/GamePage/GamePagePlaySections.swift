@@ -21,7 +21,7 @@ struct GamePagePlaySections: View {
         } else {
             PatchesSection(game: game, model: model, installed: false)
         }
-        CompatibilitySection(appID: game.appID)
+        CompatibilitySection(appID: game.appID, name: game.name, engine: record?.engine?.engine)
             // The game's patch list, read here so a game not yet downloaded shows its section.
             .task(id: game.appID) { await patchList.load(appID: game.appID) }
     }

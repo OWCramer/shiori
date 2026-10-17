@@ -37,8 +37,27 @@ final class CompatibilityStore {
     }
 
     static let repository = URL(string: "https://github.com/OWCramer/shiori-compatibility")!
+    /// The list as a website, with search and a link to report a game.
+    static let website = URL(string: "https://compat.ocramer.com")!
+
+    /// The repository's "Report a game" issue form, filled in for this game.
+    static func reportURL(appID: UInt32, name: String, engine: String?) -> URL {
+        var components = URLComponents(url: repository.appendingPathComponent("issues/new"), resolvingAgainstBaseURL: false)!
+        var items = [
+            URLQueryItem(name: "template", value: "report.yml"),
+            URLQueryItem(name: "title", value: "Report: \(name)"),
+            URLQueryItem(name: "name", value: name),
+            URLQueryItem(name: "appid", value: String(appID)),
+        ]
+        // The form's engine choices, by Shiori's engine id.
+        let engines = ["renpy": "Ren'Py", "kirikiri": "KiriKiri", "artemis": "Artemis", "siglus": "SiglusEngine",
+                       "luca": "Luca System", "catsystem2": "CatSystem2", "onscripter": "ONScripter"]
+        if let engine, let label = engines[engine] { items.append(URLQueryItem(name: "engine", value: label)) }
+        components.queryItems = items
+        return components.url ?? repository
+    }
     private static let raw = URL(string: "https://raw.githubusercontent.com/OWCramer/shiori-compatibility/main/engines/")!
-    private static let engines = ["renpy", "kirikiri", "artemis", "siglus", "luca"]
+    private static let engines = ["renpy", "kirikiri", "artemis", "siglus", "luca", "catsystem2"]
     private static let refreshInterval: TimeInterval = 6 * 3600
 
     /// Entries by Steam app id, with the engine file's display name.

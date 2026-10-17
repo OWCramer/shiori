@@ -34,7 +34,7 @@ struct SettingsAboutSection: View {
             } label: {
                 Label("Acknowledgements", systemImage: "doc.text")
             }
-            Link(destination: CompatibilityStore.repository) {
+            Link(destination: CompatibilityStore.website) {
                 Label("Compatibility List", systemImage: "checklist")
             }
             Link(destination: PatchListStore.repository) {
