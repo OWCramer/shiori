@@ -14,6 +14,9 @@ struct SavesSection: View {
     @State private var iCloud = false
     @State private var steamCloud = false
     @State private var syncRequested = false
+    @State private var confirmingErase = false
+    @State private var erasing = false
+    @State private var eraseError: String?
 
     private var appID: UInt32 { game.appID }
     private var history: PlayHistory { .shared }
@@ -49,6 +52,27 @@ struct SavesSection: View {
                 }
                 .disabled(syncing)
             }
+            GamePageRow {
+                Button(role: .destructive) { confirmingErase = true } label: {
+                    HStack {
+                        Label("Erase Saves", systemImage: "trash")
+                        Spacer()
+                        if erasing { ProgressView() }
+                    }
+                    .contentShape(.rect)
+                }
+                .disabled(syncing || erasing || games.runningGameAppID == appID)
+            }
+        }
+        .confirmationDialog("Erase saves for \(game.name)?", isPresented: $confirmingErase, titleVisibility: .visible) {
+            Button("Erase Saves", role: .destructive, action: erase)
+        } message: {
+            Text(eraseMessage)
+        }
+        .alert("Couldn't Erase Saves", isPresented: Binding(get: { eraseError != nil }, set: { if !$0 { eraseError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(eraseError ?? "")
         }
         .onAppear(perform: loadToggles)
         .onChange(of: iCloud) { _, on in setICloud(on) }
@@ -128,6 +152,20 @@ struct SavesSection: View {
 
     private func setSteamCloud(_ on: Bool) {
         if on != games.isSteamCloudEnabled(appID) { games.setSteamCloud(appID, enabled: on) }
+    }
+
+    private var eraseMessage: String {
+        let base = "Saves, settings and read text are erased here, in iCloud and on your other devices."
+        return engineUsesSteamCloud && steamCloud ? base + " Steam Cloud saves download again when you play." : base
+    }
+
+    private func erase() {
+        erasing = true
+        Task {
+            do { try await games.eraseSaves(appID: appID) } catch { eraseError = error.localizedDescription }
+            erasing = false
+            refreshSaves()
+        }
     }
 
     private func syncNow() {

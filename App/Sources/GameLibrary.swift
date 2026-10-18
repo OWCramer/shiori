@@ -961,7 +961,24 @@ final class GameLibrary {
         // Before anything moves: the files the removed "pick up where you left off" left behind.
         let removed = ResumeLeftovers.removeOnce(appID: appID, local: saves, remote: remote)
         if !removed.isEmpty { NSLog("Saves %u: removed Shiori's old resume files %@", appID, removed.joined(separator: ", ")) }
+        // Another device erased this game's saves: set this one's aside before they upload again.
+        if let backup = try? SaveSync.applyErase(appID: appID, local: saves, root: root) {
+            NSLog("Saves %u: erased on another device, moved to %@", appID, backup.path)
+        }
         return Result { try SaveSync.sync(local: saves, remote: remote, direction: direction) }
+    }
+
+    /// Erases a game's saves for a fresh start: this device's move to a backup, and the iCloud
+    /// copy is deleted, with a marker so the other devices set theirs aside too. Steam Cloud
+    /// isn't touched. Not while the game is open.
+    func eraseSaves(appID: UInt32) async throws {
+        guard runningGameAppID != appID, let saves = savesFolder(appID) else { return }
+        if let running = syncTasks[appID] { await running.value }
+        let backup = try await Task.detached(priority: .userInitiated) {
+            try SaveSync.erase(appID: appID, local: saves, root: SaveSync.remoteRoot())
+        }.value
+        saveSync[appID] = nil
+        log.notice("Saves \(appID): erased\(backup.map { ", backup in \($0.path)" } ?? "", privacy: .public)")
     }
 
     // MARK: - Play

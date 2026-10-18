@@ -241,3 +241,85 @@ enum SaveSync {
         if let error = coordinationError ?? bodyError { throw error }
     }
 }
+
+// MARK: - Erasing
+
+/// Erasing a game's saves for a fresh start: the files move to a backup on this device, the
+/// iCloud copy is deleted, and a marker in iCloud (`Saves/Erased/<appid>.json`) tells the
+/// player's other devices to set theirs aside too, before their next sync would upload them
+/// again. Steam Cloud isn't touched.
+extension SaveSync {
+    struct EraseMarker: Codable {
+        var erased: Date
+    }
+
+    /// Where erased saves go: `Application Support/SaveBackups/<appid>/<date>/`.
+    static func eraseBackupsDirectory(appID: UInt32) -> URL {
+        URL.shioriSupport.appendingPathComponent("SaveBackups/\(appID)", isDirectory: true)
+    }
+
+    private static func handledKey(_ appID: UInt32) -> String { "SavesErased.\(appID)" }
+
+    private static func markerURL(root: URL, appID: UInt32) -> URL {
+        root.appendingPathComponent("Erased/\(appID).json")
+    }
+
+    /// Moves every file in `local` to a backup, deletes `Saves/<appid>/` under `root` (nil when
+    /// iCloud isn't available) and leaves the marker. Call off the main thread. Returns the
+    /// backup folder, or nil if there was nothing to move.
+    @discardableResult
+    static func erase(appID: UInt32, local: URL, root: URL?, now: Date = .now) throws -> URL? {
+        let backup = try setAside(local, appID: appID, before: nil, now: now)
+        if let root {
+            try coordinate(writing: root.appendingPathComponent(String(appID), isDirectory: true), options: .forDeleting) { url in
+                if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            }
+            let marker = markerURL(root: root, appID: appID)
+            try coordinate(writing: marker) { url in
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(EraseMarker(erased: now)).write(to: url, options: .atomic)
+            }
+        }
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: handledKey(appID))
+        return backup
+    }
+
+    /// Before a sync: if another device erased this game's saves since this one last looked,
+    /// sets aside the local files from before the erase (newer ones are kept). Returns the
+    /// backup folder when files moved.
+    @discardableResult
+    static func applyErase(appID: UInt32, local: URL, root: URL, now: Date = .now) throws -> URL? {
+        var marker: EraseMarker?
+        coordinateQuietly(reading: markerURL(root: root, appID: appID)) { url in
+            marker = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(EraseMarker.self, from: $0) }
+        }
+        guard let erased = marker?.erased,
+              erased.timeIntervalSince1970 > UserDefaults.standard.double(forKey: handledKey(appID)) else { return nil }
+        let backup = try setAside(local, appID: appID, before: erased, now: now)
+        UserDefaults.standard.set(erased.timeIntervalSince1970, forKey: handledKey(appID))
+        return backup
+    }
+
+    /// Moves the top-level items of `local` (all of them, or those last changed before
+    /// `before`) into a new dated backup folder. `local` itself stays, as engines link to it.
+    private static func setAside(_ local: URL, appID: UInt32, before: Date?, now: Date) throws -> URL? {
+        let fm = FileManager.default
+        let items = (try? fm.contentsOfDirectory(at: local, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let moving = items.filter { item in
+            guard let before else { return true }
+            let date = (try? item.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return date < before
+        }
+        guard !moving.isEmpty else { return nil }
+        let stamp = ISO8601DateFormatter().string(from: now).replacingOccurrences(of: ":", with: "-")
+        var backup = eraseBackupsDirectory(appID: appID).appendingPathComponent(stamp, isDirectory: true)
+        var copy = 1
+        while fm.fileExists(atPath: backup.path) {
+            copy += 1
+            backup = eraseBackupsDirectory(appID: appID).appendingPathComponent("\(stamp) \(copy)", isDirectory: true)
+        }
+        try fm.createDirectory(at: backup, withIntermediateDirectories: true)
+        for item in moving { try fm.moveItem(at: item, to: backup.appendingPathComponent(item.lastPathComponent)) }
+        return backup
+    }
+}
