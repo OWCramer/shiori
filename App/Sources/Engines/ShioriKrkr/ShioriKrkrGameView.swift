@@ -1033,6 +1033,7 @@ extension ShioriKrkrGameViewController: LaptopInput {
         var roots: [LaptopMenuItem] = []
         var stack: [LaptopMenuItem] = []
         var depths: [Int] = []
+        var skipping: Int?
         func pop() {
             let item = stack.removeLast()
             depths.removeLast()
@@ -1043,7 +1044,13 @@ extension ShioriKrkrGameViewController: LaptopInput {
             guard fields.count == 5, let depth = Int(fields[1]) else { continue }
             while let last = depths.last, last >= depth { pop() }
             let path = fields[0].split(separator: "/").compactMap { Int($0) }
-            stack.append(LaptopMenuItem(id: path, title: Self.menuTitle(String(fields[2])),
+            // A single character on the bar itself ("x", "+") is a glyph button on the PC's
+            // menu bar, not a command anyone could choose by name.
+            let title = Self.menuTitle(String(fields[2]))
+            if depth == 0, title.count <= 1 { skipping = depth; continue }
+            if let skip = skipping, depth > skip { continue }
+            skipping = nil
+            stack.append(LaptopMenuItem(id: path, title: title,
                                         enabled: fields[3] == "1", checked: fields[4] == "1"))
             depths.append(depth)
         }
