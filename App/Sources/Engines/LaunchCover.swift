@@ -87,7 +87,9 @@ struct CoveredGame<Game: View>: View {
             .animation(.smooth, value: fold == nil)
             .onChange(of: LaptopFold.hasFold(in: proxy), initial: true) { _, fold in OrientationLock.setFoldable(fold) }
         }
+        // Nothing here takes text, and the Duo's keyboard mustn't move the halves.
         .ignoresSafeArea()
+        .ignoresSafeArea(.keyboard)
         .background(Color.black)
         .onAppear { LaptopPad.shared.reset() }
         .onDisappear { OrientationLock.setFoldable(false) }

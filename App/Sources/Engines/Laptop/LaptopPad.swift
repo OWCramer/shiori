@@ -154,9 +154,11 @@ struct LaptopPointer: View {
     }
 }
 
-/// The bottom half: the shared controls along the top, the trackpad below.
+/// The bottom half: the shared controls along the top, the trackpad below, or the game's menu
+/// in the trackpad's place.
 struct LaptopPadView: View {
     @State private var pad = LaptopPad.shared
+    @State private var showingMenu = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -167,9 +169,20 @@ struct LaptopPadView: View {
                 menuControl
                 control("Leave", "xmark", pad.leave)
             }
-            LaptopTrackpad()
-                .background(.white.opacity(0.07), in: .rect(cornerRadius: 22))
-                .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.1)).allowsHitTesting(false) }
+            Group {
+                if showingMenu {
+                    LaptopMenuPanel(items: pad.menu, choose: { item in
+                        pad.choose(item)
+                        showingMenu = false
+                    }, close: { showingMenu = false })
+                } else {
+                    LaptopTrackpad()
+                }
+            }
+            .background(.white.opacity(0.07), in: .rect(cornerRadius: 22))
+            .clipShape(.rect(cornerRadius: 22))
+            .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.1)).allowsHitTesting(false) }
+            .animation(.smooth(duration: 0.25), value: showingMenu)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -184,20 +197,16 @@ struct LaptopPadView: View {
         }
     }
 
-    /// The game's own menu where it has one; otherwise the right button, which opens the
-    /// menu in most games.
-    @ViewBuilder private var menuControl: some View {
-        if pad.menu.isEmpty {
-            control("Menu", "line.3.horizontal", { pad.secondaryClick() })
-        } else {
-            Menu {
-                LaptopMenuItems(items: pad.menu, choose: pad.choose)
-            } label: {
-                controlLabel("Menu", "line.3.horizontal")
+    /// The game's own menu where it has one, in the trackpad's place (an iOS menu here brings
+    /// up the Duo's keyboard, for typing to search it); otherwise the right button, which opens
+    /// the menu in most games.
+    private var menuControl: some View {
+        control("Menu", "line.3.horizontal") {
+            if pad.menu.isEmpty {
+                pad.secondaryClick()
+            } else {
+                showingMenu.toggle()
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.roundedRectangle(radius: 16))
-            .tint(.white)
         }
     }
 
@@ -220,23 +229,55 @@ extension LaptopPadView {
     }
 }
 
-/// The game's menu items as iOS menu items, submenus nested.
-private struct LaptopMenuItems: View {
+/// The game's menu as a list in the trackpad's place, submenus pushed.
+private struct LaptopMenuPanel: View {
+    let items: [LaptopMenuItem]
+    let choose: (LaptopMenuItem) -> Void
+    let close: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            LaptopMenuList(items: items, choose: choose)
+                .navigationTitle("Menu")
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(for: LaptopMenuItem.self) { item in
+                    LaptopMenuList(items: item.children, choose: choose)
+                        .navigationTitle(item.title)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done", action: close)
+                    }
+                }
+        }
+    }
+}
+
+private struct LaptopMenuList: View {
     let items: [LaptopMenuItem]
     let choose: (LaptopMenuItem) -> Void
 
     var body: some View {
-        ForEach(items) { item in
+        List(items) { item in
             if item.children.isEmpty {
                 Button { choose(item) } label: {
-                    if item.checked { Label(item.title, systemImage: "checkmark") } else { Text(item.title) }
+                    HStack {
+                        Text(item.title).foregroundStyle(item.enabled ? .primary : .secondary)
+                        Spacer()
+                        if item.checked { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                    }
+                    .contentShape(.rect)
                 }
                 .disabled(!item.enabled)
             } else {
-                Menu(item.title) { LaptopMenuItems(items: item.children, choose: choose) }
+                NavigationLink(item.title, value: item)
                     .disabled(!item.enabled)
             }
         }
+        .scrollContentBackground(.hidden)
+        .contentMargins(.top, 4, for: .scrollContent)
+        // The reflection shows through, as on the trackpad.
+        .containerBackground(.clear, for: .navigation)
     }
 }
 
@@ -258,9 +299,14 @@ private struct LaptopReflection: UIViewRepresentable {
             backgroundColor = .black
             clipsToBounds = true
             isUserInteractionEnabled = false
-            mirror.alpha = 0.9
+            mirror.alpha = 0.8
             addSubview(mirror)
             addSubview(blur)
+            // Drawn tiny and stretched back, a soft image before the blur: the snapshots come a
+            // dozen times a second, and the softer the picture, the less the steps show.
+            mirror.layer.shouldRasterize = true
+            mirror.layer.rasterizationScale = 0.06
+            mirror.layer.magnificationFilter = .linear
             fade.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.9).cgColor]
             fade.locations = [0.1, 0.95]
             layer.addSublayer(fade)
