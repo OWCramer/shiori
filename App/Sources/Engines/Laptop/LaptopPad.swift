@@ -206,14 +206,9 @@ private struct LaptopReflection: UIViewRepresentable {
             backgroundColor = .black
             clipsToBounds = true
             isUserInteractionEnabled = false
-            mirror.alpha = 0.8
+            mirror.alpha = 0.75
             addSubview(mirror)
             addSubview(blur)
-            // Drawn tiny and stretched back, a soft image before the blur: the snapshots come a
-            // dozen times a second, and the softer the picture, the less the steps show.
-            mirror.layer.shouldRasterize = true
-            mirror.layer.rasterizationScale = 0.06
-            mirror.layer.magnificationFilter = .linear
             fade.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.9).cgColor]
             fade.locations = [0.1, 0.95]
             layer.addSublayer(fade)
@@ -233,24 +228,31 @@ private struct LaptopReflection: UIViewRepresentable {
             link = nil
             guard window != nil else { return }
             let link = CADisplayLink(target: self, selector: #selector(refresh))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 12)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 15, preferred: 12)
             link.add(to: .main, forMode: .common)
             self.link = link
         }
 
+        /// A snapshot of the game (the render server's, cheap) flipped about the fold, faded in
+        /// over the last one so a dozen a second read as motion rather than steps.
         @objc private func refresh() {
             guard let game = LaptopPad.shared.game?.viewIfLoaded, game.window != nil, game.bounds.width > 0,
                   let snapshot = game.snapshotView(afterScreenUpdates: false)
             else { return }
-            // As wide as the pad, flipped about the fold (the game's bottom edge meets the top).
             let scale = bounds.width / game.bounds.width
-            mirror.subviews.forEach { $0.removeFromSuperview() }
             mirror.frame = CGRect(x: 0, y: 0, width: bounds.width, height: game.bounds.height * scale)
             snapshot.frame = CGRect(origin: .zero, size: game.bounds.size)
             snapshot.layer.anchorPoint = .zero
             snapshot.layer.position = CGPoint(x: 0, y: game.bounds.height * scale)
             snapshot.transform = CGAffineTransform(scaleX: scale, y: -scale)
+            snapshot.alpha = 0
             mirror.addSubview(snapshot)
+            let older = mirror.subviews.dropLast()
+            UIView.animate(withDuration: 1.0 / 12, delay: 0, options: [.curveLinear, .allowUserInteraction]) {
+                snapshot.alpha = 1
+            } completion: { _ in
+                older.forEach { $0.removeFromSuperview() }
+            }
         }
     }
 }
