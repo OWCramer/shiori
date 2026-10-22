@@ -11,7 +11,10 @@ struct HomePlaceholder: View {
 
     var body: some View {
         if steam.isLoadingLibrary, steam.library.isEmpty {
-            ProgressView("Loading library…")
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Loading library…").foregroundStyle(.secondary).fixedSize()
+            }
         } else if let error = steam.libraryError {
             ContentUnavailableView("Couldn't Load Library", systemImage: "exclamationmark.triangle",
                                    description: Text(error))

@@ -10,7 +10,7 @@ import UIKit
 /// fills the top half; each engine's view controller answers through the paths its trackpad
 /// and gestures already use.
 @MainActor
-protocol LaptopInput: AnyObject {
+protocol LaptopInput: UIViewController {
     /// The pointer moved there. True when the game draws its own cursor at it.
     func laptopPointer(at point: CGPoint) -> Bool
     func laptopClick(at point: CGPoint)
@@ -19,8 +19,27 @@ protocol LaptopInput: AnyObject {
     func laptopScroll(_ steps: Int, at point: CGPoint)
     func laptopSkip()
     func laptopAuto()
+    /// Opens the backlog, or closes it when it's open.
     func laptopBacklog()
     func laptopLeave()
+    /// The game's own menu (the PC build's menu bar), or nil for none: Menu right-clicks then.
+    func laptopMenuItems() -> [LaptopMenuItem]?
+    func laptopChoose(_ item: LaptopMenuItem)
+}
+
+extension LaptopInput {
+    func laptopMenuItems() -> [LaptopMenuItem]? { nil }
+    func laptopChoose(_ item: LaptopMenuItem) {}
+}
+
+/// An item of the game's own menu, with its submenu.
+struct LaptopMenuItem: Identifiable, Hashable {
+    /// Where the item is in the game's menu (child indices from the top).
+    let id: [Int]
+    let title: String
+    let enabled: Bool
+    let checked: Bool
+    var children: [LaptopMenuItem] = []
 }
 
 /// The iPhone Duo bent like a laptop (iOS 27.1): the game on the top half, a trackpad and the
@@ -38,6 +57,18 @@ final class LaptopPad {
     private(set) var gameDrawsCursor = false
     /// The top half's size, which bounds the pointer.
     var area: CGSize = .zero
+    /// The game's own menu, read again every few seconds while the pad shows.
+    private(set) var menu: [LaptopMenuItem] = []
+
+    func refreshMenu() {
+        let items = game?.laptopMenuItems() ?? []
+        if items != menu { menu = items }
+    }
+
+    func choose(_ item: LaptopMenuItem) {
+        game?.laptopChoose(item)
+        refreshMenu()
+    }
 
     /// A new game starts with no pointer.
     func reset() {
@@ -133,7 +164,7 @@ struct LaptopPadView: View {
                 control("Skip", "forward.fill", pad.skip)
                 control("Auto", "play.fill", pad.auto)
                 control("Backlog", "text.bubble", pad.backlog)
-                control("Menu", "line.3.horizontal", { pad.secondaryClick() })
+                menuControl
                 control("Leave", "xmark", pad.leave)
             }
             LaptopTrackpad()
@@ -143,22 +174,131 @@ struct LaptopPadView: View {
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 20)
-        .background(Color(white: 0.06))
+        .background { LaptopReflection().ignoresSafeArea() }
         .preferredColorScheme(.dark)
+        .task {
+            while !Task.isCancelled {
+                pad.refreshMenu()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// The game's own menu where it has one; otherwise the right button, which opens the
+    /// menu in most games.
+    @ViewBuilder private var menuControl: some View {
+        if pad.menu.isEmpty {
+            control("Menu", "line.3.horizontal", { pad.secondaryClick() })
+        } else {
+            Menu {
+                LaptopMenuItems(items: pad.menu, choose: pad.choose)
+            } label: {
+                controlLabel("Menu", "line.3.horizontal")
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.roundedRectangle(radius: 16))
+            .tint(.white)
+        }
     }
 
     private func control(_ title: String, _ symbol: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: symbol).font(.body.weight(.semibold))
-                Text(title).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
-            }
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .contentShape(.rect)
-        }
+        Button(action: action) { controlLabel(title, symbol) }
         .buttonStyle(.glass)
         .buttonBorderShape(.roundedRectangle(radius: 16))
         .tint(.white)
+    }
+}
+
+extension LaptopPadView {
+    fileprivate func controlLabel(_ title: String, _ symbol: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol).font(.body.weight(.semibold))
+            Text(title).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, minHeight: 48)
+        .contentShape(.rect)
+    }
+}
+
+/// The game's menu items as iOS menu items, submenus nested.
+private struct LaptopMenuItems: View {
+    let items: [LaptopMenuItem]
+    let choose: (LaptopMenuItem) -> Void
+
+    var body: some View {
+        ForEach(items) { item in
+            if item.children.isEmpty {
+                Button { choose(item) } label: {
+                    if item.checked { Label(item.title, systemImage: "checkmark") } else { Text(item.title) }
+                }
+                .disabled(!item.enabled)
+            } else {
+                Menu(item.title) { LaptopMenuItems(items: item.children, choose: choose) }
+                    .disabled(!item.enabled)
+            }
+        }
+    }
+}
+
+/// The game mirrored into the bottom half, as if on a glossy table: a dim, blurred copy,
+/// flipped at the fold and fading away from it. Drawn from snapshots of the game's view a dozen
+/// times a second, which the blur hides; any engine works the same.
+private struct LaptopReflection: UIViewRepresentable {
+    func makeUIView(context: Context) -> ReflectionView { ReflectionView() }
+    func updateUIView(_ view: ReflectionView, context: Context) {}
+
+    final class ReflectionView: UIView {
+        private let mirror = UIView()
+        private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        private let fade = CAGradientLayer()
+        private var link: CADisplayLink?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .black
+            clipsToBounds = true
+            isUserInteractionEnabled = false
+            mirror.alpha = 0.9
+            addSubview(mirror)
+            addSubview(blur)
+            fade.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.9).cgColor]
+            fade.locations = [0.1, 0.95]
+            layer.addSublayer(fade)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            blur.frame = bounds
+            fade.frame = bounds
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            link?.invalidate()
+            link = nil
+            guard window != nil else { return }
+            let link = CADisplayLink(target: self, selector: #selector(refresh))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 12)
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
+
+        @objc private func refresh() {
+            guard let game = LaptopPad.shared.game?.viewIfLoaded, game.window != nil, game.bounds.width > 0,
+                  let snapshot = game.snapshotView(afterScreenUpdates: false)
+            else { return }
+            // As wide as the pad, flipped about the fold (the game's bottom edge meets the top).
+            let scale = bounds.width / game.bounds.width
+            mirror.subviews.forEach { $0.removeFromSuperview() }
+            mirror.frame = CGRect(x: 0, y: 0, width: bounds.width, height: game.bounds.height * scale)
+            snapshot.frame = CGRect(origin: .zero, size: game.bounds.size)
+            snapshot.layer.anchorPoint = .zero
+            snapshot.layer.position = CGPoint(x: 0, y: game.bounds.height * scale)
+            snapshot.transform = CGAffineTransform(scaleX: scale, y: -scale)
+            mirror.addSubview(snapshot)
+        }
     }
 }
 

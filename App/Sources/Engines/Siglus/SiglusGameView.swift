@@ -407,6 +407,8 @@ final class SiglusGameViewController: UIViewController {
     /// Ctrl held down by a two-finger swipe right: Siglus skips while it's down, until the
     /// next touch lets it go.
     private var skipLatched = false
+    /// Laptop mode's Backlog opened the backlog; the next press closes it.
+    fileprivate var laptopOpenedBacklog = false
 
     @objc private func swipedSkip() {
         guard let handle else { return }
@@ -729,10 +731,13 @@ extension SiglusGameViewController: UIPointerInteractionDelegate {
 #if os(iOS)
 /// Laptop mode's trackpad and controls, as the PC's mouse and the shared gestures.
 extension SiglusGameViewController: LaptopInput {
+    /// Pointer mode, as for a trackpad: the game draws its own cursor where it has one.
     func laptopPointer(at point: CGPoint) -> Bool {
         guard pointerTouch == nil else { return false }
+        pointerHovering = true
         send(phase: 1, at: point)
-        return false
+        guard let handle else { return false }
+        return siglus_ios_has_custom_cursor(handle) != 0
     }
 
     func laptopClick(at point: CGPoint) {
@@ -761,7 +766,16 @@ extension SiglusGameViewController: LaptopInput {
 
     func laptopSkip() { swipedSkip() }
     func laptopAuto() { swipedAuto() }
-    func laptopBacklog() { laptopScroll(1, at: CGPoint(x: view.bounds.midX, y: view.bounds.midY)) }
+    /// The wheel opens the backlog; the next press closes it with the right button.
+    func laptopBacklog() {
+        let middle = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        if laptopOpenedBacklog {
+            laptopSecondaryClick(at: middle)
+        } else {
+            laptopScroll(1, at: middle)
+        }
+        laptopOpenedBacklog.toggle()
+    }
 
     func laptopLeave() {
         guard presentedViewController == nil else { return }

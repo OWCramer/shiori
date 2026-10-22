@@ -228,6 +228,8 @@ final class ShioriKrkrGameViewController: UIViewController {
     private var padKeys: Set<Int32> = []
     private var keyDownAt: [Int32: CFTimeInterval] = [:]
     private var skipLatched = false
+    /// Laptop mode's Backlog opened the game's backlog with the wheel; the next press closes it.
+    fileprivate var laptopOpenedBacklog = false
     private var leaveAlert: UIAlertController?
     #if os(iOS)
     private var pointerHovering = false
@@ -913,9 +915,9 @@ final class ShioriKrkrGameViewController: UIViewController {
     // MARK: System data
 
     /// Runs TJS in the game between ticks; nil if it can't now or threw.
-    private func evaluate(_ tjs: String) -> String? {
+    private func evaluate(_ tjs: String, capacity: Int = 4096) -> String? {
         guard let api, !ticking, !leaving else { return nil }
-        var buffer = [CChar](repeating: 0, count: 4096)
+        var buffer = [CChar](repeating: 0, count: capacity)
         let status = api.pointee.eval(tjs, &buffer, UInt32(buffer.count))
         guard status == 0 else {
             ShioriKrkrRuntime.log.error("TJS didn't run (\(status)): \(String(cString: buffer), privacy: .public)")
@@ -959,10 +961,15 @@ struct ShioriKrkrGameView: UIViewControllerRepresentable {
 #if os(iOS)
 /// Laptop mode's trackpad and controls, as the PC's mouse and the shared gestures.
 extension ShioriKrkrGameViewController: LaptopInput {
+    /// The game's own cursor follows, as it does for a trackpad.
     func laptopPointer(at point: CGPoint) -> Bool {
         guard pointerTouch == nil else { return false }
+        setHovering(true)
+        pointerLocation = point
         pointer(Int32(SHIORIKRKR_POINTER_MOVED), point)
-        return false
+        syncCursor()
+        layoutCursor()
+        return cursorKind == 1
     }
 
     func laptopClick(at point: CGPoint) {
@@ -990,7 +997,105 @@ extension ShioriKrkrGameViewController: LaptopInput {
 
     func laptopSkip() { swipedSkip() }
     func laptopAuto() { swipedAuto() }
-    func laptopBacklog() { laptopScroll(1, at: CGPoint(x: view.bounds.midX, y: view.bounds.midY)) }
+
+    /// KAG's history layer when it's open closes; otherwise the wheel opens the game's backlog
+    /// (its own or KAG's), and the next press closes it with the right button, as on the PC.
+    func laptopBacklog() {
+        cancelPointer()
+        if evaluate(Self.closeHistoryTJS) == "closed" {
+            laptopOpenedBacklog = false
+            return
+        }
+        if laptopOpenedBacklog {
+            laptopOpenedBacklog = false
+            rightClickMiddle()
+        } else {
+            laptopOpenedBacklog = true
+            wheelUp()
+        }
+    }
+
+    private static let closeHistoryTJS = """
+        (function() {
+            if (typeof global.kag != "Object" || !isvalid kag) return "none";
+            if (typeof kag.historyShowing != "undefined" && kag.historyShowing && typeof kag.hideHistory == "Object") {
+                kag.hideHistory();
+                return "closed";
+            }
+            return "shut";
+        })()
+        """
+
+    /// The PC build's menu bar (KAG's `kag.menu`), which games keep even when they hide the bar:
+    /// one line per visible item, depth first, as `path<TAB>depth<TAB>caption<TAB>enabled<TAB>checked`.
+    func laptopMenuItems() -> [LaptopMenuItem]? {
+        guard let listing = evaluate(Self.menuTJS, capacity: 65536), !listing.isEmpty else { return nil }
+        var roots: [LaptopMenuItem] = []
+        var stack: [LaptopMenuItem] = []
+        var depths: [Int] = []
+        func pop() {
+            let item = stack.removeLast()
+            depths.removeLast()
+            if stack.isEmpty { roots.append(item) } else { stack[stack.count - 1].children.append(item) }
+        }
+        for line in listing.split(separator: "\n") {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard fields.count == 5, let depth = Int(fields[1]) else { continue }
+            while let last = depths.last, last >= depth { pop() }
+            let path = fields[0].split(separator: "/").compactMap { Int($0) }
+            stack.append(LaptopMenuItem(id: path, title: Self.menuTitle(String(fields[2])),
+                                        enabled: fields[3] == "1", checked: fields[4] == "1"))
+            depths.append(depth)
+        }
+        while !stack.isEmpty { pop() }
+        return roots.isEmpty ? nil : roots
+    }
+
+    func laptopChoose(_ item: LaptopMenuItem) {
+        let path = item.id.map(String.init).joined(separator: ",")
+        let result = evaluate("""
+            (function() {
+                var item = kag.menu, path = [\(path)];
+                for (var i = 0; i < path.count; i++) item = item.children[path[i]];
+                if (!item.enabled) return "disabled";
+                item.fireClick();
+                return "clicked";
+            })()
+            """)
+        ShioriKrkrRuntime.log.notice("Menu \(item.title, privacy: .public): \(result ?? "not run", privacy: .public)")
+    }
+
+    /// A Windows menu caption without its access key: "セーブ(&S)" → "セーブ", "&Load" → "Load".
+    private static func menuTitle(_ caption: String) -> String {
+        var title = caption.replacingOccurrences(of: #"\(&.\)"#, with: "", options: .regularExpression)
+        title = title.replacingOccurrences(of: "&&", with: "\u{1}").replacingOccurrences(of: "&", with: "")
+        return title.replacingOccurrences(of: "\u{1}", with: "&").trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Depth first without recursion (TJS's anonymous functions don't close over locals).
+    private static let menuTJS = """
+        (function() {
+            if (typeof global.kag != "Object" || !isvalid kag) return "";
+            var out = [], items = [], paths = [], depths = [];
+            try {
+                var top = kag.menu.children;
+                for (var i = top.count - 1; i >= 0; i--) { items.add(top[i]); paths.add("" + i); depths.add(0); }
+            } catch (e) { return ""; }
+            while (items.count > 0) {
+                var n = items.count - 1;
+                var item = items[n], path = paths[n], depth = depths[n];
+                items.count = n; paths.count = n; depths.count = n;
+                var caption = "" + item.caption;
+                var visible = true;
+                try { visible = item.visible; } catch (e) {}
+                if (caption == "-" || caption == "" || !visible) continue;
+                out.add(path + "\\t" + depth + "\\t" + caption + "\\t" + (item.enabled ? 1 : 0) + "\\t" + (item.checked ? 1 : 0));
+                var children = item.children;
+                for (var j = children.count - 1; j >= 0; j--) { items.add(children[j]); paths.add(path + "/" + j); depths.add(depth + 1); }
+            }
+            return out.join("\\n");
+        })()
+        """
 
     func laptopLeave() {
         guard presentedViewController == nil else { return }

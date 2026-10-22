@@ -12,7 +12,10 @@ struct LibraryGridPlaceholder: View {
 
     var body: some View {
         if steam.isLoadingLibrary, steam.library.isEmpty {
-            ProgressView("Loading library…")
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Loading library…").foregroundStyle(.secondary).fixedSize()
+            }
         } else {
             switch section {
             case .installed:

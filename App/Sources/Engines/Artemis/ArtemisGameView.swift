@@ -1082,7 +1082,9 @@ extension ArtemisGameViewController: LaptopInput {
         player.setAutoMode(!player.autoMode)
     }
 
-    func laptopBacklog() { presentBacklog() }
+    func laptopBacklog() {
+        if backlogView != nil { closeBacklog() } else { presentBacklog() }
+    }
     func laptopLeave() { presentLeaveQuestion() }
 }
 #endif

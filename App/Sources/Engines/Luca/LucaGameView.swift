@@ -1847,10 +1847,25 @@ struct LucaGameView: UIViewControllerRepresentable {
 /// Laptop mode's trackpad and controls: Luca's screens are Shiori's own controls, so the
 /// pointer lights them as a trackpad's does and a click presses the one under it.
 extension LucaGameViewController: LaptopInput {
+    /// What a trackpad's hover does: the control under the pointer lights, and the game's
+    /// cursor follows where it has one.
     func laptopPointer(at point: CGPoint) -> Bool {
+        pointerHovering = true
         let root = focusRoot
         controlFocus.hover(at: root.map { view.convert(point, to: $0) }, in: root)
-        return false
+        guard let cursor = gameCursor, topPage == nil else {
+            cursorLayer.isHidden = true
+            return false
+        }
+        let scale = max(0.5, stageScale)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cursorLayer.frame = CGRect(x: point.x - cursor.hotspot.x * scale, y: point.y - cursor.hotspot.y * scale,
+                                   width: cursor.size.width * scale, height: cursor.size.height * scale)
+        cursorLayer.isHidden = false
+        view.layer.addSublayer(cursorLayer)
+        CATransaction.commit()
+        return true
     }
 
     func laptopClick(at point: CGPoint) {
@@ -1870,7 +1885,9 @@ extension LucaGameViewController: LaptopInput {
 
     func laptopSkip() { flickedRight() }
     func laptopAuto() { swipedAuto() }
-    func laptopBacklog() { showBacklog() }
+    func laptopBacklog() {
+        if let messageLog { messageLog.close() } else { showBacklog() }
+    }
     func laptopLeave() { presentLeaveQuestion() }
 }
 #endif

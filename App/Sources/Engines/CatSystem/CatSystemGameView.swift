@@ -2499,7 +2499,10 @@ extension CatSystemGameViewController: LaptopInput {
 
     func laptopSkip() { swipedSkip() }
     func laptopAuto() { swipedAuto() }
-    func laptopBacklog() { openBacklog() }
+    /// The backlog is one of the game's screens: open it, or back out of the screen that's up.
+    func laptopBacklog() {
+        if screen != nil { secondaryAction() } else { openBacklog() }
+    }
     func laptopLeave() { confirmLeave() }
 }
 #endif
