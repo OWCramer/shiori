@@ -7,13 +7,33 @@ import UIKit
 
 /// The orientations the app allows: any in the library, landscape while a game is open. iOS
 /// asks the app delegate every time the device turns, so a game stays landscape even when the
-/// phone is held upright (a one-off geometry request alone doesn't hold).
+/// phone is held upright (a one-off geometry request alone doesn't hold). On the iPhone Duo's
+/// inner screen a game may also turn upright, for laptop mode (`LaptopPad`).
 @MainActor
 enum OrientationLock {
-    static private(set) var mask: UIInterfaceOrientationMask = .all
+    private static var requested: UIInterfaceOrientationMask = .all
+    private static weak var scene: UIWindowScene?
+
+    static var mask: UIInterfaceOrientationMask {
+        requested == .landscape && foldable ? .allButUpsideDown : requested
+    }
+
+    /// The window has a fold (the Duo opened). Set by the game's cover as the fold comes and goes.
+    static func setFoldable(_ foldable: Bool) {
+        guard foldable != self.foldable else { return }
+        self.foldable = foldable
+        apply(in: scene)
+    }
+
+    private static var foldable = false
 
     static func set(_ mask: UIInterfaceOrientationMask, in scene: UIWindowScene?) {
-        self.mask = mask
+        requested = mask
+        if let scene { self.scene = scene }
+        apply(in: scene ?? self.scene)
+    }
+
+    private static func apply(in scene: UIWindowScene?) {
         for window in scene?.windows ?? [] {
             window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
         }

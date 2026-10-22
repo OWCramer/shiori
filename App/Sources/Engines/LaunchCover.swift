@@ -66,6 +66,38 @@ struct CoveredGame<Game: View>: View {
     @State private var covered = true
 
     var body: some View {
+        #if os(iOS)
+        // On the iPhone Duo bent like a laptop, the game takes the top half and the laptop pad
+        // the bottom (`LaptopPad`). The game keeps its place in the tree either way, so bending
+        // or flattening the hinge resizes it rather than starting it again.
+        GeometryReader { proxy in
+            let fold = LaptopFold.fold(in: proxy)
+            VStack(spacing: 0) {
+                screen
+                    .overlay { if fold != nil { LaptopPointer() } }
+                    .frame(height: fold?.minY ?? proxy.size.height)
+                    .onGeometryChange(for: CGSize.self, of: \.size) { LaptopPad.shared.area = $0 }
+                if let fold {
+                    Color.black.frame(height: fold.height)
+                    LaptopPadView()
+                        .frame(height: max(0, proxy.size.height - fold.maxY))
+                        .transition(.move(edge: .bottom))
+                }
+            }
+            .animation(.smooth, value: fold == nil)
+            .onChange(of: LaptopFold.hasFold(in: proxy), initial: true) { _, fold in OrientationLock.setFoldable(fold) }
+        }
+        .ignoresSafeArea()
+        .background(Color.black)
+        .onAppear { LaptopPad.shared.reset() }
+        .onDisappear { OrientationLock.setFoldable(false) }
+        .modifier(CoverSession(lift: lift, gameCreated: $gameCreated))
+        #else
+        screen.modifier(CoverSession(lift: lift, gameCreated: $gameCreated))
+        #endif
+    }
+
+    private var screen: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if gameCreated {
@@ -76,21 +108,31 @@ struct CoveredGame<Game: View>: View {
                     .transition(.opacity)
             }
         }
-        .task {
-            // Let the cover reach the screen before the engine blocks the main thread.
-            try? await Task.sleep(for: .milliseconds(50))
-            gameCreated = true
-            try? await Task.sleep(for: .seconds(12))
-            lift()
-        }
-        // A game leaves through its own exit, never by UIKit dismissing the cover (Escape).
-        .interactiveDismissDisabled()
-        .persistentSystemOverlays(.hidden)
-        .hiddenStatusBar()
     }
 
     private func lift() {
         guard covered else { return }
         withAnimation(.easeInOut(duration: 0.45).delay(0.2)) { covered = false }
+    }
+}
+
+/// The cover's timing and the full-screen session around it.
+private struct CoverSession: ViewModifier {
+    let lift: () -> Void
+    @Binding var gameCreated: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .task {
+                // Let the cover reach the screen before the engine blocks the main thread.
+                try? await Task.sleep(for: .milliseconds(50))
+                gameCreated = true
+                try? await Task.sleep(for: .seconds(12))
+                lift()
+            }
+            // A game leaves through its own exit, never by UIKit dismissing the cover (Escape).
+            .interactiveDismissDisabled()
+            .persistentSystemOverlays(.hidden)
+            .hiddenStatusBar()
     }
 }

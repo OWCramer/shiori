@@ -281,6 +281,7 @@ final class ShioriKrkrGameViewController: UIViewController {
         view.addSwipe(.up, fingers: 2, target: self, action: #selector(swipedAuto)).cancelsTouchesInView = false
         view.addHover(target: self, action: #selector(hovered(_:)))
         view.addScroll(target: self, action: #selector(scrolled(_:)))
+        LaptopPad.shared.game = self
         let pointer = UIPointerInteraction(delegate: self)
         view.addInteraction(pointer)
         pointerInteraction = pointer
@@ -954,3 +955,47 @@ struct ShioriKrkrGameView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: ShioriKrkrGameViewController, context: Context) {}
 }
+
+#if os(iOS)
+/// Laptop mode's trackpad and controls, as the PC's mouse and the shared gestures.
+extension ShioriKrkrGameViewController: LaptopInput {
+    func laptopPointer(at point: CGPoint) -> Bool {
+        guard pointerTouch == nil else { return false }
+        pointer(Int32(SHIORIKRKR_POINTER_MOVED), point)
+        return false
+    }
+
+    func laptopClick(at point: CGPoint) {
+        cancelPointer()
+        if skipLatched {
+            releaseSkipLatch()
+            return
+        }
+        pointer(Int32(SHIORIKRKR_POINTER_DOWN), point)
+        pointer(Int32(SHIORIKRKR_POINTER_UP), point)
+    }
+
+    func laptopSecondaryClick(at point: CGPoint) {
+        cancelPointer()
+        releaseSkipLatch()
+        pointer(Int32(SHIORIKRKR_POINTER_DOWN), point, button: Int32(SHIORIKRKR_BUTTON_RIGHT))
+        pointer(Int32(SHIORIKRKR_POINTER_UP), point, button: Int32(SHIORIKRKR_BUTTON_RIGHT))
+    }
+
+    func laptopScroll(_ steps: Int, at point: CGPoint) {
+        cancelPointer()
+        let (x, y) = normalized(point)
+        api?.pointee.wheel(Float(steps), x, y)
+    }
+
+    func laptopSkip() { swipedSkip() }
+    func laptopAuto() { swipedAuto() }
+    func laptopBacklog() { laptopScroll(1, at: CGPoint(x: view.bounds.midX, y: view.bounds.midY)) }
+
+    func laptopLeave() {
+        guard presentedViewController == nil else { return }
+        cancelPointer()
+        presentLeaveQuestion()
+    }
+}
+#endif

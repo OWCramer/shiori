@@ -218,6 +218,7 @@ final class LucaGameViewController: UIViewController, UIGestureRecognizerDelegat
         // The pointer lights up the button under it (on every screen) and draws the game's
         // cursor; the pad and the keys move a focus between them.
         view.addHover(target: self, action: #selector(hovered(_:)))
+        LaptopPad.shared.game = self
         let pointer = UIPointerInteraction(delegate: self)
         view.addInteraction(pointer)
         pointerInteraction = pointer
@@ -1841,3 +1842,35 @@ struct LucaGameView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: LucaGameViewController, context: Context) {}
 }
+
+#if os(iOS)
+/// Laptop mode's trackpad and controls: Luca's screens are Shiori's own controls, so the
+/// pointer lights them as a trackpad's does and a click presses the one under it.
+extension LucaGameViewController: LaptopInput {
+    func laptopPointer(at point: CGPoint) -> Bool {
+        let root = focusRoot
+        controlFocus.hover(at: root.map { view.convert(point, to: $0) }, in: root)
+        return false
+    }
+
+    func laptopClick(at point: CGPoint) {
+        let root = focusRoot ?? view!
+        if let control = root.control(at: view.convert(point, to: root)), control.isEnabled {
+            control.sendActions(for: .touchUpInside)
+        } else {
+            tapped()
+        }
+    }
+
+    func laptopSecondaryClick(at point: CGPoint) { showMenu() }
+
+    func laptopScroll(_ steps: Int, at point: CGPoint) {
+        if steps > 0 { showBacklog() }
+    }
+
+    func laptopSkip() { flickedRight() }
+    func laptopAuto() { swipedAuto() }
+    func laptopBacklog() { showBacklog() }
+    func laptopLeave() { presentLeaveQuestion() }
+}
+#endif

@@ -248,6 +248,7 @@ final class CatSystemGameViewController: UIViewController, UIGestureRecognizerDe
         tap.require(toFail: hold)
         view.addHover(target: self, action: #selector(hovered(_:)))
         view.addScroll(target: self, action: #selector(scrolled(_:)))
+        LaptopPad.shared.game = self
         let pointer = UIPointerInteraction(delegate: self)
         view.addInteraction(pointer)
         pointerInteraction = pointer
@@ -2475,3 +2476,30 @@ struct CatSystemGameView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: CatSystemGameViewController, context: Context) {}
 }
+
+#if os(iOS)
+/// Laptop mode's trackpad and controls, as a trackpad over the game: buttons light under the
+/// pointer and the game's own cursor follows it.
+extension CatSystemGameViewController: LaptopInput {
+    func laptopPointer(at point: CGPoint) -> Bool {
+        pointerMoved(to: view.convert(point, to: stage))
+        return cursors.normal != nil
+    }
+
+    func laptopClick(at point: CGPoint) {
+        guard presentedViewController == nil else { return }
+        primaryAction(at: view.convert(point, to: stage), pointer: true)
+    }
+
+    func laptopSecondaryClick(at point: CGPoint) { secondaryAction() }
+
+    func laptopScroll(_ steps: Int, at point: CGPoint) {
+        for _ in 0..<abs(steps) { wheel(up: steps > 0) }
+    }
+
+    func laptopSkip() { swipedSkip() }
+    func laptopAuto() { swipedAuto() }
+    func laptopBacklog() { openBacklog() }
+    func laptopLeave() { confirmLeave() }
+}
+#endif

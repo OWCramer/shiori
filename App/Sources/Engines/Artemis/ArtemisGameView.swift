@@ -151,6 +151,7 @@ final class ArtemisGameViewController: UIViewController, ArtemisMediaDelegate, U
         view.addSecondaryClick(target: self, action: #selector(rightClick(_:)))
         view.addHover(target: self, action: #selector(hovered(_:)))
         scrollRecognizer = view.addScroll(target: self, action: #selector(scrolled(_:)))
+        LaptopPad.shared.game = self
         // Drags (sliders) only start on layers that take them, so swipes still work.
         let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
         drag.delegate = self
@@ -1034,3 +1035,54 @@ struct ArtemisGameView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: ArtemisGameViewController, context: Context) {}
 }
+
+#if os(iOS)
+/// Laptop mode's trackpad and controls, as the PC's mouse and the shared gestures.
+extension ArtemisGameViewController: LaptopInput {
+    func laptopPointer(at point: CGPoint) -> Bool {
+        guard backlogView == nil else { return false }
+        stickPointer.hide()
+        player?.hover(at: stageLayer.convert(point, from: view.layer))
+        return false
+    }
+
+    func laptopClick(at point: CGPoint) {
+        if backlogView != nil {
+            closeBacklog()
+            return
+        }
+        if let videoFinished {
+            stopVideo()
+            videoFinished()
+            return
+        }
+        stickPointer.hide()
+        player?.tap(at: stageLayer.convert(point, from: view.layer))
+    }
+
+    func laptopSecondaryClick(at point: CGPoint) {
+        if backlogView != nil {
+            closeBacklog()
+            return
+        }
+        player?.rightClick()
+    }
+
+    func laptopScroll(_ steps: Int, at point: CGPoint) {
+        if steps > 0 { presentBacklog() }
+    }
+
+    func laptopSkip() {
+        guard backlogView == nil, let player else { return }
+        player.setSkipMode(!player.skipMode)
+    }
+
+    func laptopAuto() {
+        guard backlogView == nil, let player else { return }
+        player.setAutoMode(!player.autoMode)
+    }
+
+    func laptopBacklog() { presentBacklog() }
+    func laptopLeave() { presentLeaveQuestion() }
+}
+#endif

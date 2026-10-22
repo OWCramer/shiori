@@ -108,6 +108,7 @@ final class SiglusGameViewController: UIViewController {
         for gesture in [menu, history, leave] as [UIGestureRecognizer] { gesture.fingersOnly() }
         view.addHover(target: self, action: #selector(hovered(_:)))
         view.addScroll(target: self, action: #selector(scrolled(_:)))
+        LaptopPad.shared.game = self
         let pointer = UIPointerInteraction(delegate: self)
         view.addInteraction(pointer)
         pointerInteraction = pointer
@@ -721,6 +722,50 @@ extension SiglusGameViewController: UIPointerInteractionDelegate {
         }
         PointerLog.write("siglus pointer style: hidden (the game draws its cursor)")
         return .hidden()
+    }
+}
+#endif
+
+#if os(iOS)
+/// Laptop mode's trackpad and controls, as the PC's mouse and the shared gestures.
+extension SiglusGameViewController: LaptopInput {
+    func laptopPointer(at point: CGPoint) -> Bool {
+        guard pointerTouch == nil else { return false }
+        send(phase: 1, at: point)
+        return false
+    }
+
+    func laptopClick(at point: CGPoint) {
+        if skipLatched {
+            releaseSkipLatch()
+            return
+        }
+        guard pointerTouch == nil else { return }
+        stepsSincePress = 0
+        send(phase: 0, at: point)
+        release(2, at: point)
+    }
+
+    func laptopSecondaryClick(at point: CGPoint) {
+        releaseSkipLatch()
+        guard let handle else { return }
+        send(phase: 1, at: point)
+        pressRightButton(handle)
+    }
+
+    func laptopScroll(_ steps: Int, at point: CGPoint) {
+        guard let handle else { return }
+        send(phase: 1, at: point)
+        siglus_ios_mouse_wheel(handle, Int32(steps))
+    }
+
+    func laptopSkip() { swipedSkip() }
+    func laptopAuto() { swipedAuto() }
+    func laptopBacklog() { laptopScroll(1, at: CGPoint(x: view.bounds.midX, y: view.bounds.midY)) }
+
+    func laptopLeave() {
+        guard presentedViewController == nil else { return }
+        presentLeaveQuestion()
     }
 }
 #endif
