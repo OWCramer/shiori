@@ -22,24 +22,13 @@ protocol LaptopInput: UIViewController {
     /// Opens the backlog, or closes it when it's open.
     func laptopBacklog()
     func laptopLeave()
-    /// The game's own menu (the PC build's menu bar), or nil for none: Menu right-clicks then.
-    func laptopMenuItems() -> [LaptopMenuItem]?
-    func laptopChoose(_ item: LaptopMenuItem)
+    /// What the right button does in this engine, for the control that sends it: the game's
+    /// menu in most, hiding the text box in KiriKiri's.
+    var laptopSecondaryControl: LaptopPad.Control { get }
 }
 
 extension LaptopInput {
-    func laptopMenuItems() -> [LaptopMenuItem]? { nil }
-    func laptopChoose(_ item: LaptopMenuItem) {}
-}
-
-/// An item of the game's own menu, with its submenu.
-struct LaptopMenuItem: Identifiable, Hashable {
-    /// Where the item is in the game's menu (child indices from the top).
-    let id: [Int]
-    let title: String
-    let enabled: Bool
-    let checked: Bool
-    var children: [LaptopMenuItem] = []
+    var laptopSecondaryControl: LaptopPad.Control { .menu }
 }
 
 /// The iPhone Duo bent like a laptop (iOS 27.1): the game on the top half, a trackpad and the
@@ -50,25 +39,27 @@ final class LaptopPad {
     static let shared = LaptopPad()
 
     /// The game being played; each engine's view controller sets itself when it loads.
-    @ObservationIgnored weak var game: (any LaptopInput)?
+    @ObservationIgnored weak var game: (any LaptopInput)? {
+        didSet { secondaryControl = game?.laptopSecondaryControl ?? .menu }
+    }
+
+    /// A control's title and symbol.
+    struct Control: Equatable {
+        let title: String
+        let symbol: String
+
+        static let menu = Control(title: "Menu", symbol: "line.3.horizontal")
+        static let hide = Control(title: "Hide", symbol: "eye.slash")
+    }
+
+    /// The right button's control for the game being played.
+    private(set) var secondaryControl = Control.menu
     /// Where the pointer is over the game, once the trackpad has moved it.
     private(set) var pointer: CGPoint?
     /// The game draws its own cursor at the pointer, so Shiori's stays hidden.
     private(set) var gameDrawsCursor = false
     /// The top half's size, which bounds the pointer.
     var area: CGSize = .zero
-    /// The game's own menu, read again every few seconds while the pad shows.
-    private(set) var menu: [LaptopMenuItem] = []
-
-    func refreshMenu() {
-        let items = game?.laptopMenuItems() ?? []
-        if items != menu { menu = items }
-    }
-
-    func choose(_ item: LaptopMenuItem) {
-        game?.laptopChoose(item)
-        refreshMenu()
-    }
 
     /// A new game starts with no pointer.
     func reset() {
@@ -154,11 +145,9 @@ struct LaptopPointer: View {
     }
 }
 
-/// The bottom half: the shared controls along the top, the trackpad below, or the game's menu
-/// in the trackpad's place.
+/// The bottom half: the shared controls along the top, the trackpad below.
 struct LaptopPadView: View {
     @State private var pad = LaptopPad.shared
-    @State private var showingMenu = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -166,48 +155,18 @@ struct LaptopPadView: View {
                 control("Skip", "forward.fill", pad.skip)
                 control("Auto", "play.fill", pad.auto)
                 control("Backlog", "text.bubble", pad.backlog)
-                menuControl
+                control(pad.secondaryControl.title, pad.secondaryControl.symbol, { pad.secondaryClick() })
                 control("Leave", "xmark", pad.leave)
             }
-            Group {
-                if showingMenu {
-                    LaptopMenuPanel(items: pad.menu, choose: { item in
-                        pad.choose(item)
-                        showingMenu = false
-                    }, close: { showingMenu = false })
-                } else {
-                    LaptopTrackpad()
-                }
-            }
-            .background(.white.opacity(0.07), in: .rect(cornerRadius: 22))
-            .clipShape(.rect(cornerRadius: 22))
-            .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.1)).allowsHitTesting(false) }
-            .animation(.smooth(duration: 0.25), value: showingMenu)
+            LaptopTrackpad()
+                .background(.white.opacity(0.07), in: .rect(cornerRadius: 22))
+                .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.1)).allowsHitTesting(false) }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 20)
         .background { LaptopReflection().ignoresSafeArea() }
         .preferredColorScheme(.dark)
-        .task {
-            while !Task.isCancelled {
-                pad.refreshMenu()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
-    }
-
-    /// The game's own menu where it has one, in the trackpad's place (an iOS menu here brings
-    /// up the Duo's keyboard, for typing to search it); otherwise the right button, which opens
-    /// the menu in most games.
-    private var menuControl: some View {
-        control("Menu", "line.3.horizontal") {
-            if pad.menu.isEmpty {
-                pad.secondaryClick()
-            } else {
-                showingMenu.toggle()
-            }
-        }
     }
 
     private func control(_ title: String, _ symbol: String, _ action: @escaping () -> Void) -> some View {
@@ -226,58 +185,6 @@ extension LaptopPadView {
         }
         .frame(maxWidth: .infinity, minHeight: 48)
         .contentShape(.rect)
-    }
-}
-
-/// The game's menu as a list in the trackpad's place, submenus pushed.
-private struct LaptopMenuPanel: View {
-    let items: [LaptopMenuItem]
-    let choose: (LaptopMenuItem) -> Void
-    let close: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            LaptopMenuList(items: items, choose: choose)
-                .navigationTitle("Menu")
-                .navigationBarTitleDisplayMode(.inline)
-                .navigationDestination(for: LaptopMenuItem.self) { item in
-                    LaptopMenuList(items: item.children, choose: choose)
-                        .navigationTitle(item.title)
-                }
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done", action: close)
-                    }
-                }
-        }
-    }
-}
-
-private struct LaptopMenuList: View {
-    let items: [LaptopMenuItem]
-    let choose: (LaptopMenuItem) -> Void
-
-    var body: some View {
-        List(items) { item in
-            if item.children.isEmpty {
-                Button { choose(item) } label: {
-                    HStack {
-                        Text(item.title).foregroundStyle(item.enabled ? .primary : .secondary)
-                        Spacer()
-                        if item.checked { Image(systemName: "checkmark").foregroundStyle(.tint) }
-                    }
-                    .contentShape(.rect)
-                }
-                .disabled(!item.enabled)
-            } else {
-                NavigationLink(item.title, value: item)
-                    .disabled(!item.enabled)
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .contentMargins(.top, 4, for: .scrollContent)
-        // The reflection shows through, as on the trackpad.
-        .containerBackground(.clear, for: .navigation)
     }
 }
 

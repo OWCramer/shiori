@@ -915,9 +915,9 @@ final class ShioriKrkrGameViewController: UIViewController {
     // MARK: System data
 
     /// Runs TJS in the game between ticks; nil if it can't now or threw.
-    private func evaluate(_ tjs: String, capacity: Int = 4096) -> String? {
+    private func evaluate(_ tjs: String) -> String? {
         guard let api, !ticking, !leaving else { return nil }
-        var buffer = [CChar](repeating: 0, count: capacity)
+        var buffer = [CChar](repeating: 0, count: 4096)
         let status = api.pointee.eval(tjs, &buffer, UInt32(buffer.count))
         guard status == 0 else {
             ShioriKrkrRuntime.log.error("TJS didn't run (\(status)): \(String(cString: buffer), privacy: .public)")
@@ -1026,83 +1026,9 @@ extension ShioriKrkrGameViewController: LaptopInput {
         })()
         """
 
-    /// The PC build's menu bar (KAG's `kag.menu`), which games keep even when they hide the bar:
-    /// one line per visible item, depth first, as `path<TAB>depth<TAB>caption<TAB>enabled<TAB>checked`.
-    func laptopMenuItems() -> [LaptopMenuItem]? {
-        guard let listing = evaluate(Self.menuTJS, capacity: 65536), !listing.isEmpty else { return nil }
-        var roots: [LaptopMenuItem] = []
-        var stack: [LaptopMenuItem] = []
-        var depths: [Int] = []
-        var skipping: Int?
-        func pop() {
-            let item = stack.removeLast()
-            depths.removeLast()
-            if stack.isEmpty { roots.append(item) } else { stack[stack.count - 1].children.append(item) }
-        }
-        for line in listing.split(separator: "\n") {
-            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard fields.count == 5, let depth = Int(fields[1]) else { continue }
-            while let last = depths.last, last >= depth { pop() }
-            let path = fields[0].split(separator: "/").compactMap { Int($0) }
-            // A single character on the bar itself ("x", "+") is a glyph button on the PC's
-            // menu bar, not a command anyone could choose by name.
-            let title = Self.menuTitle(String(fields[2]))
-            if depth == 0, title.count <= 1 { skipping = depth; continue }
-            if let skip = skipping, depth > skip { continue }
-            skipping = nil
-            stack.append(LaptopMenuItem(id: path, title: title,
-                                        enabled: fields[3] == "1", checked: fields[4] == "1"))
-            depths.append(depth)
-        }
-        while !stack.isEmpty { pop() }
-        return roots.isEmpty ? nil : roots
-    }
-
-    func laptopChoose(_ item: LaptopMenuItem) {
-        let path = item.id.map(String.init).joined(separator: ",")
-        let result = evaluate("""
-            (function() {
-                var item = kag.menu, path = [\(path)];
-                for (var i = 0; i < path.count; i++) item = item.children[path[i]];
-                if (!item.enabled) return "disabled";
-                item.fireClick();
-                return "clicked";
-            })()
-            """)
-        ShioriKrkrRuntime.log.notice("Menu \(item.title, privacy: .public): \(result ?? "not run", privacy: .public)")
-    }
-
-    /// A Windows menu caption without its access key: "セーブ(&S)" → "セーブ", "&Load" → "Load".
-    private static func menuTitle(_ caption: String) -> String {
-        var title = caption.replacingOccurrences(of: #"\(&.\)"#, with: "", options: .regularExpression)
-        title = title.replacingOccurrences(of: "&&", with: "\u{1}").replacingOccurrences(of: "&", with: "")
-        return title.replacingOccurrences(of: "\u{1}", with: "&").trimmingCharacters(in: .whitespaces)
-    }
-
-    /// Depth first without recursion (TJS's anonymous functions don't close over locals).
-    private static let menuTJS = """
-        (function() {
-            if (typeof global.kag != "Object" || !isvalid kag) return "";
-            var out = [], items = [], paths = [], depths = [];
-            try {
-                var top = kag.menu.children;
-                for (var i = top.count - 1; i >= 0; i--) { items.add(top[i]); paths.add("" + i); depths.add(0); }
-            } catch (e) { return ""; }
-            while (items.count > 0) {
-                var n = items.count - 1;
-                var item = items[n], path = paths[n], depth = depths[n];
-                items.count = n; paths.count = n; depths.count = n;
-                var caption = "" + item.caption;
-                var visible = true;
-                try { visible = item.visible; } catch (e) {}
-                if (caption == "-" || caption == "" || !visible) continue;
-                out.add(path + "\\t" + depth + "\\t" + caption + "\\t" + (item.enabled ? 1 : 0) + "\\t" + (item.checked ? 1 : 0));
-                var children = item.children;
-                for (var j = children.count - 1; j >= 0; j--) { items.add(children[j]); paths.add(path + "/" + j); depths.add(depth + 1); }
-            }
-            return out.join("\\n");
-        })()
-        """
+    /// KAG's right button hides the text box (as on the PC); the game's own buttons, which
+    /// the trackpad reaches, are its menu.
+    var laptopSecondaryControl: LaptopPad.Control { .hide }
 
     func laptopLeave() {
         guard presentedViewController == nil else { return }
