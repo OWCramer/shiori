@@ -28,30 +28,22 @@ struct DuoBook<Library: View>: View {
             let fold = Self.fold(in: proxy)
             HStack(spacing: 0) {
                 if let fold {
-                    if style == .classic {
-                        DuoGamePage(game: book.game)
-                            .frame(width: max(0, fold.minX))
-                            .environment(\.horizontalSizeClass, .compact)
-                        Color.black.frame(width: fold.width)
-                    } else {
-                        // The pages meet at the spine, each keeping its content off the fold.
-                        DuoGamePage(game: book.game)
-                            .safeAreaPadding(.trailing, fold.width / 2)
-                            .frame(width: max(0, fold.midX))
-                            .environment(\.horizontalSizeClass, .compact)
-                            .environment(\.portraitHero, style == .cover)
-                    }
+                    // The pages meet at the spine, each keeping its content off the fold.
+                    DuoGamePage(game: book.game)
+                        .safeAreaPadding(.trailing, fold.width / 2)
+                        .frame(width: max(0, fold.midX))
+                        .environment(\.horizontalSizeClass, .compact)
                 }
                 library
                     // Off the crease: the library's own black fills the gap up to the spine.
-                    .padding(.leading, fold != nil && style != .classic ? (fold?.width ?? 0) / 2 : 0)
-                    .frame(width: libraryWidth(fold: fold, in: proxy))
+                    .padding(.leading, (fold?.width ?? 0) / 2)
+                    .frame(width: fold.map { max(0, proxy.size.width - $0.midX) } ?? proxy.size.width)
                     // Each page is a phone's width: compact, whatever the whole screen says.
                     .environment(\.horizontalSizeClass, fold == nil ? sizeClass : .compact)
                     .environment(book)
             }
             .overlay {
-                if let fold, style != .classic { DuoSpine(fold: fold) }
+                if let fold { DuoSpine(fold: fold) }
             }
             .onChange(of: fold == nil, initial: true) { _, single in
                 if single {
@@ -65,20 +57,6 @@ struct DuoBook<Library: View>: View {
             }
         }
         .ignoresSafeArea(.container)
-    }
-
-    /// How the opened book looks: `spine` and `cover` meet at the fold with a book's gutter
-    /// shading; `cover` shows the game's box art on the left page; `classic` keeps the fold
-    /// black. `-ShioriBookStyle` picks one while the design settles.
-    enum Style: String { case classic, spine, cover }
-
-    private var style: Style {
-        UserDefaults.standard.string(forKey: "ShioriBookStyle").flatMap(Style.init(rawValue:)) ?? .spine
-    }
-
-    private func libraryWidth(fold: CGRect?, in proxy: GeometryProxy) -> CGFloat {
-        guard let fold else { return proxy.size.width }
-        return max(0, proxy.size.width - (style == .classic ? fold.maxX : fold.midX))
     }
 
     /// Without a pick yet: the game played last, else the first visual novel.

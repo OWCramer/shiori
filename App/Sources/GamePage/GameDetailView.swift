@@ -20,7 +20,6 @@ struct GameDetailView: View {
     @Environment(PatchInstaller.self) private var patchInstaller
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.portraitHero) private var portraitHero
     @State private var model: GamePageModel
     @State private var overscroll: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
@@ -63,11 +62,7 @@ struct GameDetailView: View {
     private var twoColumns: Bool { sizeClass == .regular && width >= GamePageMetrics.twoColumnWidth }
 
     /// The banner's height for this screen (shorter on short screens).
-    private var bannerHeight: CGFloat {
-        // Room for the cover card, with the line on the game and Play still in view.
-        if portraitHero, viewportHeight > 0 { return viewportHeight * 0.64 }
-        return GameHeroHeader.height(forViewport: viewportHeight)
-    }
+    private var bannerHeight: CGFloat { GameHeroHeader.height(forViewport: viewportHeight) }
 
     var body: some View {
         let _ = RenderProbe.hit("GameDetailView")
