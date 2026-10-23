@@ -207,7 +207,8 @@ final class GameLibrary {
             #if os(iOS)
             // Game files stay out of backups, so a restored or transferred iPhone brings back the
             // folder (game.json, saves, patches) without them: download again, saves kept.
-            if Self.isEmptyFolder(url.deletingLastPathComponent().appendingPathComponent("base", isDirectory: true)) {
+            if !Self.isScreenshotLibrary,
+               Self.isEmptyFolder(url.deletingLastPathComponent().appendingPathComponent("base", isDirectory: true)) {
                 try? fm.removeItem(at: Self.installsDirectory.appendingPathComponent(String(record.appID), isDirectory: true))
                 statuses[record.appID] = .notInstalled
                 missingFiles[record.appID] = record.name
@@ -250,6 +251,15 @@ final class GameLibrary {
     func downloadMissingFiles() {
         for (appID, name) in missingFiles.sorted(by: { $0.value < $1.value }) { startDownload(appID: appID, name: name) }
         missingFiles = [:]
+    }
+
+    /// The made-up screenshot library's games have records but no files.
+    private static var isScreenshotLibrary: Bool {
+        #if DEBUG
+        ScreenshotLibrary.isOn
+        #else
+        false
+        #endif
     }
 
     private static func isEmptyFolder(_ url: URL) -> Bool {

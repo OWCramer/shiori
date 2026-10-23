@@ -6,7 +6,7 @@
 import SwiftUI
 
 /// The Downloads tab (design A): the download under way large over its art, then the rest
-/// of the queue and patches being installed, with Pause All or Resume All.
+/// of the queue and patches being installed, with Pause All and Resume All.
 struct DownloadsScreen: View {
     @Environment(GameLibrary.self) private var games
     @Environment(SteamModel.self) private var steam
@@ -90,11 +90,13 @@ struct DownloadsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionStatus() }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    // Both when some stopped (paused, or failed: a timeout) while others still run.
+                    if canResumeAll {
+                        Button("Resume All", systemImage: "arrow.clockwise.circle", action: resumeAll)
+                            .disabled(!steam.isLoggedOn)
+                    }
                     if canPauseAll {
                         Button("Pause All", systemImage: "pause.circle", action: pauseAll)
-                    } else if canResumeAll {
-                        Button("Resume All", systemImage: "arrow.down.circle", action: resumeAll)
-                            .disabled(!steam.isLoggedOn)
                     }
                     SettingsButton()
                 }

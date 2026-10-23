@@ -108,6 +108,12 @@ struct HeroArtwork: View {
     }
 }
 
+extension EnvironmentValues {
+    /// The game page as a book's cover: the game's box art as a card over a wash of it, in
+    /// place of the wide banner and logo. The opened iPhone Duo's left page.
+    @Entry var portraitHero = false
+}
+
 /// Near-black, tinted by the artwork behind it, so the key art carries the page.
 struct GameBackdrop: View {
     var game: LibraryGame

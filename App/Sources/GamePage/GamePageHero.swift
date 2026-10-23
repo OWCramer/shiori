@@ -20,16 +20,29 @@ struct GamePageHero: View {
     let margin: CGFloat
     let wide: Bool
     @State private var extensionHeight: CGFloat = 150
+    @Environment(\.portraitHero) private var portraitHero
 
     var body: some View {
         let alignment: HorizontalAlignment = wide ? .leading : .center
         VStack(spacing: 0) {
-            GameLogo(game: game, maxWidth: wide ? 420 : 300, maxHeight: wide ? 150 : 110, alignment: alignment)
-                .shadow(color: .black.opacity(0.6), radius: 8)
-                .frame(maxWidth: .infinity, alignment: wide ? .bottomLeading : .bottom)
-                .padding(.bottom, 20)
-                .frame(height: bannerHeight, alignment: .bottom)
-                .accessibilityLabel(game.name)
+            if portraitHero {
+                // The box art carries its own title.
+                RemoteImage(url: game.capsuleLarge ?? game.capsule, fallback: game.header) { ArtworkPlaceholder(title: game.name) }
+                    .aspectRatio(2 / 3, contentMode: .fit)
+                    .clipShape(.rect(cornerRadius: 10))
+                    .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12)) }
+                    .shadow(color: .black.opacity(0.55), radius: 18, y: 10)
+                    .padding(.top, 64)
+                    .frame(height: bannerHeight, alignment: .bottom)
+                    .accessibilityLabel(game.name)
+            } else {
+                GameLogo(game: game, maxWidth: wide ? 420 : 300, maxHeight: wide ? 150 : 110, alignment: alignment)
+                    .shadow(color: .black.opacity(0.6), radius: 8)
+                    .frame(maxWidth: .infinity, alignment: wide ? .bottomLeading : .bottom)
+                    .padding(.bottom, 20)
+                    .frame(height: bannerHeight, alignment: .bottom)
+                    .accessibilityLabel(game.name)
+            }
             VStack(alignment: alignment, spacing: 14) {
                 if !metaLine.isEmpty {
                     Text(metaLine)
@@ -49,9 +62,35 @@ struct GamePageHero: View {
         .padding(.horizontal, margin)
         .frame(maxWidth: .infinity)
         .background(alignment: .top) {
-            ExtendedHeroArt(game: game, bannerHeight: bannerHeight, extensionHeight: extensionHeight, overscroll: overscroll)
-                .allowsHitTesting(false)
+            if portraitHero {
+                CoverWash(game: game, height: bannerHeight + extensionHeight + overscroll)
+                    .offset(y: -overscroll)
+            } else {
+                ExtendedHeroArt(game: game, bannerHeight: bannerHeight, extensionHeight: extensionHeight, overscroll: overscroll)
+                    .allowsHitTesting(false)
+            }
         }
+    }
+}
+/// Behind the cover card: the box art blurred into a wash, fading into the page.
+private struct CoverWash: View {
+    let game: LibraryGame
+    let height: CGFloat
+
+    var body: some View {
+        RemoteImage(url: game.capsuleLarge ?? game.capsule, fallback: game.hero) { Color.black }
+            .frame(height: height)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .blur(radius: 50, opaque: true)
+            .saturation(1.3)
+            .overlay(.black.opacity(0.35))
+            .mask {
+                LinearGradient(stops: [.init(color: .black, location: 0.7), .init(color: .clear, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
     }
 }
 #endif
