@@ -160,6 +160,11 @@ struct RootView: View {
     @Environment(ControllerInput.self) private var controllers
     @Environment(GameLibrary.self) private var games
 
+    private var missingFilesTitle: String {
+        let names = games.missingFiles.values.sorted()
+        return names.count == 1 ? "Download \(names[0]) Again?" : "Download \(names.count) Games Again?"
+    }
+
     var body: some View {
         @Bindable var games = games
         content
@@ -167,6 +172,12 @@ struct RootView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(games.launchFailure ?? "")
+            }
+            .alert(missingFilesTitle, isPresented: Binding(get: { steam.isLoggedOn && !games.missingFiles.isEmpty }, set: { if !$0 { games.missingFiles = [:] } })) {
+                Button("Download") { games.downloadMissingFiles() }
+                Button("Not Now", role: .cancel) {}
+            } message: {
+                Text("Game files aren't included when an iPhone is restored or set up from another. Saves are kept.")
             }
             .fullScreenCover(item: $games.artemisSession) { session in
                 CoveredGame(art: session.cover) { firstFrame in

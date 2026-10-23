@@ -204,6 +204,16 @@ final class GameLibrary {
             guard let data = try? Data(contentsOf: url),
                   var record = try? Self.decoder.decode(GameRecord.self, from: data)
             else { continue }
+            #if os(iOS)
+            // Game files stay out of backups, so a restored or transferred iPhone brings back the
+            // folder (game.json, saves, patches) without them: download again, saves kept.
+            if Self.isEmptyFolder(url.deletingLastPathComponent().appendingPathComponent("base", isDirectory: true)) {
+                try? fm.removeItem(at: Self.installsDirectory.appendingPathComponent(String(record.appID), isDirectory: true))
+                statuses[record.appID] = .notInstalled
+                missingFiles[record.appID] = record.name
+                continue
+            }
+            #endif
             // Installed before Shiori knew its engine, or recorded as one no runtime takes (an
             // older detector read Sakura Isekai Adventure's Ren'Py 8.1 as its Python 2 twin,
             // 7.6): look again (detection reads a few small files).
@@ -230,6 +240,20 @@ final class GameLibrary {
             #endif
             statuses[appID] = .paused(nil)
         }
+    }
+
+    /// Games whose files are gone (a restored or new iPhone), by app ID, with their names: they
+    /// show as not downloaded, and the app offers to download them all again.
+    var missingFiles: [UInt32: String] = [:]
+
+    /// Downloads every game whose files are missing, in turn; saves and patches stay.
+    func downloadMissingFiles() {
+        for (appID, name) in missingFiles.sorted(by: { $0.value < $1.value }) { startDownload(appID: appID, name: name) }
+        missingFiles = [:]
+    }
+
+    private static func isEmptyFolder(_ url: URL) -> Bool {
+        ((try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []).allSatisfy { $0.hasPrefix(".") }
     }
 
     // MARK: - Download
