@@ -1015,6 +1015,18 @@ final class GameLibrary {
         log.notice("Saves \(appID): erased\(backup.map { ", backup in \($0.path)" } ?? "", privacy: .public)")
     }
 
+    /// One step before a game starts, shown on the Play button, given `seconds` at most: iCloud
+    /// can wait indefinitely on a new or just-restored iPhone, and Steam or GitHub on a poor
+    /// network. Past that the game starts with what's here, and the step finishes behind it.
+    private func launchStep(_ phase: LaunchPhase, appID: UInt32, seconds: Double, _ work: @escaping @Sendable () async -> Void) async {
+        launching = (appID, phase)
+        let started = Date()
+        await Self.firstOf(seconds: seconds, work)
+        if Date().timeIntervalSince(started) >= seconds - 0.1 {
+            log.error("Launch \(appID): \(phase.label, privacy: .public) still going after \(Int(seconds)) s; starting without it")
+        }
+    }
+
     // MARK: - Play
 
     /// Why the game can't be played, or nil if Play should be offered.
@@ -1118,17 +1130,21 @@ final class GameLibrary {
                 // The cover's art downloads while saves sync (usually from URLCache).
                 async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
                 // Saves left behind here go up before anything is pulled over them.
-                await catchUp(appID: appID)
-                await syncSaves(appID: appID, direction: .pull)
+                await launchStep(.iCloud, appID: appID, seconds: 15) { await self.catchUp(appID: appID) }
+                await launchStep(.iCloud, appID: appID, seconds: 20) { await self.syncSaves(appID: appID, direction: .pull) }
                 if !["artemis", "luca", "catsystem2"].contains(engine.engine), steamCloudMapped[appID] == true {
-                    await pullSteamCloud(appID: appID)
-                    // The session's start, to match finishSteamCloudSession when it's left.
-                    if uploadsToSteamCloud(appID) { await sendSteamCloudLaunchIntent(appID: appID) }
+                    await launchStep(.steamCloud, appID: appID, seconds: 20) {
+                        await self.pullSteamCloud(appID: appID)
+                        // The session's start, to match finishSteamCloudSession when it's left.
+                        if await self.uploadsToSteamCloud(appID) { await self.sendSteamCloudLaunchIntent(appID: appID) }
+                    }
                 }
                 #if !os(tvOS)
                 if engine.engine == "kirikiri" {
                     let runtimeCache = URL.cachesDirectory.appendingPathComponent("KiriKiri/\(folder.lastPathComponent)", isDirectory: true)
-                    await GARbroDatabase.prepare(appID: appID, runtimeCache: runtimeCache)
+                    await launchStep(.starting, appID: appID, seconds: 20) {
+                        await GARbroDatabase.prepare(appID: appID, runtimeCache: runtimeCache)
+                    }
                 }
                 #endif
                 let (heroFile, logoFile) = await cover
@@ -1163,13 +1179,13 @@ final class GameLibrary {
             // The launch cover's art downloads while saves sync (usually from URLCache).
             async let cover = Self.fetchCover(hero: entry?.hero ?? entry?.header, logo: entry?.logo, into: coverFolder)
             // Saves left behind here go up first, so the pulls never overwrite them.
-            await catchUp(appID: appID)
+            await launchStep(.iCloud, appID: appID, seconds: 15) { await self.catchUp(appID: appID) }
             // Bring down saves made elsewhere first: Steam Cloud (the PC), then iCloud.
-            if isSteamCloudEnabled(appID) { launching = (appID, .steamCloud) }
-            await pullSteamCloud(appID: appID)
-            if canUploadSteamCloud(appID) { await sendSteamCloudLaunchIntent(appID: appID) }
-            if isCloudSaveEnabled(appID) { launching = (appID, .iCloud) }
-            await syncSaves(appID: appID, direction: .pull)
+            await launchStep(.steamCloud, appID: appID, seconds: 20) {
+                await self.pullSteamCloud(appID: appID)
+                if await self.canUploadSteamCloud(appID) { await self.sendSteamCloudLaunchIntent(appID: appID) }
+            }
+            await launchStep(.iCloud, appID: appID, seconds: 20) { await self.syncSaves(appID: appID, direction: .pull) }
             launching = (appID, .starting)
             PlayHistory.shared.recordLaunch(appID) // Home's "last played" (synced), as the game takes over.
             let (heroFile, logoFile) = await cover
