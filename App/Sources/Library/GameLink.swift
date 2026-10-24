@@ -5,20 +5,13 @@
 #if os(iOS)
 import SwiftUI
 
-/// Opens a game's page: pushed onto the current navigation stack, or on an opened Duo, in
-/// the pane beside the library (`DuoPanes`).
+/// Opens a game's page, pushed onto the current navigation stack.
 struct GameLink<Label: View>: View {
     let game: LibraryGame
     @ViewBuilder var label: Label
 
-    @Environment(\.openGame) private var openGame
-
     var body: some View {
-        if let openGame {
-            Button { openGame(game) } label: { label }
-        } else {
-            NavigationLink(value: LibraryRoute.game(game)) { label }
-        }
+        NavigationLink(value: LibraryRoute.game(game)) { label }
     }
 }
 #endif

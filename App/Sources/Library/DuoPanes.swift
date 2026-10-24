@@ -5,60 +5,47 @@
 #if os(iOS)
 import SwiftUI
 
-/// The iPhone Duo opened flat (iOS 27.1), as a chain of panes, Sections › Games › Game, two
-/// at a time: the one you're on on the right page, the one before it on the left. Picking a
-/// game slides the chain along a page; closing it slides back. The panes keep their place in
-/// the chain while it slides, so the library keeps its scroll and navigation.
+/// The iPhone Duo opened flat (iOS 27.1), as Claude's app is: a sidebar of the library's
+/// sections in place of the tab bar, and the section across the rest of the screen, where
+/// games open as they do anywhere else. The fold is ignored: the screen is one surface.
 struct DuoPanes: View {
-    let fold: CGRect
     @Environment(ShellModel.self) private var shell
-    @State private var game: LibraryGame?
+    @SceneStorage("duoSidebar") private var showsSidebar = true
 
     var body: some View {
-        GeometryReader { proxy in
-            let left = max(0, fold.minX)
-            let right = max(0, proxy.size.width - fold.maxX)
-            let step = left + fold.width
-            HStack(spacing: 0) {
-                DuoSectionsPane()
-                    .frame(width: left)
-                Color.black.frame(width: fold.width)
-                DuoSectionScreen(tab: shell.tab)
-                    .frame(width: game == nil ? right : left)
-                Color.black.frame(width: fold.width)
-                gamePane
-                    .frame(width: right)
+        HStack(spacing: 0) {
+            if showsSidebar {
+                DuoSectionsPane(hide: toggle)
+                    .frame(width: 320)
+                    .transition(.move(edge: .leading))
             }
-            .environment(\.horizontalSizeClass, .compact)
-            .environment(\.openGame) { picked in withAnimation(.smooth(duration: 0.35)) { game = picked } }
-            .offset(x: game == nil ? 0 : -step)
-            .frame(width: proxy.size.width, alignment: .leading)
-            .clipped()
+            DuoSectionScreen(tab: shell.tab)
+                .id(shell.tab)
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .topLeading) {
+                    if !showsSidebar {
+                        Button("Show Sidebar", systemImage: "sidebar.left", action: toggle)
+                            .labelStyle(.iconOnly)
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .padding(.leading, 16)
+                            .padding(.top, 6)
+                            .transition(.opacity)
+                    }
+                }
         }
-        .ignoresSafeArea(.container)
-        .onChange(of: shell.tab) { withAnimation(.smooth(duration: 0.35)) { game = nil } }
+        .environment(\.horizontalSizeClass, .compact)
     }
 
-    @ViewBuilder private var gamePane: some View {
-        NavigationStack {
-            if let game {
-                GameDetailView(game: game)
-                    .id(game.appID)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Back", systemImage: "chevron.left") {
-                                withAnimation(.smooth(duration: 0.35)) { self.game = nil }
-                            }
-                        }
-                    }
-                    .libraryDestinations()
-            }
-        }
+    private func toggle() {
+        withAnimation(.smooth(duration: 0.3)) { showsSidebar.toggle() }
     }
 }
 
 /// The library's sections as a list: the tab bar's place on the opened Duo.
 private struct DuoSectionsPane: View {
+    let hide: () -> Void
     @Environment(ShellModel.self) private var shell
     @Environment(SteamModel.self) private var steam
     @Environment(GameLibrary.self) private var games
@@ -98,10 +85,11 @@ private struct DuoSectionsPane: View {
                     }
                 }
             }
+            .listStyle(.sidebar)
             .navigationTitle("Shiori")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Settings", systemImage: "gearshape") { shell.showingSettings = true }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Hide Sidebar", systemImage: "sidebar.left", action: hide)
                 }
             }
         }
@@ -158,9 +146,4 @@ enum DuoFold {
     }
 }
 
-extension EnvironmentValues {
-    /// Opens a game in the pane beside the library on an opened Duo; nil elsewhere, where a
-    /// game is pushed.
-    @Entry var openGame: ((LibraryGame) -> Void)?
-}
 #endif

@@ -69,8 +69,8 @@ struct ShowcaseShell: View {
                              engineScans: engineScans, compatibility: compatibility)
             : SidebarEngines.none
         Group {
-            if let duoFold {
-                DuoPanes(fold: duoFold)
+            if duoFold != nil {
+                DuoPanes()
             } else {
                 tabs(engines: engines)
             }
