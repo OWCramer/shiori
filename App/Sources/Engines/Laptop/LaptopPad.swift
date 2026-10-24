@@ -308,8 +308,19 @@ private struct LaptopTrackpad: UIViewRepresentable {
             LaptopPad.shared.scroll(Int(steps))
         }
 
-        @objc private func clicked() { LaptopPad.shared.click() }
-        @objc private func secondaryClicked() { LaptopPad.shared.secondaryClick() }
+        /// A trackpad's click, felt: a short rigid tap, softer for the right button.
+        private let click = UIImpactFeedbackGenerator(style: .rigid)
+        private let secondary = UIImpactFeedbackGenerator(style: .soft)
+
+        @objc private func clicked() {
+            click.impactOccurred(intensity: 0.8)
+            LaptopPad.shared.click()
+        }
+
+        @objc private func secondaryClicked() {
+            secondary.impactOccurred()
+            LaptopPad.shared.secondaryClick()
+        }
     }
 }
 
