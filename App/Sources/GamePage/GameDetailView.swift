@@ -64,6 +64,67 @@ struct GameDetailView: View {
     var body: some View {
         let _ = RenderProbe.hit("GameDetailView")
         let margin = sizeClass == .regular ? GamePageMetrics.wideMargin : GamePageMetrics.margin
+        Group {
+            if sideBySide {
+                sideBySideBody
+            } else {
+                scrollingBody(margin: margin)
+            }
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            viewportHeight = size.height
+            width = size.width
+        }
+        .background { GameBackdrop(game: game) }
+        .environment(\.colorScheme, .dark)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .navigationTitle(game.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $model.browsingArchives) { ArchiveBrowserView(gameFolder: folder) }
+        .sheet(isPresented: $model.choosingArtwork) {
+            ArtworkPickerView(appID: appID)
+                .environment(steam.artwork)
+        }
+        .fileImporter(isPresented: $model.importingPatch, allowedContentTypes: [.zip, .folder, .item]) { result in
+            model.importPatch(result, folder: folder)
+        }
+        .modifier(GamePageDialogs(game: game, model: model))
+        // A patch dropped anywhere on the page (iPad) is imported after asking.
+        .modifier(PatchDropTarget(game: game, cornerRadius: 0))
+        .focusedSceneValue(isVisible ? model : nil)
+        .onDisappear { isVisible = false }
+        .onChange(of: PatchImports.shared.finished[appID]) { reloadPatches() }
+        .onChange(of: game, initial: true) { _, game in model.game = game }
+        .onAppear(perform: appeared)
+        .task(id: steam.isLoggedOn) { await checkGame() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
+        .onChange(of: stage) { reloadPatches() }
+    }
+
+    /// A wide, short screen (the opened iPhone Duo, a phone held sideways): as Music's album
+    /// page, the game's art, logo and Play held on the left, the sections scrolling beside it.
+    private var sideBySide: Bool {
+        width >= 700 && viewportHeight > 0 && width > viewportHeight * 1.2 && viewportHeight < 800
+    }
+
+    private var sideBySideBody: some View {
+        HStack(spacing: 0) {
+            GamePageCover(game: game, model: model, metaLine: metaLine)
+                .frame(width: (width * 0.46).rounded())
+            ScrollView {
+                VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
+                    GamePagePlaySections(game: game, record: record, model: model)
+                    GamePageDetailSections(game: game, record: record, model: model)
+                }
+                .padding(.horizontal, GamePageMetrics.wideMargin)
+                .padding(.top, 12)
+                .padding(.bottom, 40)
+            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+        }
+    }
+
+    private func scrollingBody(margin: CGFloat) -> some View {
         ScrollView {
             VStack(spacing: 8) {
                 GamePageHero(game: game, model: model, metaLine: metaLine, bannerHeight: bannerHeight, overscroll: overscroll,
@@ -94,36 +155,8 @@ struct GameDetailView: View {
             .padding(.bottom, 40)
         }
         .scrollOverscroll($overscroll)
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-            viewportHeight = size.height
-            width = size.width
-        }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .background { GameBackdrop(game: game) }
-        .environment(\.colorScheme, .dark)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .navigationTitle(game.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $model.browsingArchives) { ArchiveBrowserView(gameFolder: folder) }
-        .sheet(isPresented: $model.choosingArtwork) {
-            ArtworkPickerView(appID: appID)
-                .environment(steam.artwork)
-        }
-        .fileImporter(isPresented: $model.importingPatch, allowedContentTypes: [.zip, .folder, .item]) { result in
-            model.importPatch(result, folder: folder)
-        }
-        .modifier(GamePageDialogs(game: game, model: model))
-        // A patch dropped anywhere on the page (iPad) is imported after asking.
-        .modifier(PatchDropTarget(game: game, cornerRadius: 0))
-        .focusedSceneValue(isVisible ? model : nil)
-        .onDisappear { isVisible = false }
-        .onChange(of: PatchImports.shared.finished[appID]) { reloadPatches() }
-        .onChange(of: game, initial: true) { _, game in model.game = game }
-        .onAppear(perform: appeared)
-        .task(id: steam.isLoggedOn) { await checkGame() }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { reloadPatches() } }
-        .onChange(of: stage) { reloadPatches() }
     }
 
     private func appeared() {
