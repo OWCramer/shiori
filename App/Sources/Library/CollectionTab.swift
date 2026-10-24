@@ -11,7 +11,7 @@ struct CollectionTab: View {
     @State private var path: [LibraryRoute] = []
 
     var body: some View {
-        BookHandoffStack(path: $path, tab: .collection(collectionID)) {
+        NavigationStack(path: $path) {
             CollectionPage(collectionID: collectionID)
                 .libraryDestinations()
         }

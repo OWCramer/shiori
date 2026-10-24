@@ -69,7 +69,7 @@ struct LibraryGridScreen: View {
         let entries = entries
         let shown = entries.filter { filters.admits($0.traits, isDownloaded: $0.isDownloaded) }.map(\.game)
         let items = offersGrouping && grouped ? LibraryGridItem.grouping(shown, collections: collections) : shown.map(LibraryGridItem.game)
-        BookHandoffStack(path: $path, tab: section.shellTab) {
+        NavigationStack(path: $path) {
             ScrollView {
                 if let error = steam.libraryError {
                     Text(error)
