@@ -23,6 +23,8 @@ struct ShowcaseShell: View {
     @Environment(\.scenePhase) private var scenePhase
     @SceneStorage("shellTab") private var savedTab: ShellTab = .home
     @State private var shell = ShellModel()
+    /// The fold down an opened iPhone Duo, which lays the library out as panes.
+    @State private var duoFold: CGRect?
 
     /// The download the mini player shows: the running one, else the next in the queue.
     private var accessoryGame: LibraryGame? {
@@ -66,7 +68,61 @@ struct ShowcaseShell: View {
             ? SidebarEngines(library: steam.library, games: games, curation: curation,
                              engineScans: engineScans, compatibility: compatibility)
             : SidebarEngines.none
-        TabView(selection: $shell.tab) {
+        Group {
+            if let duoFold {
+                DuoPanes(fold: duoFold)
+            } else {
+                tabs(engines: engines)
+            }
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear.onChange(of: DuoFold.vertical(in: proxy), initial: true) { _, fold in duoFold = fold }
+            }
+            .ignoresSafeArea()
+        }
+        .environment(shell)
+        .focusedSceneValue(shell)
+        .sheet(isPresented: $shell.showingSettings) { SettingsScreen().environment(shell) }
+        .sheet(isPresented: $shell.showingAddGame) { AddVisualNovelView().environment(shell) }
+        .sheet(item: $shell.collectionSheet) { sheet in
+            // Sheets don't reliably carry the shell's environment; Add to Collection reads
+            // the shell (its New Collection… swaps sheets), which crashed without it.
+            Group {
+            switch sheet {
+            case let .addTo(games): AddToCollectionView(games: games)
+            case let .new(games):
+                CollectionGamePicker(title: "New Collection", confirmTitle: "Create", naming: "Collection Name",
+                                     selected: Set(games)) { name, picked in
+                    collections.create(named: name, games: picked)
+                }
+            case let .edit(id): CollectionEditorSheet(collectionID: id)
+            }
+            }
+            .environment(shell)
+        }
+        .preferredColorScheme(.dark)
+        .task(id: games.installedRecords.keys.sorted()) { refreshSaves() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshSaves() }
+        }
+        .onAppear(perform: restoreTab)
+        .onChange(of: shell.tab) { _, tab in savedTab = tab }
+        .onChange(of: usesSidebar, initial: true) { _, sidebar in sidebarChanged(sidebar) }
+        // A sidebar item that went away (an engine no game uses any more) goes back Home.
+        .onChange(of: engines) { _, engines in
+            if case let .engine(key) = shell.tab, !engines.items.contains(where: { $0.key == key }) { shell.select(.home) }
+        }
+        // …as does a collection hidden, deleted or merged away.
+        .onChange(of: collections.collections.map(\.id)) { _, ids in
+            if case let .collection(id) = shell.tab, !ids.contains(id) { shell.select(.collections) }
+        }
+    }
+
+    /// The tab bar (or the iPad sidebar): everywhere but the opened Duo.
+    private func tabs(engines: SidebarEngines) -> some View {
+        @Bindable var shell = shell
+        return TabView(selection: $shell.tab) {
             Tab("Home", systemImage: "play.rectangle.on.rectangle.fill", value: ShellTab.home) {
                 HomeView()
             }
@@ -149,42 +205,6 @@ struct ShowcaseShell: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .modifier(DownloadAccessory(game: accessoryGame, open: openDownloads))
-        .environment(shell)
-        .focusedSceneValue(shell)
-        .sheet(isPresented: $shell.showingSettings) { SettingsScreen().environment(shell) }
-        .sheet(isPresented: $shell.showingAddGame) { AddVisualNovelView().environment(shell) }
-        .sheet(item: $shell.collectionSheet) { sheet in
-            // Sheets don't reliably carry the shell's environment; Add to Collection reads
-            // the shell (its New Collection… swaps sheets), which crashed without it.
-            Group {
-            switch sheet {
-            case let .addTo(games): AddToCollectionView(games: games)
-            case let .new(games):
-                CollectionGamePicker(title: "New Collection", confirmTitle: "Create", naming: "Collection Name",
-                                     selected: Set(games)) { name, picked in
-                    collections.create(named: name, games: picked)
-                }
-            case let .edit(id): CollectionEditorSheet(collectionID: id)
-            }
-            }
-            .environment(shell)
-        }
-        .preferredColorScheme(.dark)
-        .task(id: games.installedRecords.keys.sorted()) { refreshSaves() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { refreshSaves() }
-        }
-        .onAppear(perform: restoreTab)
-        .onChange(of: shell.tab) { _, tab in savedTab = tab }
-        .onChange(of: usesSidebar, initial: true) { _, sidebar in sidebarChanged(sidebar) }
-        // A sidebar item that went away (an engine no game uses any more) goes back Home.
-        .onChange(of: engines) { _, engines in
-            if case let .engine(key) = shell.tab, !engines.items.contains(where: { $0.key == key }) { shell.select(.home) }
-        }
-        // …as does a collection hidden, deleted or merged away.
-        .onChange(of: collections.collections.map(\.id)) { _, ids in
-            if case let .collection(id) = shell.tab, !ids.contains(id) { shell.select(.collections) }
-        }
     }
 
     /// The sidebar's own sections have no tab in the tab bar: a window narrowing to compact
