@@ -120,10 +120,15 @@ enum SaveSync {
         return result
     }
 
-    /// Ren'Py rewrites `persistent` on every run and merges copies itself, so keeping its
-    /// losing versions would only pile up files; for it, the newer copy simply wins.
+    /// Files a game rewrites on every run, where keeping the losing copy would only pile up
+    /// files: Ren'Py's `persistent` (which merges copies itself), and KiriKiri's system data,
+    /// `<name>sc.ksd`, `<name>su.ksd` and `<name>_anchor.ksd` with their `~` backups (settings,
+    /// read text). For these the newer copy simply wins; save slots still keep conflicts.
     private static func keepsConflicts(_ name: String) -> Bool {
-        (name as NSString).lastPathComponent != "persistent"
+        let file = (name as NSString).lastPathComponent.lowercased()
+        if file == "persistent" { return false }
+        let stem = file.replacingOccurrences(of: "~", with: "")
+        return !(stem.hasSuffix("sc.ksd") || stem.hasSuffix("su.ksd") || stem.hasSuffix("_anchor.ksd"))
     }
 
     // MARK: - Listing

@@ -21,7 +21,6 @@ struct CollectionPage: View {
     @State private var viewportHeight: CGFloat = 0
     @State private var width: CGFloat = 0
     @State private var confirmingDownload = false
-    @State private var pastHero = false
     @State private var showsAll = false
     @State private var editing = false
     @Environment(\.dismiss) private var dismiss
@@ -95,24 +94,8 @@ struct CollectionPage: View {
             viewportHeight = size.height
             width = size.width
         }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > GameHeroHeader.height(forViewport: geometry.containerSize.height) - 120
-        } action: { _, past in
-            pastHero = past
-        }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        // Past the banner, a scrim under the status bar and title, as on a game's page.
-        .overlay(alignment: .top) {
-            LinearGradient(stops: [.init(color: .black.opacity(0.9), location: 0), .init(color: .black.opacity(0.75), location: 0.6),
-                                   .init(color: .clear, location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 150)
-                .ignoresSafeArea(edges: .top)
-                .opacity(pastHero ? 1 : 0)
-                .animation(.easeInOut(duration: 0.2), value: pastHero)
-                .allowsHitTesting(false)
-        }
         .background {
             if let lead = members.first { GameBackdrop(game: lead) } else { Color.black.ignoresSafeArea() }
         }

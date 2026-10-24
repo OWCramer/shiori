@@ -26,9 +26,6 @@ struct GameDetailView: View {
     @State private var width: CGFloat = 0
     /// On screen (not covered by a page pushed over it): the keyboard's Game commands act on it.
     @State private var isVisible = false
-    /// Scrolled past the banner: the navigation bar gets its background, so the sections
-    /// don't run under the title.
-    @State private var pastHero = false
 
     init(game: LibraryGame) {
         opened = game
@@ -101,25 +98,8 @@ struct GameDetailView: View {
             viewportHeight = size.height
             width = size.width
         }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > GameHeroHeader.height(forViewport: geometry.containerSize.height) - 120
-        } action: { _, past in
-            pastHero = past
-        }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        // Past the banner, a dark scrim under the status bar and title, so the sections
-        // don't run unreadably beneath them. (Decoration: it takes no touches.)
-        .overlay(alignment: .top) {
-            LinearGradient(stops: [.init(color: .black.opacity(0.9), location: 0), .init(color: .black.opacity(0.75), location: 0.6),
-                                   .init(color: .clear, location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 150)
-                .ignoresSafeArea(edges: .top)
-                .opacity(pastHero ? 1 : 0)
-                .animation(.easeInOut(duration: 0.2), value: pastHero)
-                .allowsHitTesting(false)
-        }
         .background { GameBackdrop(game: game) }
         .environment(\.colorScheme, .dark)
         .toolbarColorScheme(.dark, for: .navigationBar)
