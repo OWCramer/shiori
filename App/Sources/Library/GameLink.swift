@@ -9,6 +9,9 @@ import SwiftUI
 /// cover (`LibraryStack`).
 struct GameLink<Label: View>: View {
     let game: LibraryGame
+    /// Zooms out of this view; otherwise a plain push (for art that runs under the iPhone
+    /// Duo's side strip, which a zoom's source would leave blank while it hides).
+    var zooms = true
     @ViewBuilder var label: Label
     @Environment(\.gameZoom) private var zoom
     /// This cover among the game's others on the screen, for the page to zoom out of.
@@ -16,13 +19,13 @@ struct GameLink<Label: View>: View {
 
     var body: some View {
         NavigationLink(value: LibraryRoute.game(game)) {
-            if let zoom {
+            if let zoom, zooms {
                 label.matchedTransitionSource(id: source, in: zoom.namespace)
             } else {
                 label
             }
         }
-        .simultaneousGesture(TapGesture().onEnded { zoom?.model.source = source })
+        .simultaneousGesture(TapGesture().onEnded { zoom?.model.source = zooms ? source : "" })
     }
 }
 #endif
