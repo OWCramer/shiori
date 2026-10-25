@@ -80,6 +80,10 @@ struct GameDetailView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
+        // Laid out wide, the box art carries the name: no title over it (the back menu keeps it).
+        .toolbar {
+            if sideBySide { ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) } }
+        }
         .sheet(isPresented: $model.browsingArchives) { ArchiveBrowserView(gameFolder: folder) }
         .sheet(isPresented: $model.choosingArtwork) {
             ArtworkPickerView(appID: appID)
