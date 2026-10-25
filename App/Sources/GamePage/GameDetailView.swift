@@ -177,8 +177,7 @@ struct GameDetailView: View {
             width = size.width
         }
         .ignoresSafeArea(edges: .top)
-        // A clean edge under the title rather than a blur.
-        .scrollEdgeEffectStyle(.hard, for: .top)
+        .scrollEdgeEffectStyle(.soft, for: .top)
     }
 
     private func appeared() {
