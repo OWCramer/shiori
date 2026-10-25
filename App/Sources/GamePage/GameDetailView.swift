@@ -26,9 +26,9 @@ struct GameDetailView: View {
     @State private var width: CGFloat = 0
     /// On screen (not covered by a page pushed over it): the keyboard's Game commands act on it.
     @State private var isVisible = false
-    /// Scrolled off the top: the bar's blur shows under the title only then, as Music's album
-    /// page does (at the top it would darken the art a moment after the page opens).
-    @State private var scrolledDown = false
+    /// Scrolled past the banner: the title and the bar's blur show only then, as on Music's
+    /// album page (the banner carries the game's logo until it's gone).
+    @State private var pastBanner = false
 
     init(game: LibraryGame) {
         opened = game
@@ -93,6 +93,7 @@ struct GameDetailView: View {
                     Color.clear.frame(width: 1, height: 1)
                 } else {
                     Text(game.name).font(.headline).lineLimit(1)
+                        .opacity(pastBanner ? 1 : 0)
                 }
             }
         }
@@ -181,9 +182,11 @@ struct GameDetailView: View {
         }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectHidden(!scrolledDown, for: .top)
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 8 } action: { _, down in
-            scrolledDown = down
+        .scrollEdgeEffectHidden(!pastBanner, for: .top)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > bannerHeight - 40
+        } action: { _, past in
+            withAnimation(.easeInOut(duration: 0.2)) { pastBanner = past }
         }
     }
 
