@@ -21,7 +21,7 @@ extension View {
     func libraryDestinations() -> some View {
         navigationDestination(for: LibraryRoute.self) { route in
             switch route {
-            case let .game(game): GameDetailView(game: game)
+            case let .game(game): ZoomedGamePage(game: game)
             case let .collection(id, scope): CollectionPage(collectionID: id, scope: scope)
             }
         }

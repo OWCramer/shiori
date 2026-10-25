@@ -25,7 +25,7 @@ struct HomeView: View {
         let shelves = HomeShelves(library: steam.library, games: games, curation: curation,
                                   engineScans: engineScans, history: .shared)
         let capsuleWidth = sizeClass == .regular ? ShowcaseMetrics.wideShelfCapsule : ShowcaseMetrics.shelfCapsule
-        NavigationStack(path: $path) {
+        LibraryStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: ShowcaseMetrics.shelfSpacing) {
                     if let featured = shelves.featured {

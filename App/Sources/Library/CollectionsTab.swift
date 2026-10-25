@@ -10,7 +10,7 @@ struct CollectionsTab: View {
     @State private var path: [LibraryRoute] = []
 
     var body: some View {
-        NavigationStack(path: $path) {
+        LibraryStack(path: $path) {
             CollectionsScreen(opensPages: true)
                 .libraryDestinations()
         }

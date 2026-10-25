@@ -11,7 +11,7 @@ struct CollectionTab: View {
     @State private var path: [LibraryRoute] = []
 
     var body: some View {
-        NavigationStack(path: $path) {
+        LibraryStack(path: $path) {
             CollectionPage(collectionID: collectionID)
                 .libraryDestinations()
         }
