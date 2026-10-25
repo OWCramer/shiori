@@ -51,6 +51,8 @@ struct GamePageHero: View {
         .background(alignment: .top) {
             ExtendedHeroArt(game: game, bannerHeight: bannerHeight, extensionHeight: extensionHeight, overscroll: overscroll)
                 .allowsHitTesting(false)
+                // Under the iPhone Duo's side strip too, as on Home.
+                .ignoresSafeArea(.container, edges: .horizontal)
         }
     }
 }

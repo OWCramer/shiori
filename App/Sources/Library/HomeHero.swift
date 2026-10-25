@@ -47,6 +47,8 @@ struct HomeHero: View {
         GameLink(game: game) {
             ExtendedHeroArt(game: game, bannerHeight: bannerHeight,
                         extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
+                // Under the iPhone Duo's side strip too, as Music's art runs behind it.
+                .ignoresSafeArea(.container, edges: .horizontal)
         }
         .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")

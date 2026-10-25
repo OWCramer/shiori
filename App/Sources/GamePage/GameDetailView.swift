@@ -26,6 +26,9 @@ struct GameDetailView: View {
     @State private var width: CGFloat = 0
     /// On screen (not covered by a page pushed over it): the keyboard's Game commands act on it.
     @State private var isVisible = false
+    /// Scrolled off the top: the bar's blur shows under the title only then, as Music's album
+    /// page does (at the top it would darken the art a moment after the page opens).
+    @State private var scrolledDown = false
 
     init(game: LibraryGame) {
         opened = game
@@ -178,6 +181,10 @@ struct GameDetailView: View {
         }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
+        .scrollEdgeEffectHidden(!scrolledDown, for: .top)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 8 } action: { _, down in
+            scrolledDown = down
+        }
     }
 
     private func appeared() {
