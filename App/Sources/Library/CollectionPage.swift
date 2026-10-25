@@ -48,11 +48,13 @@ struct CollectionPage: View {
         }
     }
 
-    /// The scope in force: none once Show All is on, or when it would leave every game in.
+    /// The scope in force: none once Show All is on, when it would leave every game in, or
+    /// when it would leave none (the last downloaded game deleted from a page opened from
+    /// Installed): the whole collection then, with Download All.
     private func activeScope(_ collection: LibraryCollection) -> CollectionScope? {
         guard let scope, !showsAll else { return nil }
         let kept = collection.inReleaseOrder.filter { scope.admits($0, library: games) }.count
-        return kept < collection.inReleaseOrder.count ? scope : nil
+        return kept > 0 && kept < collection.inReleaseOrder.count ? scope : nil
     }
 
     private func page(_ whole: LibraryCollection) -> some View {
