@@ -41,33 +41,17 @@ struct HomeHero: View {
 
     private var bannerHeight: CGFloat { GameHeroHeader.height(forViewport: viewportHeight) }
 
-    /// Trying out (`-ShioriHomeHero extend|card`): the art under the iPhone Duo's side strip,
-    /// opened with a plain push; or the whole header as an inset card that zooms.
-    private enum Style: String { case cutoff, extend, card }
-    private var style: Style {
-        UserDefaults.standard.string(forKey: "ShioriHomeHero").flatMap(Style.init(rawValue:)) ?? .extend
-    }
-
-    var body: some View {
-        switch style {
-        case .card:
-            header
-                .clipShape(.rect(cornerRadius: 32))
-                .padding(.horizontal, sizeClass == .regular ? ShowcaseMetrics.wideMargin : ShowcaseMetrics.margin)
-                .padding(.top, 8)
-                .safeAreaPadding(.top)
-        default:
-            header
-        }
-    }
+    var body: some View { header }
 
     private var header: some View {
         let wide = sizeClass == .regular
         let alignment: HorizontalAlignment = wide ? .leading : .center
-        return GameLink(game: game, zooms: style != .extend) {
+        // A plain push, not the zoom: the art runs under the iPhone Duo's side strip, which a
+        // zoom's source would leave blank while it hides.
+        return GameLink(game: game, zooms: false) {
             ExtendedHeroArt(game: game, bannerHeight: bannerHeight,
-                        extensionHeight: extensionHeight(wide: wide), overscroll: style == .card ? 0 : overscroll)
-                .ignoresSafeArea(.container, edges: style == .extend ? .horizontal : [])
+                        extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
+                .ignoresSafeArea(.container, edges: .horizontal)
         }
         .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")
