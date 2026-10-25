@@ -26,11 +26,10 @@ struct ExtendedHeroArt: View {
                 .backgroundExtensionEffect()
                 .safeAreaPadding(.bottom, extensionHeight)
                 .overlay {
-                    // The status bar over the top of the art, and the extended region darkening
-                    // into the backdrop so its text reads on light art too.
+                    // The extended region darkening into the backdrop so its text reads on
+                    // light art too. (The bar's own blur covers the status bar and title.)
                     LinearGradient(stops: [
-                        .init(color: .black.opacity(0.35), location: 0),
-                        .init(color: .clear, location: 0.12),
+                        .init(color: .clear, location: 0),
                         // A light shade where the logo sits on the banner's foot.
                         .init(color: .clear, location: bannerHeight / (bannerHeight + extensionHeight) - 0.2),
                         .init(color: .black.opacity(0.35), location: bannerHeight / (bannerHeight + extensionHeight)),
