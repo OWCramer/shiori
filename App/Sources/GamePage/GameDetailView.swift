@@ -67,13 +67,13 @@ struct GameDetailView: View {
         Group {
             if sideBySide {
                 sideBySideBody
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                        viewportHeight = size.height
+                        width = size.width
+                    }
             } else {
                 scrollingBody(margin: margin)
             }
-        }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-            viewportHeight = size.height
-            width = size.width
         }
         .background { GameBackdrop(game: game) }
         .environment(\.colorScheme, .dark)
@@ -155,6 +155,12 @@ struct GameDetailView: View {
             .padding(.bottom, 40)
         }
         .scrollOverscroll($overscroll)
+        // The viewport as before the page runs under the status bar: the banner's height
+        // follows it.
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            viewportHeight = size.height
+            width = size.width
+        }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
     }
