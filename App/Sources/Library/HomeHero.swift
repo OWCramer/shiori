@@ -48,16 +48,6 @@ struct HomeHero: View {
             ExtendedHeroArt(game: game, bannerHeight: bannerHeight,
                         extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
         }
-        // The art again behind the link, running under the iPhone Duo's side strip as Music's
-        // does. It isn't the zoom's source, so it stays while a game's page zooms back into
-        // the banner (the source hides until the zoom ends, and the strip went blank).
-        .background(alignment: .top) {
-            ExtendedHeroArt(game: game, bannerHeight: bannerHeight,
-                            extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
-                .ignoresSafeArea(.container, edges: .horizontal)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
         .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")
         .accessibilityHint("Opens the game's page")
