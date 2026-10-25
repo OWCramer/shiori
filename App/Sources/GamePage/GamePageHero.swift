@@ -20,8 +20,6 @@ struct GamePageHero: View {
     let margin: CGFloat
     let wide: Bool
     @State private var extensionHeight: CGFloat = 150
-    /// The window's insets at the sides (the iPhone Duo's strip), which the art extends into.
-    @State private var sideInsets = EdgeInsets()
 
     var body: some View {
         let alignment: HorizontalAlignment = wide ? .leading : .center
@@ -50,12 +48,10 @@ struct GamePageHero: View {
         .frame(maxWidth: contentWidth)
         .padding(.horizontal, margin)
         .frame(maxWidth: .infinity)
-        .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { sideInsets = $0 }
         .background(alignment: .top) {
-            ExtendedHeroArt(game: game, bannerHeight: bannerHeight, extensionHeight: extensionHeight, overscroll: overscroll,
-                            sideExtension: EdgeInsets(top: 0, leading: sideInsets.leading, bottom: 0, trailing: sideInsets.trailing))
+            ExtendedHeroArt(game: game, bannerHeight: bannerHeight, extensionHeight: extensionHeight, overscroll: overscroll)
                 .allowsHitTesting(false)
-                // Under the iPhone Duo's side strip too, mirrored and blurred, as on Home.
+                // Under the iPhone Duo's side strip too, as on Home.
                 .ignoresSafeArea(.container, edges: .horizontal)
         }
     }

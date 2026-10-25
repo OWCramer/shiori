@@ -17,9 +17,6 @@ struct ExtendedHeroArt: View {
     let extensionHeight: CGFloat
     /// How far the page is pulled past its top.
     var overscroll: CGFloat = 0
-    /// Room at the sides the art extends into rather than fills (the iPhone Duo's side strip,
-    /// as Music's art runs behind it): the view spans it, the picture stops short of it.
-    var sideExtension = EdgeInsets()
 
     var body: some View {
         StretchyHeader(height: bannerHeight + extensionHeight, overscroll: overscroll) {
@@ -28,8 +25,6 @@ struct ExtendedHeroArt: View {
             HeroArtwork(game: game)
                 .backgroundExtensionEffect()
                 .safeAreaPadding(.bottom, extensionHeight)
-                .safeAreaPadding(.leading, sideExtension.leading)
-                .safeAreaPadding(.trailing, sideExtension.trailing)
                 .overlay {
                     // The status bar and the title over the top of the art (there from the
                     // first frame; the bar's blur only joins once the page scrolls), and the

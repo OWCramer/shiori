@@ -41,33 +41,23 @@ struct HomeHero: View {
 
     private var bannerHeight: CGFloat { GameHeroHeader.height(forViewport: viewportHeight) }
 
-    /// The window's insets at the sides (the iPhone Duo's strip), which the art extends into.
-    @State private var sideInsets = EdgeInsets()
-
-    /// The banner, spanning the side insets with the art mirrored and blurred into them, as
-    /// Music's header runs behind the Duo's strip.
-    private func art(wide: Bool) -> some View {
-        ExtendedHeroArt(game: game, bannerHeight: bannerHeight, extensionHeight: extensionHeight(wide: wide),
-                        overscroll: overscroll,
-                        sideExtension: EdgeInsets(top: 0, leading: sideInsets.leading, bottom: 0, trailing: sideInsets.trailing))
-            .ignoresSafeArea(.container, edges: .horizontal)
-    }
-
     var body: some View {
         let wide = sizeClass == .regular
         let alignment: HorizontalAlignment = wide ? .leading : .center
         GameLink(game: game) {
-            art(wide: wide)
+            ExtendedHeroArt(game: game, bannerHeight: bannerHeight,
+                        extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
         }
-        // The art again behind the link, laid out the same. It isn't the zoom's source, so the
-        // side strip keeps its picture while a game's page zooms back into the banner (the
-        // source hides until the zoom ends).
+        // The art again behind the link, running under the iPhone Duo's side strip as Music's
+        // does. It isn't the zoom's source, so it stays while a game's page zooms back into
+        // the banner (the source hides until the zoom ends, and the strip went blank).
         .background(alignment: .top) {
-            art(wide: wide)
+            ExtendedHeroArt(game: game, bannerHeight: bannerHeight,
+                            extensionHeight: extensionHeight(wide: wide), overscroll: overscroll)
+                .ignoresSafeArea(.container, edges: .horizontal)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-        .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { sideInsets = $0 }
         .buttonStyle(NoPressButtonStyle())
         .accessibilityLabel("\(game.name), \(metaLine)")
         .accessibilityHint("Opens the game's page")
