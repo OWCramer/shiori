@@ -80,6 +80,8 @@ struct GameDetailView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
+        // iOS 27 shrinks the bar as the page scrolls down, which took the title with it.
+        .modifier(BarStaysOnScroll())
         // Laid out wide, the box art carries the name: no title over it (the back menu keeps
         // it). Otherwise the name is the bar's own item, so it stays while the page scrolls.
         .toolbar {
@@ -131,7 +133,6 @@ struct GameDetailView: View {
                     GamePageDetailSections(game: game, record: record, model: model)
                 }
                 .padding(.horizontal, GamePageMetrics.wideMargin)
-                .padding(.top, 12)
                 .padding(.bottom, 40)
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
@@ -198,6 +199,16 @@ struct GameDetailView: View {
 
     private func reloadPatches() {
         model.reloadPatches(folder: folder)
+    }
+}
+/// The navigation bar keeps its size while the page scrolls (iOS 27's minimization off).
+private struct BarStaysOnScroll: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, *) {
+            content.toolbarMinimizationBehavior(.never, for: .navigationBar)
+        } else {
+            content
+        }
     }
 }
 #endif
