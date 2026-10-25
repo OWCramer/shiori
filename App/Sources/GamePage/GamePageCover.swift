@@ -32,7 +32,7 @@ struct GamePageCover: View {
             GamePageActionRow(game: game, model: model)
         }
         .padding(.horizontal, GamePageMetrics.wideMargin)
-        .padding(.top, 8)
+        .padding(.top, 24)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

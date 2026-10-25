@@ -80,9 +80,16 @@ struct GameDetailView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
-        // Laid out wide, the box art carries the name: no title over it (the back menu keeps it).
+        // Laid out wide, the box art carries the name: no title over it (the back menu keeps
+        // it). Otherwise the name is the bar's own item, so it stays while the page scrolls.
         .toolbar {
-            if sideBySide { ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) } }
+            ToolbarItem(placement: .principal) {
+                if sideBySide {
+                    Color.clear.frame(width: 1, height: 1)
+                } else {
+                    Text(game.name).font(.headline).lineLimit(1)
+                }
+            }
         }
         .sheet(isPresented: $model.browsingArchives) { ArchiveBrowserView(gameFolder: folder) }
         .sheet(isPresented: $model.choosingArtwork) {
@@ -115,6 +122,9 @@ struct GameDetailView: View {
         HStack(spacing: 0) {
             GamePageCover(game: game, model: model, metaLine: metaLine)
                 .frame(width: (width * 0.46).rounded())
+                // Up under the bar, which holds only Back here: no empty band above the art,
+                // and the cover doesn't grow as the bar's background comes and goes.
+                .ignoresSafeArea(.container, edges: .top)
             ScrollView {
                 VStack(alignment: .leading, spacing: GamePageMetrics.sectionSpacing) {
                     GamePagePlaySections(game: game, record: record, model: model)
