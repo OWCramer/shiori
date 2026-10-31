@@ -47,6 +47,13 @@ struct SettingsScreen: View {
                 } footer: {
                     Text("Sharpens KiriKiri games drawn at 720p. Applies the next time a game starts.")
                 }
+                Section {
+                    Toggle(isOn: Binding(get: { PlayerReports.shared.isSharing }, set: { PlayerReports.shared.isSharing = $0 })) {
+                        Label("Share Compatibility Data", systemImage: "chart.bar")
+                    }
+                } footer: {
+                    Text("Sends each game's play time, unexpected exits and your rating to the compatibility list, with your device model and iOS version. Nothing about your Steam account or saves.")
+                }
                 // Denpasoft sells and gives away 18+ patches: shown only when the account allows adult content.
                 if steam.allowsAdultContent { DenpasoftSection(signingIn: $signingInToDenpasoft) }
                 SteamGridDBKeySection()

@@ -928,6 +928,10 @@ final class GameLibrary {
             return
         }
         endingSession = appID
+        #if os(iOS)
+        // The app closes after a Ren'Py game, so the session's report goes now.
+        PlayerReports.shared.ended(appID: appID)
+        #endif
         shiori_renpy_restore_hub()
         let background = UIApplication.shared.beginBackgroundTask(withName: "Save sync after game")
         Task {
@@ -1198,6 +1202,9 @@ final class GameLibrary {
             // this call for as long as it plays, and SDL's nested run loop can only drain the
             // main queue (main-actor tasks, timers) if we aren't already occupying it.
             RunLoop.main.perform(inModes: [.default]) {
+                #if os(iOS)
+                PlayerReports.shared.started(appID: appID, name: record.name, engine: engine.engine, engineVersion: engine.version)
+                #endif
                 let status = RenPyEngine.launch(appID: appID, gameFolder: folder, match: engine, saves: saves,
                                                 cache: Self.runtimeCache(appID: appID))
                 MainActor.assumeIsolated { self.gameEnded(appID: appID, status: status) }

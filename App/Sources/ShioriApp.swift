@@ -76,6 +76,10 @@ struct ShioriApp: App {
                 .task(id: steam.isLoggedOn) { if steam.isLoggedOn, !Self.screenshotLibrary { await games.catchUpSteamCloudAll() } }
                 .task { await compatibility.refresh() }
                 .task { await patchList.refresh() }
+                #if os(iOS)
+                // A game's clock left running last time: that session ended unexpectedly.
+                .task { PlayerReports.shared.recoverUnfinishedSession() }
+                #endif
                 // Learn each visual novel's engine from its manifests, so the library and the
                 // launcher can say what's playable before anything is downloaded.
                 .task(id: "\(steam.library.count)-\(steam.isLoggedOn)-\(curation.added.count)") {
@@ -156,6 +160,9 @@ extension ShioriApp {
 }
 
 struct RootView: View {
+    #if os(iOS)
+    private var reportQuestion: PlayerReports.Question? { PlayerReports.shared.question }
+    #endif
     @Environment(SteamModel.self) private var steam
     @Environment(ControllerInput.self) private var controllers
     @Environment(GameLibrary.self) private var games
@@ -168,6 +175,27 @@ struct RootView: View {
     var body: some View {
         @Bindable var games = games
         content
+            #if os(iOS)
+            // Share Compatibility Data: a game's play time runs while it's open, and after half
+            // an hour of it, one question.
+            .onChange(of: games.runningGameAppID) { old, new in
+                if let old { PlayerReports.shared.ended(appID: old) }
+                if let new, let record = games.record(for: new) {
+                    PlayerReports.shared.started(appID: new, name: record.name, engine: record.engine?.engine ?? "",
+                                                 engineVersion: record.engine?.version)
+                }
+            }
+            .alert(reportQuestion?.name ?? "", isPresented: Binding(get: { reportQuestion != nil },
+                                                                     set: { if !$0, let q = reportQuestion { PlayerReports.shared.answer(nil, for: q.appID) } }),
+                   presenting: reportQuestion) { question in
+                ForEach(PlayerReports.Rating.allCases, id: \.self) { rating in
+                    Button(rating.title) { PlayerReports.shared.answer(rating, for: question.appID) }
+                }
+                Button("Not Now", role: .cancel) { PlayerReports.shared.answer(nil, for: question.appID) }
+            } message: { _ in
+                Text("How did it play? Your answer goes to the compatibility list.")
+            }
+            #endif
             .alert("Couldn't start the game", isPresented: Binding(get: { games.launchFailure != nil }, set: { if !$0 { games.launchFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {

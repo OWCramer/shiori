@@ -105,6 +105,8 @@ targets:
         # Visual novels hold full-screen textures; ask iOS for the larger per-app memory
         # limit (Game Mode doesn't raise it).
         com.apple.developer.kernel.increased-memory-limit: true
+        # Share Compatibility Data: reports are signed so only real installs can send them.
+        com.apple.developer.devicecheck.appattest-environment: production
     dependencies:
       - package: SteamKit
         product: SteamKit
