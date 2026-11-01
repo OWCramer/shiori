@@ -18,10 +18,12 @@ V = Path(os.environ.get("SHIORI_VENDOR", WT / "Vendor"))
 if not (V / "krkr2").exists():
     V = Path.home() / "Developer/vn-hub/Vendor"
 OUT = WT / "App/Resources/Acknowledgements"
-REG = next((Path.home() / ".cargo/registry/src").glob("index.crates.io-*"))
+CARGO_SRC = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")) / "registry/src"
+REG = next(CARGO_SRC.glob("index.crates.io-*"))
 SHARE = V / "krkr2-deps/arm64-ios/arm64-ios/share"
 # Crates compiled into ShioriSiglus for aarch64-apple-ios (name, version, licence, kind, path),
-# from Cargo.lock walked from game_launcher and the target's dep-info.
+# from Cargo.lock walked from game_launcher and the target's dep-info. A registry crate's path
+# is relative to Cargo's registry/src folder, so no home folder ends up in the file.
 TSV = HERE / "siglus-crates.tsv"
 # Swift packages as Xcode resolved them.
 SPM = next(p for p in (Path.home() / "Library/Developer/Xcode/DerivedData").glob("Shiori-*/SourcePackages/checkouts")
@@ -330,7 +332,7 @@ for row in TSV.read_text().splitlines():
     name, ver, lic, kind, path = row.split("\t")[:5]
     if kind != "registry" and name != "kira":
         continue
-    src = Path(path) if kind == "registry" else REG / f"{name}-{ver}"
+    src = CARGO_SRC / path if kind == "registry" else REG / f"{name}-{ver}"
     if name == "kira": lic = "MIT OR Apache-2.0"
     crates.append(f"{name} {ver} ({lic})")
     files = sorted(p for p in src.iterdir() if p.is_file() and re.match(r"(?i)(licen[cs]e|copying|notice|copyright)", p.name))
