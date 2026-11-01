@@ -106,7 +106,7 @@ final class PatchDownloader: NSObject, URLSessionDataDelegate, @unchecked Sendab
         }
         try handle?.close()
         handle = nil
-        return Result(file: destination, name: responseName ?? name, size: written,
+        return Result(file: destination, name: responseName ?? PatchStore.safeFileName(name) ?? "download", size: written,
                       sha256: try Self.sha256(of: destination))
     }
 
@@ -169,14 +169,17 @@ final class PatchDownloader: NSObject, URLSessionDataDelegate, @unchecked Sendab
         if let error { continuation.resume(throwing: error) } else { continuation.resume() }
     }
 
+    /// The server's file name, reduced to a bare name (a `../` in it would otherwise place
+    /// the file outside the patch's staging folder).
     private static func fileName(from response: HTTPURLResponse) -> String? {
         guard let disposition = response.value(forHTTPHeaderField: "Content-Disposition") else { return nil }
         if let range = disposition.range(of: "filename*=UTF-8''") {
-            return disposition[range.upperBound...].split(separator: ";").first.map { String($0).removingPercentEncoding ?? String($0) }
+            return PatchStore.safeFileName(disposition[range.upperBound...].split(separator: ";").first
+                .map { String($0).removingPercentEncoding ?? String($0) })
         }
         if let range = disposition.range(of: "filename=") {
-            return disposition[range.upperBound...].split(separator: ";").first?
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+            return PatchStore.safeFileName(disposition[range.upperBound...].split(separator: ";").first?
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\" ")))
         }
         return nil
     }
@@ -296,7 +299,7 @@ final class PatchDownloader: NSObject, URLSessionDataDelegate, @unchecked Sendab
            let json = String(data: plain, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\0")),
            json.hasPrefix("MEGA{"),
            let object = try? JSONSerialization.jsonObject(with: Data(json.dropFirst(4).utf8)) as? [String: Any],
-           let n = object["n"] as? String { name = n }
+           let n = PatchStore.safeFileName(object["n"] as? String) { name = n }
 
         let result = try await fetch(downloadURL, name: name, transform: { chunk, offset in
             Self.aesCTR(chunk, key: aesKey, nonce: nonce, offset: offset)

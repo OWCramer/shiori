@@ -255,8 +255,9 @@ extension DenpasoftAccount: WKNavigationDelegate, WKDownloadDelegate {
                               suggestedFilename: String) async -> URL? {
         await MainActor.run {
             guard let base = destination(for: download) else { return nil }
-            // Keep the server's file name (its extension says how to unpack it).
-            let named = base.deletingLastPathComponent().appendingPathComponent(base.lastPathComponent + "-" + suggestedFilename)
+            // Keep the server's file name (its extension says how to unpack it), as a bare name.
+            let name = PatchStore.safeFileName(suggestedFilename) ?? "download"
+            let named = base.deletingLastPathComponent().appendingPathComponent(base.lastPathComponent + "-" + name)
             if let entry = downloadTargets[ObjectIdentifier(download)] {
                 downloadTargets[ObjectIdentifier(download)] = (named, entry.continuation)
             }

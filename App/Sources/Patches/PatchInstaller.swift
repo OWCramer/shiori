@@ -256,11 +256,13 @@ final class PatchInstaller {
     private enum Failure: LocalizedError {
         case hashMismatch(String)
         case windowsInstaller
+        case badFileName(String)
 
         var errorDescription: String? {
             switch self {
             case let .hashMismatch(name): "\(name) didn't match the patch list's checksum, so it wasn't installed."
             case .windowsInstaller: "This patch is a Windows installer, which can't run here."
+            case let .badFileName(name): "\(name) has a file name Shiori can't use."
             }
         }
     }
@@ -278,7 +280,7 @@ final class PatchInstaller {
                 try? fm.removeItem(at: partial)
                 throw Failure.hashMismatch(result.name)
             }
-            downloaded.append((result.file, file.name ?? result.name))
+            downloaded.append((result.file, PatchStore.safeFileName(file.name) ?? PatchStore.safeFileName(result.name) ?? "download"))
         }
 
         let shopFile = chosenFile.flatMap { $0.isEmpty ? nil : $0 } ?? (patch.files.first?.host == "store" ? downloaded.first?.name : nil)
@@ -372,8 +374,10 @@ final class PatchInstaller {
                 try fm.createDirectory(at: staging.appendingPathComponent("game"), withIntermediateDirectories: true)
                 let base = gameFolder.appendingPathComponent("base", isDirectory: true)
                 let renpy = fm.fileExists(atPath: base.appendingPathComponent("game").path)
-                let target = renpy ? staging.appendingPathComponent("game").appendingPathComponent(file.name)
-                                   : staging.appendingPathComponent(file.name)
+                let name = PatchStore.safeFileName(file.name) ?? "download"
+                let target = renpy ? staging.appendingPathComponent("game").appendingPathComponent(name)
+                                   : staging.appendingPathComponent(name)
+                guard PatchStore.isInside(target, folder: staging) else { throw Failure.badFileName(file.name) }
                 try fm.copyItem(at: file.url, to: target)
             }
         }

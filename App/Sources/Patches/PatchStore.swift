@@ -20,6 +20,21 @@ enum PatchStore {
         gameFolder.appendingPathComponent("patch", isDirectory: true)
     }
 
+    /// A file name from a server or the patch list, made safe to put in a folder: its last
+    /// path component only, nil when nothing usable is left ("", ".", "..").
+    static func safeFileName(_ name: String?) -> String? {
+        guard let name else { return nil }
+        let last = name.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init) ?? ""
+        let trimmed = last.replacingOccurrences(of: "\0", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "." || trimmed == ".." ? nil : trimmed
+    }
+
+    /// Whether `url` lies inside `folder` once `.` and `..` are resolved.
+    static func isInside(_ url: URL, folder: URL) -> Bool {
+        let root = folder.standardizedFileURL.path
+        return url.standardizedFileURL.path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+
     /// Every file under `patch/`, sorted by path.
     static func list(gameFolder: URL) -> [PatchFile] {
         let patch = patchFolder(gameFolder)
@@ -125,9 +140,11 @@ enum PatchStore {
     private static func merge(_ source: URL, into destination: URL, relative: String, written: inout [String]) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-        for item in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey]) {
+        for item in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]) {
             let name = item.lastPathComponent
             if name.hasPrefix(".") || name == "__MACOSX" { continue }
+            // A link in an imported folder could point anywhere; only real files and folders go in.
+            if (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { continue }
             // Match an existing folder's case ("Game" vs "game") so layers line up.
             let existing = (try? fm.contentsOfDirectory(atPath: destination.path))?.first { $0.lowercased() == name.lowercased() }
             let target = destination.appendingPathComponent(existing ?? name)
