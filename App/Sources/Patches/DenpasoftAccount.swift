@@ -325,8 +325,8 @@ private struct DenpasoftWebView: UIViewRepresentable {
         }
 
         /// The sheet is for signing in only. The page itself stays on Denpasoft's sign-in and
-        /// account pages; anything else it would open (its shop's products, cart and checkout,
-        /// or any other site) goes to Safari, so nothing is bought or browsed in the app.
+        /// account pages; Denpasoft's other pages (its shop's products, cart and checkout) go
+        /// to Safari, so nothing is bought or browsed in the app. Other sites don't open.
         @MainActor func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
             // A nil target frame is a new window (target=_blank): it would open as a page.
@@ -343,8 +343,8 @@ private struct DenpasoftWebView: UIViewRepresentable {
             let host = url.host()?.lowercased() ?? ""
             let isDenpasoft = host == "denpasoft.com" || host == "www.denpasoft.com"
             if isMainFrame {
-                if scheme == "https", isDenpasoft, isAccountPage(url) { return .allow }
-                return scheme == "https" || scheme == "http" ? .openInSafari : .block
+                guard scheme == "https", isDenpasoft || host.hasSuffix(".denpasoft.com") else { return .block }
+                return isDenpasoft && isAccountPage(url) ? .allow : .openInSafari
             }
             // Frames inside the page: Denpasoft's own, Cloudflare's check, and blank frames the
             // check starts from. Other sites' frames (social embeds, ads) don't load.
