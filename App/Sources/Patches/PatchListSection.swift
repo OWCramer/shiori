@@ -97,7 +97,7 @@ struct PatchListSection: View {
         ), presenting: prompt) { prompt in
             switch prompt {
             case let .install(patch):
-                Button(installedVersion(patch) == nil ? "Download and Install" : "Update") {
+                Button(installedVersion(patch) == nil ? (isUnverified(patch) ? "Install" : "Download and Install") : "Update") {
                     installer.install(patch, appID: appID, gameFolder: gameFolder)
                 }
             case let .queue(patch):
@@ -121,6 +121,8 @@ struct PatchListSection: View {
             Button("Cancel", role: .cancel) {}
         } message: { prompt in
             switch prompt {
+            case let .install(patch) where isUnverified(patch), let .queue(patch) where isUnverified(patch):
+                Text("The patch list has no checksum for this download.")
             case let .install(patch): Text(confirmationMessage(patch))
             case let .queue(patch): Text("Installs after the game downloads. " + confirmationMessage(patch))
             case let .installFile(patch, file): Text("Installs \(file.isEmpty ? "the file" : file) from your Denpasoft downloads. " + confirmationMessage(patch))
@@ -131,6 +133,7 @@ struct PatchListSection: View {
 
     private var promptTitle: String {
         switch prompt {
+        case let .install(patch) where isUnverified(patch), let .queue(patch) where isUnverified(patch): "Unverified Patch"
         case let .install(patch), let .queue(patch), let .installFile(patch, _): "Install \(patch.name)?"
         case let .remove(patch): "Remove \(patch.name)?"
         case nil: ""
@@ -378,6 +381,12 @@ struct PatchListSection: View {
         return file.url
     }
 
+    /// A download the patch list has no checksum for, so nothing confirms it's the file the
+    /// list means; asked about before it installs. A shop's file comes from the player's account.
+    private func isUnverified(_ patch: PatchListStore.Patch) -> Bool {
+        denpasoftProduct(patch) == nil && patch.files.contains { $0.sha256 == nil }
+    }
+
     /// A patch Shiori can't download itself (a shop's or Steam's product page, a page that needs
     /// a browser, a Windows installer): Open takes the link to Safari, out of the app.
     private func externalLink(_ patch: PatchListStore.Patch) -> URL? {
@@ -394,11 +403,6 @@ struct PatchListSection: View {
         else { parts.append("Downloads into the game's patch folder.") }
         if !patch.official { parts.append("Community patch, not from the publisher.") }
         if patch.verified == nil { parts.append("Not tested in Shiori.") }
-        if denpasoftProduct(patch) != nil {
-            // The installFile message already says where it comes from.
-        } else if patch.files.contains(where: { $0.sha256 == nil }) {
-            parts.append("The download can't be verified: the list has no checksum for it.")
-        }
         if !(installer.installed[appID] ?? []).isEmpty, installedVersion(patch) == nil {
             parts.append("It replaces files it shares with an installed patch.")
         }
