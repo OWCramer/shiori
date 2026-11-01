@@ -7,7 +7,11 @@ import Foundation
 
 /// Minimal gzip (RFC 1952) decoder on top of the Compression framework's raw DEFLATE.
 enum Gzip {
-    enum Error: Swift.Error { case notGzip, corrupt }
+    enum Error: Swift.Error { case notGzip, corrupt, tooLarge }
+
+    /// The most a server's size field may ask for. Steam's multi packets and app info run to a
+    /// few megabytes; the field itself allows 4 GiB.
+    static let maxSize = 64 << 20
 
     /// `expectedSize` defaults to the uncompressed size recorded in the gzip trailer.
     static func decompress(_ data: Data, expectedSize: Int? = nil) throws -> Data {
@@ -31,6 +35,7 @@ enum Gzip {
         var trailer = ByteReader(deflated.suffix(4))
         let expectedSize = try expectedSize ?? Int(trailer.readUInt32LE())
         guard expectedSize > 0, !stream.isEmpty else { throw Error.corrupt }
+        guard expectedSize <= maxSize else { throw Error.tooLarge }
 
         var output = Data(count: expectedSize)
         let written = output.withUnsafeMutableBytes { dst in

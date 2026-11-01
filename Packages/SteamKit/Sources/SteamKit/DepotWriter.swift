@@ -97,10 +97,41 @@ struct DepotWriter {
             for file in job.manifest.files where file.isSymlink {
                 guard let target = file.linkTarget else { continue }
                 let url = try install.fileURL(for: file.name)
+                try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                // Only links that stay inside the install; any other is left out.
+                guard let folder = Self.relativeFolder(url.deletingLastPathComponent(), root: install.root),
+                      Self.isContained(linkTarget: target, inFolder: folder) else { continue }
                 try? fm.removeItem(at: url)
                 try fm.createSymbolicLink(atPath: url.path, withDestinationPath: target)
             }
         }
+    }
+
+    /// The folder's path components under `root`, with symlinks resolved (a link's target is
+    /// read from where the folder really is). Nil when it isn't under `root`.
+    static func relativeFolder(_ folder: URL, root: URL) -> [String]? {
+        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let path = folder.resolvingSymlinksInPath().standardizedFileURL.path
+        if path == rootPath { return [] }
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        return path.dropFirst(rootPath.count + 1).split(separator: "/").map(String.init)
+    }
+
+    /// Whether a symlink in `folder` (components under the install root) pointing at `target`
+    /// resolves inside the root: relative targets only, and `..` never climbing past the root.
+    static func isContained(linkTarget target: String, inFolder folder: [String]) -> Bool {
+        guard !target.isEmpty, !target.hasPrefix("/") else { return false }
+        var stack = folder
+        for component in target.split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".": continue
+            case "..":
+                guard !stack.isEmpty else { return false }
+                stack.removeLast()
+            default: stack.append(String(component))
+            }
+        }
+        return true
     }
 
     /// A chunk that decodes cleanly but whose SHA-1 differs from its id is treated as corrupt.

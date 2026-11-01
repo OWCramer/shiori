@@ -202,6 +202,24 @@ struct DepotInstallTests {
         }
     }
 
+    @Test func keepsSymlinksInsideRoot() throws {
+        for good in ["a.txt", "../a.txt", "./b/../c", "x/y/../../z"] {
+            #expect(DepotWriter.isContained(linkTarget: good, inFolder: ["game"]), "\(good)")
+        }
+        for bad in ["/etc/passwd", "../../a", "../x/../../a", ""] {
+            #expect(!DepotWriter.isContained(linkTarget: bad, inFolder: ["game"]), "\(bad)")
+        }
+        let install = try temporaryInstall()
+        let folder = install.root.appendingPathComponent("game")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(DepotWriter.relativeFolder(folder, root: install.root) == ["game"])
+        #expect(DepotWriter.relativeFolder(install.root.deletingLastPathComponent(), root: install.root) == nil)
+        // A folder that is itself a link out of the root doesn't count as inside.
+        let out = install.root.appendingPathComponent("out")
+        try FileManager.default.createSymbolicLink(at: out, withDestinationURL: FileManager.default.temporaryDirectory)
+        #expect(DepotWriter.relativeFolder(out, root: install.root) == nil)
+    }
+
     @Test func journalIgnoresTornWrite() async throws {
         let install = try temporaryInstall()
         try FileManager.default.createDirectory(at: install.stateDirectory, withIntermediateDirectories: true)

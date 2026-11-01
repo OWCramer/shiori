@@ -46,6 +46,11 @@ struct PacketTests {
         #expect(throws: ByteReader.Error.truncated) { try Packet.decode(data) }
     }
 
+    @Test func refusesOversizedGzip() {
+        let gzip = Data([0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 0]) + Data(count: 9)
+        #expect(throws: Gzip.Error.tooLarge) { try Gzip.decompress(gzip, expectedSize: Gzip.maxSize + 1) }
+    }
+
     @Test(arguments: ["multi_gzip.bin", "multi_plain.bin"])
     func unpacksMulti(fixtureName: String) throws {
         let outer = try #require(try Packet.decode(fixture(fixtureName)))
