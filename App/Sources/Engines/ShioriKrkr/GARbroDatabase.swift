@@ -2,6 +2,7 @@
 // If a copy of the MPL was not distributed with this file, You can obtain one at
 // https://mozilla.org/MPL/2.0/.
 
+import Compression
 import Foundation
 
 /// KiriKiri CxDec schemes from GARbro's game database (`Formats.dat`, MIT licence,
@@ -86,7 +87,9 @@ enum GARbroDatabase {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse
         else { return } // Offline: the cached copy, if any, stands.
-        if http.statusCode == 200, data.count > 12 {
+        // A copy that doesn't parse isn't kept (nor its ETag, so the next launch asks again).
+        if http.statusCode == 200 {
+            guard (try? NRBFReader.objects(in: data)) != nil else { return }
             try? data.write(to: databaseFile, options: .atomic)
         }
         if http.statusCode == 200 || http.statusCode == 304 {
@@ -328,12 +331,47 @@ private struct NRBFReader {
     private var objects = NRBFObjects()
     private var classes: [Int32: (name: String, members: [String], types: [UInt8], info: [Any?])] = [:]
 
+    /// The most the database may inflate to (GARbro's is about 3 MB).
+    static let maxInflatedSize = 64 << 20
+    /// The most elements an object array or a run of nulls may hold; they cost no bytes each,
+    /// so the bytes left don't bound them.
+    static let maxElements = 1 << 20
+
     init(database: Data) throws {
         // A 12-byte header, then a zlib stream (a 2-byte header and raw deflate).
-        guard database.count > 14,
-              let inflated = try? (database.subdata(in: 14 ..< database.count) as NSData).decompressed(using: .zlib)
+        guard database.count > 14, let inflated = Self.inflate(database.subdata(in: 14 ..< database.count))
         else { throw GARbroDatabase.ExportError.badDatabase }
-        data = [UInt8](inflated as Data)
+        data = inflated
+    }
+
+    /// Raw deflate, refused past `maxInflatedSize`.
+    private static func inflate(_ input: Data) -> [UInt8]? {
+        let bufferSize = 1 << 20
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        defer { stream.deallocate() }
+        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else { return nil }
+        defer { compression_stream_destroy(stream) }
+        var output: [UInt8] = []
+        return input.withUnsafeBytes { (source: UnsafeRawBufferPointer) -> [UInt8]? in
+            guard let base = source.bindMemory(to: UInt8.self).baseAddress else { return nil }
+            stream.pointee.src_ptr = base
+            stream.pointee.src_size = source.count
+            while true {
+                stream.pointee.dst_ptr = buffer
+                stream.pointee.dst_size = bufferSize
+                let status = compression_stream_process(stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                let produced = bufferSize - stream.pointee.dst_size
+                guard output.count + produced <= maxInflatedSize else { return nil }
+                output.append(contentsOf: UnsafeBufferPointer(start: buffer, count: produced))
+                switch status {
+                case COMPRESSION_STATUS_END: return output
+                case COMPRESSION_STATUS_OK: if produced == 0, stream.pointee.src_size == 0 { return nil }
+                default: return nil
+                }
+            }
+        }
     }
 
     static func objects(in database: Data) throws -> NRBFObjects {
@@ -355,7 +393,7 @@ private struct NRBFReader {
     }
 
     private mutating func bytes(_ count: Int) throws -> [UInt8] {
-        guard count >= 0, position + count <= data.count else { throw GARbroDatabase.ExportError.badDatabase }
+        guard count >= 0, count <= data.count - position else { throw GARbroDatabase.ExportError.badDatabase }
         defer { position += count }
         return Array(data[position ..< position + count])
     }
@@ -363,6 +401,19 @@ private struct NRBFReader {
     private mutating func i32() throws -> Int32 {
         let b = try bytes(4)
         return Int32(bitPattern: UInt32(b[0]) | UInt32(b[1]) << 8 | UInt32(b[2]) << 16 | UInt32(b[3]) << 24)
+    }
+
+    /// A count of things that each take at least a byte: refused when negative or more than
+    /// the bytes left.
+    private func boundedCount(_ value: Int32) throws -> Int {
+        guard value >= 0, Int(value) <= data.count - position else { throw GARbroDatabase.ExportError.badDatabase }
+        return Int(value)
+    }
+
+    /// A count of elements that may take no bytes (nulls): refused when negative or past `maxElements`.
+    private func elements(_ value: Int) throws -> Int {
+        guard value >= 0, value <= Self.maxElements else { throw GARbroDatabase.ExportError.badDatabase }
+        return value
     }
 
     private mutating func little(_ count: Int) throws -> UInt64 {
@@ -374,6 +425,7 @@ private struct NRBFReader {
         var length = 0, shift = 0
         while true {
             let b = try u8()
+            guard shift < 35 else { throw GARbroDatabase.ExportError.badDatabase }
             length |= Int(b & 0x7F) << shift
             shift += 7
             if b & 0x80 == 0 { break }
@@ -447,7 +499,7 @@ private struct NRBFReader {
             _ = try string()
             return try record()
         case 4, 5: // SystemClassWithMembersAndTypes, ClassWithMembersAndTypes
-            let id = try i32(), name = try string(), count = Int(try i32())
+            let id = try i32(), name = try string(), count = try boundedCount(try i32())
             var members: [String] = []
             for _ in 0 ..< count { members.append(try string()) }
             let (types, info) = try typeInfo(count: count)
@@ -458,7 +510,7 @@ private struct NRBFReader {
             objects.table[id] = .object(name, try values(for: cls))
             return .reference(id)
         case 2, 3: // SystemClassWithMembers, ClassWithMembers
-            let id = try i32(), name = try string(), count = Int(try i32())
+            let id = try i32(), name = try string(), count = try boundedCount(try i32())
             var members: [String] = []
             for _ in 0 ..< count { members.append(try string()) }
             if type == 3 { _ = try i32() }
@@ -486,9 +538,9 @@ private struct NRBFReader {
         case 13: // ObjectNullMultiple256
             return .list(Array(repeating: .null, count: Int(try u8())))
         case 14: // ObjectNullMultiple
-            return .list(Array(repeating: .null, count: Int(try i32())))
+            return .list(Array(repeating: .null, count: try elements(Int(try i32()))))
         case 15: // ArraySinglePrimitive
-            let id = try i32(), count = Int(try i32()), primitiveType = try u8()
+            let id = try i32(), count = try boundedCount(try i32()), primitiveType = try u8()
             if primitiveType == 2 {
                 objects.table[id] = .bytes(try bytes(count))
             } else {
@@ -498,15 +550,20 @@ private struct NRBFReader {
             }
             return .reference(id)
         case 16, 17: // ArraySingleObject, ArraySingleString
-            let id = try i32(), count = Int(try i32())
+            let id = try i32(), count = try elements(Int(try i32()))
             var list: [NRBFValue] = []
             while list.count < count { append(try record(), to: &list) }
             objects.table[id] = .list(list)
             return .reference(id)
         case 7: // BinaryArray
             let id = try i32(), arrayType = try u8(), rank = Int(try i32())
+            guard (0 ... 32).contains(rank) else { throw GARbroDatabase.ExportError.badDatabase }
             var total = 1
-            for _ in 0 ..< rank { total *= Int(try i32()) }
+            for _ in 0 ..< rank {
+                let (product, overflow) = total.multipliedReportingOverflow(by: try elements(Int(try i32())))
+                guard !overflow else { throw GARbroDatabase.ExportError.badDatabase }
+                total = try elements(product)
+            }
             if (3 ... 5).contains(arrayType) { for _ in 0 ..< rank { _ = try i32() } }
             let elementType = try u8()
             var info: Any?
