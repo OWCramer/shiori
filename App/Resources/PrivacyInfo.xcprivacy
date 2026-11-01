@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Shiori collects nothing and tracks nothing. Required-reason APIs in the app itself: its own settings (CA92.1); modification times of files in its containers for save sync (C617.1) and of files the user picks to import (3B52.1); free space shown in Settings › Storage (85F4.1). The engine frameworks carry their own manifests (Scripts/privacy/Framework.xcprivacy). -->
+<!-- Shiori tracks nothing. With Share Compatibility Data on (off by default), it sends play time, sessions, unexpected ends and ratings per game, with app version, device model and iOS version, to compat.ocramer.com, not linked to the user.  Required-reason APIs in the app itself: its own settings (CA92.1); modification times of files in its containers for save sync (C617.1) and of files the user picks to import (3B52.1); free space shown in Settings › Storage (85F4.1). The engine frameworks carry their own manifests (Scripts/privacy/Framework.xcprivacy). -->
 <plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
@@ -8,7 +8,44 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
