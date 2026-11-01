@@ -148,7 +148,8 @@ enum ShioriKrkrRuntime {
                         config.log = { _, line in
                             guard let line else { return }
                             let text = String(cString: line)
-                            ShioriKrkrRuntime.log.notice("\(text, privacy: .public)")
+                            // The engine's lines carry the game's own text and paths.
+                            ShioriKrkrRuntime.log.notice("\(text, privacy: .private)")
                             ShioriKrkrRuntime.engineLog?.write(Data((text + "\n").utf8))
                         }
                         config.message = { context, text, caption, buttons, count in
@@ -397,7 +398,7 @@ final class ShioriKrkrGameViewController: UIViewController {
             debugEvals.removeFirst()
             var buffer = [CChar](repeating: 0, count: 1024)
             let status = api.pointee.eval(next.tjs, &buffer, UInt32(buffer.count))
-            ShioriKrkrRuntime.log.notice("Debug eval [\(status)] \(String(cString: buffer), privacy: .public)")
+            ShioriKrkrRuntime.log.notice("Debug eval [\(status)] \(String(cString: buffer), privacy: .private)")
         }
         #endif
         var frame = shiorikrkr_frame_t()
@@ -920,7 +921,7 @@ final class ShioriKrkrGameViewController: UIViewController {
         var buffer = [CChar](repeating: 0, count: 4096)
         let status = api.pointee.eval(tjs, &buffer, UInt32(buffer.count))
         guard status == 0 else {
-            ShioriKrkrRuntime.log.error("TJS didn't run (\(status)): \(String(cString: buffer), privacy: .public)")
+            ShioriKrkrRuntime.log.error("TJS didn't run (\(status)): \(String(cString: buffer), privacy: .private)")
             return nil
         }
         return String(cString: buffer)
@@ -930,7 +931,7 @@ final class ShioriKrkrGameViewController: UIViewController {
     /// player leaves the game. No bookmark: the player's place is only in the game's own saves.
     private func saveSystemData(reason: String) {
         guard let result = evaluate(KiriKiriSaves.systemDataTJS) else { return }
-        ShioriKrkrRuntime.log.notice("System data: \(result, privacy: .public), \(reason, privacy: .public)")
+        ShioriKrkrRuntime.log.notice("System data: \(result, privacy: .private), \(reason, privacy: .public)")
     }
 }
 

@@ -583,7 +583,7 @@ final class GameLibrary {
         do {
             let result = try await SteamCloudSync.push(session: session, appID: appID, saves: saves)
             steamCloud[appID] = .synced(.now, result.summary)
-            log.notice("Steam Cloud upload \(appID): \(result.summary, privacy: .public), backup \(result.backupFolder?.path ?? "none", privacy: .public)")
+            log.notice("Steam Cloud upload \(appID): \(result.summary, privacy: .public), backup \(result.backupFolder?.path ?? "none", privacy: .private)")
             guard result.dryRun || result.failed.isEmpty else { return false }
             SavePushLedger.record(result.dryRun ? .steamCloudDryRun : .steamCloud, appID: appID, pushedAt: started, newestSave: newest)
             return true
@@ -868,7 +868,7 @@ final class GameLibrary {
         // slots (as the app resigns active, while the GPU and the engine are still its);
         // KiriKiri writes its system data then too, and Artemis its globals.
         let written = await Self.waitForSaveWrites(in: saves, since: entered.addingTimeInterval(-3))
-        log.notice("Background save \(appID) step 1, game's save (\(engine, privacy: .public)): \(written.isEmpty ? "no new files" : "wrote " + written.joined(separator: ", "), privacy: .public)")
+        log.notice("Background save \(appID) step 1, game's save (\(engine, privacy: .public)): \(written.isEmpty ? "no new files" : "wrote " + written.joined(separator: ", "), privacy: .private)")
         guard !Task.isCancelled else { return }
 
         // 2. iCloud.
@@ -1016,7 +1016,7 @@ final class GameLibrary {
             try SaveSync.erase(appID: appID, local: saves, root: SaveSync.remoteRoot())
         }.value
         saveSync[appID] = nil
-        log.notice("Saves \(appID): erased\(backup.map { ", backup in \($0.path)" } ?? "", privacy: .public)")
+        log.notice("Saves \(appID): erased\(backup.map { ", backup in \($0.path)" } ?? "", privacy: .private)")
     }
 
     /// One step before a game starts, shown on the Play button, given `seconds` at most: iCloud
@@ -1346,10 +1346,10 @@ final class GameLibrary {
                 verifyReports[appID] = report
                 log.notice("Verified \(appID): \(report.checkedFiles) files, \(report.problems.count) differ, \(report.extraFiles.count) extra")
                 for (path, problem) in report.problems.prefix(10) {
-                    log.notice("Verify \(appID): \(path, privacy: .public) \(String(describing: problem), privacy: .public)")
+                    log.notice("Verify \(appID): \(path, privacy: .private) \(String(describing: problem), privacy: .public)")
                 }
                 for (path, problem) in report.problems.prefix(20) {
-                    log.notice("  \(path, privacy: .public): \(String(describing: problem), privacy: .public)")
+                    log.notice("  \(path, privacy: .private): \(String(describing: problem), privacy: .public)")
                 }
             } catch {
                 verifyReports[appID] = nil
