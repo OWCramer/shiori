@@ -58,7 +58,7 @@ enum KiriKiriArchiveCheck {
         guard let handle = try? FileHandle(forReadingFrom: archive) else { return nil }
         defer { try? handle.close() }
         func read(_ offset: UInt64, _ count: Int) -> Data? {
-            guard (try? handle.seek(toOffset: offset)) != nil,
+            guard count >= 0, (try? handle.seek(toOffset: offset)) != nil,
                   let data = try? handle.read(upToCount: count), data.count == count else { return nil }
             return data
         }
@@ -67,10 +67,11 @@ enum KiriKiriArchiveCheck {
         }
         var indexOffset = header.u64(11)
         if indexOffset == 0x17, let next = read(0x20, 8) { indexOffset = next.u64(0) }
-        guard let flag = read(indexOffset, 1)?.first else { return nil }
+        // An index past any real archive's size is damage; it also keeps the offsets below from overflowing.
+        guard indexOffset < 1 << 48, let flag = read(indexOffset, 1)?.first else { return nil }
         let index: Data
         if flag & 1 != 0 {
-            guard let sizes = read(indexOffset + 1, 16), sizes.u64(8) < 64 << 20,
+            guard let sizes = read(indexOffset + 1, 16), sizes.u64(0) < 64 << 20, sizes.u64(8) < 64 << 20,
                   let packed = read(indexOffset + 17, Int(sizes.u64(0))),
                   let unpacked = inflate(packed, size: Int(sizes.u64(8))) else { return nil }
             index = unpacked
@@ -85,8 +86,7 @@ enum KiriKiriArchiveCheck {
         var at = 0
         while at + 12 <= index.count {
             let tag = index.subdata(in: at..<at + 4)
-            let size = Int(index.u64(at + 4))
-            guard size >= 0, at + 12 + size <= index.count else { break }
+            guard let size = Int(exactly: index.u64(at + 4)), size <= index.count - at - 12 else { break }
             let body = index.subdata(in: at + 12..<at + 12 + size)
             at += 12 + size
             // NEKO WORKs: `neko` name chunks, or the older `eliF` entries (NEKOPARA Vol. 0-2).
@@ -99,8 +99,7 @@ enum KiriKiriArchiveCheck {
             var inner = 0
             while inner + 12 <= body.count {
                 let chunk = body.subdata(in: inner..<inner + 4)
-                let length = Int(body.u64(inner + 4))
-                guard length >= 0, inner + 12 + length <= body.count else { break }
+                guard let length = Int(exactly: body.u64(inner + 4)), length <= body.count - inner - 12 else { break }
                 let data = body.subdata(in: inner + 12..<inner + 12 + length)
                 inner += 12 + length
                 if chunk == Data("info".utf8), data.count >= 22 {

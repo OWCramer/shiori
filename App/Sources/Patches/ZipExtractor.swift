@@ -47,7 +47,11 @@ enum ZipExtractor {
         let entries = try centralDirectory(data)
         let fm = FileManager.default
         var written = 0
-        let total = entries.reduce(UInt64(0)) { $0 + $1.uncompressedSize }
+        let total = try entries.reduce(UInt64(0)) {
+            let (sum, overflow) = $0.addingReportingOverflow($1.uncompressedSize)
+            guard !overflow else { throw Error.corrupt }
+            return sum
+        }
         var done: UInt64 = 0
         for entry in entries {
             let target = try safeURL(entry.path, under: destination)
@@ -85,14 +89,14 @@ enum ZipExtractor {
         if count == 0xFFFF || directoryOffset == 0xFFFF_FFFF, eocd >= 20,
            try data.le32(eocd - 20) == 0x0706_4B50
         {
-            let record = Int(try data.le64(eocd - 20 + 8))
+            let record = try int(data.le64(eocd - 20 + 8))
             guard try data.le32(record) == 0x0606_4B50 else { throw Error.corrupt }
             count = try data.le64(record + 32)
             directoryOffset = try data.le64(record + 48)
         }
 
         var entries: [Entry] = []
-        var offset = Int(directoryOffset)
+        var offset = try int(directoryOffset)
         for _ in 0 ..< count {
             guard try data.le32(offset) == 0x0201_4B50 else { throw Error.corrupt }
             let flags = try data.le16(offset + 8)
@@ -122,6 +126,8 @@ enum ZipExtractor {
                 extra += 4 + size
             }
 
+            // Sizes and offsets past the end of the archive can only be damage.
+            guard compressed <= UInt64(data.count), localOffset < UInt64(data.count) else { throw Error.corrupt }
             entries.append(Entry(path: name.replacingOccurrences(of: "\\", with: "/"), method: method, flags: flags,
                                  compressedSize: compressed, uncompressedSize: uncompressed, localHeaderOffset: localOffset))
             offset = extraEnd + commentLength
@@ -131,10 +137,10 @@ enum ZipExtractor {
 
     /// Writes one entry, reporting the bytes written so far every few megabytes.
     private static func write(_ entry: Entry, from data: Data, to url: URL, progress: (UInt64) -> Void) throws {
-        let local = Int(entry.localHeaderOffset)
+        let local = try int(entry.localHeaderOffset)
         guard try data.le32(local) == 0x0403_4B50 else { throw Error.corrupt }
         let start = local + 30 + Int(try data.le16(local + 26)) + Int(try data.le16(local + 28))
-        let payload = try data.slice(start, Int(entry.compressedSize))
+        let payload = try data.slice(start, try int(entry.compressedSize))
 
         FileManager.default.createFile(atPath: url.path, contents: nil)
         let handle = try FileHandle(forWritingTo: url)
@@ -193,6 +199,12 @@ enum ZipExtractor {
         }
     }
 
+    /// A size or offset from the archive as an Int, or `corrupt` when it doesn't fit.
+    private static func int(_ value: UInt64) throws -> Int {
+        guard let result = Int(exactly: value) else { throw Error.corrupt }
+        return result
+    }
+
     private static func findSignature(_ signature: UInt32, in data: Data, minimumSize: Int) -> Int? {
         guard data.count >= minimumSize else { return nil }
         let lowest = max(0, data.count - minimumSize - 0xFFFF)
@@ -207,7 +219,7 @@ enum ZipExtractor {
 
 private extension Data {
     func slice(_ offset: Int, _ count: Int) throws -> Data {
-        guard offset >= 0, count >= 0, offset + count <= self.count else { throw ZipExtractor.Error.corrupt }
+        guard offset >= 0, count >= 0, offset <= self.count, count <= self.count - offset else { throw ZipExtractor.Error.corrupt }
         return self[(startIndex + offset) ..< (startIndex + offset + count)]
     }
 
